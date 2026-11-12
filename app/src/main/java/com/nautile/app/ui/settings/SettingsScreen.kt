@@ -126,7 +126,7 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
     )
     val services = listOf(
         Entry(Icons.Outlined.AutoAwesome, lavender, tr("Assistant IA"),
-            if (aiReady) "${app.ai.providerLabel} · ${app.ai.config().model}" else tr("À configurer"),
+            if (aiReady) "${app.ai.providerLabel} · ${com.nautile.app.ai.prettyModel(app.ai.config().model)}" else tr("À configurer"),
             "ia ai intelligence claude anthropic openai gemini mistral ollama cle key api modele model", SettingsRoutes.AI,
             dot = if (aiReady) Nt.Green else Nt.Accent),
         Entry(Icons.Outlined.Lock, Nt.Green, tr("Sécurité, sauvegarde et synchro"),

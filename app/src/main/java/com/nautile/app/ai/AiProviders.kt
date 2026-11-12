@@ -54,6 +54,28 @@ enum class AiProviderKind(
     }
 }
 
+/** A model id as people say it: claude-sonnet-5-5 → Sonnet 5.5, gpt-5-mini → GPT-5 mini, gemini-2.5-flash → Gemini 2.5 Flash. */
+fun prettyModel(id: String): String {
+    if (id.isBlank()) return id
+    val m = id.substringAfterLast('/').lowercase()
+        .replace(Regex("-(latest|preview)$"), "")
+        .replace(Regex("-(\\d{8}|\\d{4}-\\d{2}-\\d{2})$"), "")
+    fun cap(w: String) = w.replaceFirstChar { it.uppercase() }
+    Regex("^claude-(opus|sonnet|haiku|fable)-(\\d+)(?:[-.](\\d+))?").find(m)?.let { r ->
+        val (family, major, minor) = r.destructured
+        return cap(family) + " " + major + if (minor.isNotEmpty()) ".$minor" else ""
+    }
+    Regex("^claude-(\\d+)(?:-(\\d+))?-(opus|sonnet|haiku)").find(m)?.let { r ->
+        val (major, minor, family) = r.destructured
+        return cap(family) + " " + major + if (minor.isNotEmpty()) ".$minor" else ""
+    }
+    Regex("^gpt-([a-z0-9.]+)(?:-(.+))?$").find(m)?.let { r ->
+        val (version, rest) = r.destructured
+        return "GPT-$version" + if (rest.isNotEmpty()) " " + rest.replace('-', ' ') else ""
+    }
+    return m.split('-').filter { it.isNotEmpty() }.joinToString(" ") { if (it.first().isLetter()) cap(it) else it }
+}
+
 data class AiConfig(val kind: AiProviderKind, val apiKey: String?, val model: String, val baseUrl: String?)
 
 interface AiProvider {

@@ -76,8 +76,8 @@ import com.nautile.data.model.Snippet
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
-/** Ready-made snippets offered on an empty page. */
-private val STARTERS = listOf(
+/** Ready-made snippets offered on an empty page, in the current language. */
+private fun starters() = listOf(
     Snippet(name = tr("Espace disque"), command = "df -h", tag = tr("Système")),
     Snippet(name = tr("Mises à jour (Debian, Ubuntu)"), command = "sudo apt update && sudo apt upgrade -y", tag = tr("Système")),
     Snippet(name = tr("Conteneurs Docker"), command = "docker ps -a --format 'table {{.Names}}\\t{{.Status}}'", tag = "Docker"),
@@ -85,13 +85,20 @@ private val STARTERS = listOf(
     Snippet(name = tr("Redémarrer un service"), command = "sudo systemctl restart \${SERVICE}", tag = tr("Système")),
 )
 
+private val STARTER_TEXTS = listOf("Espace disque", "Mises à jour (Debian, Ubuntu)", "Conteneurs Docker", "Journal d'un service", "Redémarrer un service", "Système")
+
+/** The examples follow the app language, whichever language they were added in. */
+private fun localized(text: String): String =
+    STARTER_TEXTS.firstOrNull { text == it || text == com.nautile.i18n.I18n.english(it) }?.let { tr(it) } ?: text
+
 /** Saved commands: search, filter by tag, run on open sessions or new ones, copy, edit. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SnippetsScreen(onOpenSession: (Long) -> Unit) {
     val app = LocalContext.current.applicationContext as NautileApp
     val dao = app.database.toolsDao()
-    val snippets by dao.observeSnippets().collectAsState(initial = emptyList())
+    val snippets by remember { dao.observeSnippets().map { list -> list.map { it.copy(name = localized(it.name), tag = localized(it.tag)) } } }
+        .collectAsState(initial = emptyList())
     val sessions by app.sessions.sessions.collectAsState()
     // Remote desktops have no shell to run snippets in.
     val hosts by remember { app.hostRepository.hosts.map { list -> list.filter { it.protocol != com.nautile.data.model.Protocol.RDP } } }
@@ -144,7 +151,7 @@ fun SnippetsScreen(onOpenSession: (Long) -> Unit) {
                             tr("Les variables comme \${SERVICE} sont demandées au lancement."),
                         color = Nt.Muted, textAlign = TextAlign.Center, fontSize = 13.sp,
                     )
-                    OutlinedButton(onClick = { scope.launch { STARTERS.forEach { dao.upsertSnippet(it) } } }) {
+                    OutlinedButton(onClick = { scope.launch { starters().forEach { dao.upsertSnippet(it) } } }) {
                         Text(tr("Ajouter quelques exemples"), color = Nt.Accent)
                     }
                 }

@@ -138,7 +138,16 @@ fun NautileRoot() {
                                 androidx.compose.material3.Badge(containerColor = Nt.Green, contentColor = Nt.Bg) { Text("$open") }
                             }) { Icon(tab.icon, contentDescription = null) } else Icon(tab.icon, contentDescription = null)
                         },
-                        label = { Text(tab.label) },
+                        label = {
+                            // One line whatever the system font size: « Connections » used to break in two.
+                            val d = androidx.compose.ui.platform.LocalDensity.current
+                            androidx.compose.runtime.CompositionLocalProvider(
+                                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, d.fontScale.coerceAtMost(1.1f)),
+                            ) {
+                                Text(tab.label, maxLines = 1, softWrap = false, letterSpacing = 0.1.sp,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            }
+                        },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Nt.Accent,
                             selectedTextColor = Nt.Accent,

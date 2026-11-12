@@ -6,7 +6,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -74,7 +73,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nautile.app.NautileApp
 import com.nautile.app.ai.AiAssistant
+import com.nautile.app.ai.prettyModel
 import com.nautile.app.session.ActiveSession
+import com.nautile.app.ui.common.ProviderLogo
 import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.theme.Nt
 import kotlinx.coroutines.Job
@@ -159,11 +160,16 @@ internal fun AssistantPanel(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SectionLabel(tr("Fournisseur"))
                     ChipRow {
-                        ready.forEach { k -> Chip(k.shortLabel, ai.config(k).model, k == kind) { kind = k; ai.provider = k } }
+                        ready.forEach { k ->
+                            Chip(k.shortLabel, prettyModel(ai.config(k).model), k == kind, logo = { ProviderLogo(k, 20.dp) }) { kind = k; ai.provider = k }
+                        }
                     }
                 }
             } else kind?.let { k ->
-                Text(tr("Via %1\$s · %2\$s", k.label, ai.config(k).model), color = Nt.Muted, fontSize = 12.sp)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ProviderLogo(k, 16.dp, tint = Nt.TextSoft)
+                    Text(tr("Via %1\$s · %2\$s", k.label, prettyModel(ai.config(k).model)), color = Nt.Muted, fontSize = 12.sp)
+                }
             }
 
             // System prompt: only a choice when the user wrote some.
@@ -291,25 +297,35 @@ private fun Notice(text: String) {
     }
 }
 
+/** Chips that wrap onto the next line instead of hiding behind the edge. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun ChipRow(content: @Composable () -> Unit) {
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+    androidx.compose.foundation.layout.FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) { content() }
 }
 
 /** A choice (provider or prompt); [detail] is the model, in small monospace. */
 @Composable
-private fun Chip(label: String, detail: String?, selected: Boolean, onClick: () -> Unit) {
+private fun Chip(label: String, detail: String?, selected: Boolean, logo: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
-    Column(
+    Row(
         Modifier.heightIn(min = 40.dp).clip(shape)
             .background(if (selected) Nt.Accent.copy(alpha = 0.14f) else Color.Transparent)
             .border(1.dp, if (selected) Nt.Accent else Nt.Border, shape)
             .clickable(role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-        verticalArrangement = Arrangement.Center,
+            .padding(start = if (logo != null) 10.dp else 12.dp, end = 12.dp, top = 7.dp, bottom = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (selected) Nt.Accent else Nt.Text, maxLines = 1)
-        if (detail != null) Text(detail, fontSize = 10.5.sp, fontFamily = Nt.Mono, color = Nt.Muted, maxLines = 1)
+        logo?.invoke()
+        Column(verticalArrangement = Arrangement.Center) {
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (selected) Nt.Accent else Nt.Text, maxLines = 1)
+            if (detail != null) Text(detail, fontSize = 11.5.sp, color = Nt.Muted, maxLines = 1)
+        }
     }
 }
 

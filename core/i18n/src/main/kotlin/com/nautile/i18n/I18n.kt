@@ -9,6 +9,9 @@ import java.util.Locale
 object I18n {
     @Volatile var english: Boolean = false
 
+    /** The English text of [fr] whatever the active language (null when it has none). */
+    fun english(fr: String): String? = EnStrings.map[fr]
+
     /** Strings with no English entry yet (for tests and debugging). */
     fun missing(keys: Collection<String>): List<String> = keys.filter { it !in EnStrings.map }
 }

@@ -101,7 +101,8 @@ fun AiSettingsScreen(onBack: () -> Unit) {
                         .background(if (k == kind) Nt.Accent.copy(alpha = 0.06f) else Color.Transparent).padding(end = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    RadioButton(k == kind, onClick = null, modifier = Modifier.padding(horizontal = 12.dp), colors = RadioButtonDefaults.colors(selectedColor = Nt.Accent))
+                    RadioButton(k == kind, onClick = null, modifier = Modifier.padding(start = 12.dp, end = 10.dp), colors = RadioButtonDefaults.colors(selectedColor = Nt.Accent))
+                    Box(Modifier.padding(end = 12.dp)) { com.nautile.app.ui.common.ProviderLogo(k, 22.dp) }
                     Text(k.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                     Box(Modifier.height(24.dp).clip(RoundedCornerShape(12.dp)).background(color.copy(alpha = 0.13f)).padding(horizontal = 9.dp), contentAlignment = Alignment.Center) {
                         Text(badge, color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
@@ -112,7 +113,10 @@ fun AiSettingsScreen(onBack: () -> Unit) {
 
         NtCard {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(kind.label, style = MaterialTheme.typography.titleMedium)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    com.nautile.app.ui.common.ProviderLogo(kind, 22.dp)
+                    Text(kind.label, style = MaterialTheme.typography.titleMedium)
+                }
                 if (kind.editableUrl) NtTextField(url, { url = it }, tr("Adresse de l'API"), mono = true, placeholder = kind.defaultBaseUrl ?: "https://…/v1")
                 if (kind == AiProviderKind.LOCAL)
                     Hint(tr("Ollama : http://IP-du-PC:11434/v1 (lancer avec OLLAMA_HOST=0.0.0.0). LM Studio : http://IP-du-PC:1234/v1."))
