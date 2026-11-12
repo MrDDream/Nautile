@@ -1,0 +1,4 @@
+• Chip counters (Hosts, Snippets) are centred, even with a large font
+• Group management redesigned: clear list, one-tap ordering, editor with colours and preview
+• Clearer « Your data stays on the device » card (database, lock, sync, backup)
+• History: the time no longer touches the edge

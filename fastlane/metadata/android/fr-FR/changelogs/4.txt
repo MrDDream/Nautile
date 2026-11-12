@@ -1,0 +1,4 @@
+• Les compteurs des puces (Hôtes, Snippets) sont bien centrés, même avec une grande police
+• Gestion des groupes repensée : liste claire, ordre en un geste, éditeur avec couleurs et aperçu
+• Carte « Vos données restent sur l'appareil » plus lisible (base, verrouillage, synchro, sauvegarde)
+• Historique : l'heure n'est plus collée au bord
