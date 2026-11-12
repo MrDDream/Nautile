@@ -99,6 +99,11 @@ fun RdpScreen(sessionId: Long, onBack: () -> Unit, onReplaced: (Long) -> Unit) {
     var view by remember { mutableStateOf<RdpView?>(null) }
     var keys by remember { mutableStateOf(false) }
     var confirmClose by remember { mutableStateOf(false) }
+    /** Leaves the desktop, after asking when the setting is on. */
+    fun requestClose() {
+        if (app.terminalPrefs.confirmClose.value && state == SessionState.Connected) confirmClose = true
+        else { manager.close(session); onBack() }
+    }
     var barHeight by remember { mutableStateOf(0) }
     val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
     val prefs = manager.prefs
@@ -108,7 +113,7 @@ fun RdpScreen(sessionId: Long, onBack: () -> Unit, onReplaced: (Long) -> Unit) {
     val keyBarPref by prefs.keyBar.collectAsState()
 
     if (immersive) Immersive()
-    BackHandler { if (state is SessionState.Closed) { manager.close(session); onBack() } else confirmClose = true }
+    BackHandler { requestClose() }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
@@ -131,7 +136,7 @@ fun RdpScreen(sessionId: Long, onBack: () -> Unit, onReplaced: (Long) -> Unit) {
                 val text = app.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.coerceToText(app)?.toString()
                 if (!text.isNullOrEmpty()) { if (prefs.clipboard.value) session.input?.clipboard(text); view?.typeText(text) }
             },
-            onClose = { confirmClose = true },
+            onClose = { requestClose() },
             modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout),
         )
 
@@ -161,18 +166,12 @@ fun RdpScreen(sessionId: Long, onBack: () -> Unit, onReplaced: (Long) -> Unit) {
         }
     }
 
-    if (confirmClose) AlertDialog(
-        onDismissRequest = { confirmClose = false },
-        containerColor = Nt.Surface,
-        title = { Text(tr("Se déconnecter de %1\$s ?", session.alias)) },
-        text = { Text(tr("La session Windows reste ouverte sur le serveur : vous la retrouverez à la prochaine connexion."), color = Nt.TextSoft) },
-        dismissButton = { TextButton(onClick = { confirmClose = false }) { Text(tr("Rester"), color = Nt.TextSoft) } },
-        confirmButton = {
-            TextButton(onClick = { confirmClose = false; manager.close(session); onBack() }) {
-                Text(tr("Déconnecter"), color = Nt.Pink, fontWeight = FontWeight.SemiBold)
-            }
-        },
-    )
+    if (confirmClose) com.nautile.app.ui.common.ConfirmCloseDialog(session.alias, desktop = true, onDismiss = { confirmClose = false }) { dontAsk ->
+        if (dontAsk) app.terminalPrefs.setConfirmClose(false)
+        confirmClose = false
+        manager.close(session)
+        onBack()
+    }
 }
 
 /** Hides the status and navigation bars while the desktop is shown (swipe to reveal them). */

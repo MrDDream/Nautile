@@ -1,5 +1,11 @@
 package com.nautile.app.ui.connections
 
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.runtime.produceState
 import com.nautile.i18n.tr
 
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -89,6 +95,11 @@ fun ConnectionsScreen(
     var query by rememberSaveable { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     var confirmClear by remember { mutableStateOf(false) }
+    /** Session waiting for « Fermer ? »: name, remote desktop or not, what closing does. */
+    var closing by remember { mutableStateOf<Triple<String, Boolean, () -> Unit>?>(null) }
+    fun ask(name: String, desktop: Boolean, state: SessionState, close: () -> Unit) {
+        if (app.terminalPrefs.confirmClose.value && state == SessionState.Connected) closing = Triple(name, desktop, close) else close()
+    }
     val open = terminals.size + desktops.size
 
     LazyColumn(
@@ -110,7 +121,9 @@ fun ConnectionsScreen(
                     SessionRow(
                         avatar = { Avatar(host?.osId ?: (if (s.protocolLabel == tr("local")) "android" else null), s.alias, host?.color, Icons.Outlined.Terminal) },
                         title = s.alias, detail = "${s.address} · ${s.protocolLabel}", state = state,
-                        onOpen = { onOpenTerminal(s.id) }, onClose = { app.sessions.close(s) },
+                        onOpen = { onOpenTerminal(s.id) },
+                        onClose = { ask(s.alias, false, state) { app.sessions.close(s) } },
+                        preview = { TerminalPreview(s) },
                     )
                 }
                 desktops.forEachIndexed { i, d ->
@@ -118,7 +131,9 @@ fun ConnectionsScreen(
                     val state by d.state.collectAsState()
                     SessionRow(
                         { Avatar(byId[d.hostId]?.osId ?: "windows", d.alias, byId[d.hostId]?.color, Icons.Outlined.DesktopWindows) },
-                        d.alias, "${d.address} · rdp", state, onOpen = { onOpenDesktop(d.id) }, onClose = { app.sessions.rdp.close(d) },
+                        d.alias, "${d.address} · rdp", state, onOpen = { onOpenDesktop(d.id) },
+                        onClose = { ask(d.alias, true, state) { app.sessions.rdp.close(d) } },
+                        preview = { DesktopPreview(d) },
                     )
                 }
             }
@@ -177,6 +192,14 @@ fun ConnectionsScreen(
         }
     }
 
+    closing?.let { (name, desktop, close) ->
+        com.nautile.app.ui.common.ConfirmCloseDialog(name, desktop, onDismiss = { closing = null }) { dontAsk ->
+            if (dontAsk) app.terminalPrefs.setConfirmClose(false)
+            closing = null
+            close()
+        }
+    }
+
     if (confirmClear) AlertDialog(
         onDismissRequest = { confirmClear = false }, containerColor = Nt.Surface,
         title = { Text(tr("Effacer l'historique des connexions ?")) },
@@ -187,27 +210,117 @@ fun ConnectionsScreen(
 }
 
 @Composable
-private fun SessionRow(avatar: @Composable () -> Unit, title: String, detail: String, state: SessionState, onOpen: () -> Unit, onClose: () -> Unit) {
+private fun SessionRow(
+    avatar: @Composable () -> Unit, title: String, detail: String, state: SessionState,
+    onOpen: () -> Unit, onClose: () -> Unit, preview: @Composable () -> Unit,
+) {
     val (color, label) = when (state) {
         SessionState.Connected -> Nt.Green to tr("connecté")
         is SessionState.Connecting -> Nt.Accent to tr("connexion…")
         is SessionState.Closed -> Nt.Pink to tr("déconnecté")
     }
-    Row(
-        Modifier.fillMaxWidth().combinedClickableCompat(onOpen).padding(start = 14.dp, top = 10.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        avatar()
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.size(7.dp).clip(CircleShape).background(color))
-                Text("$label · $detail", fontFamily = Nt.Mono, fontSize = 11.sp, color = Nt.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Column(Modifier.fillMaxWidth().combinedClickableCompat(onOpen).padding(start = 14.dp, top = 10.dp, bottom = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            avatar()
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(color))
+                    Text("$label · $detail", fontFamily = Nt.Mono, fontSize = 11.sp, color = Nt.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
+            IconButton(onClick = onClose) { Icon(Icons.Outlined.Close, contentDescription = tr("Fermer %1\$s", title), tint = Nt.Muted) }
         }
-        IconButton(onClick = onClose) { Icon(Icons.Outlined.Close, contentDescription = tr("Fermer %1\$s", title), tint = Nt.Muted) }
+        if (state == SessionState.Connected) Box(Modifier.padding(top = 10.dp, end = 14.dp)) { preview() }
     }
 }
+
+/** The last lines of a terminal, with its colours, refreshed every second. */
+@Composable
+private fun TerminalPreview(session: com.nautile.app.session.ActiveSession) {
+    val theme by (LocalContext.current.applicationContext as NautileApp).terminalPrefs.theme.collectAsState()
+    val lines by produceState(initialValue = emptyList<androidx.compose.ui.text.AnnotatedString>(), session) {
+        while (true) {
+            value = session.terminal.emulator?.let(::previewLines).orEmpty()
+            kotlinx.coroutines.delay(1_000)
+        }
+    }
+    if (lines.isEmpty()) return
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(theme.background)).padding(horizontal = 10.dp, vertical = 8.dp)
+            .clearAndSetSemantics { contentDescription = tr("Aperçu du terminal") },
+    ) {
+        lines.forEach { line ->
+            Text(line, fontFamily = Nt.Mono, fontSize = 10.5.sp, lineHeight = 14.sp, color = Color(theme.foreground), maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+        }
+    }
+}
+
+/** The last [PREVIEW_LINES] non-empty rows around the cursor, each cell in its colours. */
+private fun previewLines(e: com.termux.terminal.TerminalEmulator): List<androidx.compose.ui.text.AnnotatedString> {
+    val screen = e.screen
+    val palette = e.mColors.mCurrentColors
+    fun color(index: Int): Color =
+        if (index and 0xff000000.toInt() == 0xff000000.toInt()) Color(index)
+        else Color(palette[index.coerceIn(0, com.termux.terminal.TextStyle.NUM_INDEXED_COLORS - 1)])
+    val rows = (e.cursorRow - 8..e.cursorRow).filter { it >= -screen.activeTranscriptRows }
+    val built = rows.map { r ->
+        val line = screen.allocateFullLineIfNecessary(screen.externalToInternalRow(r))
+        androidx.compose.ui.text.buildAnnotatedString {
+            var col = 0
+            while (col < e.mColumns) {
+                val style = screen.getStyleAt(r, col)
+                // Group the cells sharing a style.
+                var endCol = col + 1
+                while (endCol < e.mColumns && screen.getStyleAt(r, endCol) == style) endCol++
+                val from = line.findStartOfColumn(col)
+                val to = if (endCol >= e.mColumns) line.spaceUsed else line.findStartOfColumn(endCol)
+                val text = String(line.mText, from, (to - from).coerceAtLeast(0))
+                val effect = com.termux.terminal.TextStyle.decodeEffect(style)
+                var fg = com.termux.terminal.TextStyle.decodeForeColor(style)
+                var bg = com.termux.terminal.TextStyle.decodeBackColor(style)
+                if (effect and com.termux.terminal.TextStyle.CHARACTER_ATTRIBUTE_INVERSE != 0) { val t = fg; fg = bg; bg = t }
+                val defaultBg = bg == com.termux.terminal.TextStyle.COLOR_INDEX_BACKGROUND
+                withStyle(
+                    androidx.compose.ui.text.SpanStyle(
+                        color = color(fg),
+                        background = if (defaultBg) Color.Unspecified else color(bg),
+                        fontWeight = if (effect and com.termux.terminal.TextStyle.CHARACTER_ATTRIBUTE_BOLD != 0) FontWeight.Bold else null,
+                    ),
+                ) { append(text) }
+                col = endCol
+            }
+        }
+    }
+    // Trailing blanks of each row, then empty rows at both ends.
+    return built.map { a -> a.subSequence(0, a.text.trimEnd().length) }
+        .dropWhile { it.text.isBlank() }.dropLastWhile { it.text.isBlank() }.takeLast(PREVIEW_LINES)
+}
+
+/** A thumbnail of the remote desktop, refreshed every two seconds. */
+@Composable
+private fun DesktopPreview(session: com.nautile.app.rdp.RdpSession) {
+    val thumb by produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, session) {
+        while (true) {
+            session.bitmap?.let { b ->
+                value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    val w = 480.coerceAtMost(b.width)
+                    android.graphics.Bitmap.createScaledBitmap(b, w, (b.height.toLong() * w / b.width).toInt().coerceAtLeast(1), true).asImageBitmap()
+                }
+            }
+            kotlinx.coroutines.delay(2_000)
+        }
+    }
+    thumb?.let { img ->
+        androidx.compose.foundation.Image(
+            img, contentDescription = tr("Aperçu du bureau à distance"),
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            modifier = Modifier.fillMaxWidth().heightIn(max = 160.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black),
+        )
+    }
+}
+
+private const val PREVIEW_LINES = 5
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

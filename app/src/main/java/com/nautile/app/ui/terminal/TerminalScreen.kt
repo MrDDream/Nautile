@@ -189,12 +189,25 @@ fun TerminalScreen(initialSessionId: Long, onBack: () -> Unit, onNewSession: () 
         }
     }
 
+    var closing by remember { mutableStateOf<ActiveSession?>(null) }
+    /** Ends [s], after asking when it is still connected and the setting is on. */
+    fun requestClose(s: ActiveSession) {
+        if (manager.prefs.confirmClose.value && s.state.value == SessionState.Connected) closing = s else manager.close(s)
+    }
+    closing?.let { s ->
+        com.nautile.app.ui.common.ConfirmCloseDialog(s.alias, onDismiss = { closing = null }) { dontAsk ->
+            if (dontAsk) manager.prefs.setConfirmClose(false)
+            closing = null
+            manager.close(s)
+        }
+    }
+
     Column(Modifier.fillMaxSize().background(Nt.Bg).imePadding()) {
         Header(
             session = current,
             state = state,
             onBack = onBack,
-            onClose = { manager.close(current) },
+            onClose = { requestClose(current) },
             onReconnect = {
                 scope.launch {
                     manager.reopen(current).onSuccess { fresh ->
@@ -215,7 +228,7 @@ fun TerminalScreen(initialSessionId: Long, onBack: () -> Unit, onNewSession: () 
         Tabs(sessions, current.id, osOf = { id -> hostList.firstOrNull { it.id == id }?.osId }, onPick = { id ->
             val target = sessions.firstOrNull { it.id == id }
             if (target != null && other != null && id == other.id) focus(target) else currentId = id
-        }, onClose = manager::close, onNew = onNewSession)
+        }, onClose = ::requestClose, onNew = onNewSession)
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             Row(Modifier.fillMaxSize()) {

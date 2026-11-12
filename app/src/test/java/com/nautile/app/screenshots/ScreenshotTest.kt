@@ -196,7 +196,14 @@ class ScreenshotTest {
         shoot("quick")
     }
 
-    @Test fun connections() { fakeSession(); root(); compose.onNodeWithText(tr("Connexions")).performClick(); shoot("connections") }
+    @Test fun connections() {
+        val session = fakeSession()
+        // No terminal view on this screen: size the emulator by hand so the preview has something to show.
+        session.terminal.updateSize(46, 30)
+        val bytes = SCREEN.replace("\n", "\r\n").toByteArray()
+        session.terminal.feed(bytes, 0, bytes.size)
+        root(); compose.onNodeWithText(tr("Connexions")).performClick(); shoot("connections")
+    }
 
     @Test fun snippets() { root(); compose.onNodeWithText("Snippets").performClick(); shoot("snippets") }
 

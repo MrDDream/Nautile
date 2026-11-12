@@ -370,3 +370,13 @@ Retirer « %1\$s »	Remove “%1\$s”
 ✓ Les %1\$s dernières lignes du terminal, seulement si « Joindre l'écran » est coché	✓ The last %1\$s terminal lines, only if “Attach the screen” is ticked
 Lignes du terminal jointes	Terminal lines attached
 Plus de lignes donnent plus de contexte pour expliquer une erreur, mais la requête est plus longue et plus coûteuse. L'historique de défilement est inclus.	More lines give more context to explain an error, but the request is longer and costs more. The scrollback is included.
+Fermer %1\$s ?	Close %1\$s?
+La connexion se termine ; la session Windows reste ouverte sur le serveur.	The connection ends; the Windows session stays open on the server.
+La connexion se termine : les commandes en cours sur le serveur s'arrêtent, sauf dans tmux ou screen.	The connection ends: commands running on the server stop, unless inside tmux or screen.
+Ne plus demander	Don't ask again
+Aperçu du terminal	Terminal preview
+Aperçu du bureau à distance	Remote desktop preview
+Sessions	Sessions
+Fermeture	Closing
+Confirmer la fermeture	Confirm closing
+Demande avant de fermer une session connectée (terminal ou bureau à distance)	Asks before closing a connected session (terminal or remote desktop)

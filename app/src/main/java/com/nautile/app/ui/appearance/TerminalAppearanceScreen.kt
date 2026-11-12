@@ -136,7 +136,7 @@ fun TerminalAppearanceScreen(onBack: () -> Unit, onOpenLogs: () -> Unit) {
         }
         Preview(theme, cursor, sp, previewFamily)
         Box(Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp)) {
-            Segmented(listOf(0 to tr("Aspect"), 1 to tr("Clavier"), 2 to tr("Historique")), tab, { tab = it })
+            Segmented(listOf(0 to tr("Aspect"), 1 to tr("Clavier"), 2 to tr("Sessions")), tab, { tab = it })
         }
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
@@ -295,8 +295,17 @@ private fun HistorySection(onOpenLogs: () -> Unit) {
     val scope = rememberCoroutineScope()
     val history by prefs.history.collectAsState()
     val logs by prefs.logSessions.collectAsState()
+    val confirmClose by prefs.confirmClose.collectAsState()
     val count by app.database.toolsDao().observeHistoryCount().collectAsState(initial = 0)
     var confirm by remember { mutableStateOf(false) }
+
+    SectionLabel(tr("Fermeture"))
+    com.nautile.app.ui.common.NtCard {
+        com.nautile.app.ui.settings.ToggleRow(
+            tr("Confirmer la fermeture"), tr("Demande avant de fermer une session connectée (terminal ou bureau à distance)"),
+            confirmClose, onChange = prefs::setConfirmClose,
+        )
+    }
 
     SectionLabel(tr("Historique et journaux"), Modifier.padding(top = 8.dp))
     com.nautile.app.ui.common.NtCard {
