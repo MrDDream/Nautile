@@ -65,10 +65,11 @@ Termius est très bien, jusqu'au moment où tes hôtes, tes clés et tes mots de
 | ⚡ **Connexion rapide** | Tape `root@192.168.1.2`, `nas:2222` ou `rdp://admin@pc` dans la recherche et connecte-toi sans rien enregistrer. La connexion arrive dans l'historique, prête à être enregistrée. |
 | 📁 **SFTP** | Navigation, envoi et téléchargement en arrière-plan, édition de fichiers distants, permissions, copie d'hôte à hôte. |
 | 🔀 **Tunnels** | Redirections locales (`-L`), distantes (`-R`) et SOCKS dynamiques (`-D`), lancées avec la session si tu veux. |
-| 📌 **Snippets** | Commandes enregistrées avec `${VARIABLES}`, lancées sur une ou plusieurs sessions à la fois, ou sur des hôtes ouverts pour l'occasion. |
-| 🔄 **Synchro et sauvegarde** | Fichier chiffré de bout en bout (Argon2id + AES-256-GCM) sur Google Drive, OneDrive ou Nextcloud/WebDAV. La synchro fusionne élément par élément : la modification la plus récente gagne, suppressions comprises. |
+| 📌 **Snippets** | Commandes enregistrées avec `${VARIABLES}` et catégories, un éditeur avec insertions rapides (`|`, `&&`, `sudo`…), lancées sur une ou plusieurs sessions à la fois, ou sur des hôtes ouverts pour l'occasion. |
+| 🔄 **Synchro et sauvegarde** | Fichier chiffré de bout en bout (Argon2id + AES-256-GCM) sur Google Drive, OneDrive ou Nextcloud/WebDAV. Sauvegardes planifiées (de toutes les 6 h à chaque mois, à l'heure et sur le réseau choisis), les 5 dernières gardées et restaurables. La synchro fusionne élément par élément : la modification la plus récente gagne, suppressions comprises. |
 | 🛡️ **Privé par conception** | Base SQLCipher dont la clé reste dans l'Android Keystore, verrouillage biométrique avec délai, masquage dans les apps récentes. Aucune statistique, aucun compte. |
-| ✨ **Et aussi** | Moniteur serveur (CPU, mémoire, disques, processus), assistant IA optionnel avec ta propre clé (Claude, OpenAI, Gemini, Mistral, Ollama local…), widget et raccourcis d'écran d'accueil, journaux de session, français et anglais. |
+| 🤖 **Assistant IA (optionnel)** | Ta propre clé pour Claude, OpenAI, Gemini, Grok, Mistral, DeepSeek ou un modèle local (Ollama, LM Studio). Choix du fournisseur et de tes prompts système dans le terminal, saisie ou dictée, écran ou fichiers joints (du téléphone ou du serveur), suite de la conversation et export en Markdown. Rien n'est exécuté sans ton accord. |
+| ✨ **Et aussi** | Moniteur serveur (CPU, mémoire, disques, processus), aperçu des sessions actives, widget et raccourcis d'écran d'accueil, journaux de session, rapports de plantage anonymisés à publier sur GitHub, français et anglais. |
 
 ## 📲 Installer
 
@@ -106,7 +107,7 @@ Modules : `app` (interface Compose), `core:data` (Room + SQLCipher, import, sauv
 
 ## 🔒 Vie privée
 
-Nautile n'a pas de serveur et ne collecte rien. Tes hôtes, clés et mots de passe restent dans une base chiffrée sur le téléphone. Les données ne sortent que si tu le demandes : une connexion à tes propres serveurs, un fichier de sauvegarde ou de synchro vers la destination choisie (chiffré avant), ou une question au fournisseur d'IA que tu as configuré (seulement ta demande, l'adresse et le protocole de l'hôte, l'écran du terminal si tu le coches et les fichiers que tu joins).
+Nautile n'a pas de serveur et ne collecte rien. Tes hôtes, clés et mots de passe restent dans une base chiffrée sur le téléphone. Les données ne sortent que si tu le demandes : une connexion à tes propres serveurs, un fichier de sauvegarde ou de synchro vers la destination choisie (chiffré avant), ou une question au fournisseur d'IA que tu as configuré (seulement ta demande, l'adresse et le protocole de l'hôte, l'écran du terminal si tu le coches et les fichiers que tu joins). Après un plantage, Nautile montre un rapport anonymisé que tu peux publier toi-même dans un ticket GitHub.
 
 ## 🤝 Contribuer
 

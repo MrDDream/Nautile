@@ -65,10 +65,11 @@ Termius is great, until your hosts, keys and passwords have to live in someone e
 | ⚡ **Quick connection** | Type `root@192.168.1.2`, `nas:2222` or `rdp://admin@pc` in the search bar and connect without saving anything. It lands in the history, ready to be saved. |
 | 📁 **SFTP** | Browse, upload and download in the background, edit remote files, change permissions, copy host to host. |
 | 🔀 **Tunnels** | Local (`-L`), remote (`-R`) and dynamic SOCKS (`-D`) forwards, started with the session if you like. |
-| 📌 **Snippets** | Saved commands with `${VARIABLES}`, run on one or several sessions at once, or on hosts that open for the occasion. |
-| 🔄 **Sync & backup** | End-to-end encrypted file (Argon2id + AES-256-GCM) on Google Drive, OneDrive or Nextcloud/WebDAV. Sync merges record by record, latest change wins, deletions included. |
+| 📌 **Snippets** | Saved commands with `${VARIABLES}` and categories, an editor with quick inserts (`|`, `&&`, `sudo`…), run on one or several sessions at once, or on hosts that open for the occasion. |
+| 🔄 **Sync & backup** | End-to-end encrypted file (Argon2id + AES-256-GCM) on Google Drive, OneDrive or Nextcloud/WebDAV. Scheduled backups (every 6 h to monthly, at the time and on the network you choose), the last 5 kept and restorable. Sync merges record by record, latest change wins, deletions included. |
 | 🛡️ **Private by design** | SQLCipher database with its key in the Android Keystore, biometric lock with re-lock delay, hidden from recent apps if you want. No analytics, no account. |
-| ✨ **And more** | Server monitor (CPU, memory, disks, processes), an optional AI assistant with your own key (Claude, OpenAI, Gemini, Mistral, local Ollama…), home-screen widget and shortcuts, session logs, English and French. |
+| 🤖 **AI assistant (optional)** | Your own key for Claude, OpenAI, Gemini, Grok, Mistral, DeepSeek or a local model (Ollama, LM Studio). Pick the provider and your own system prompts in the terminal, type or dictate, attach the screen or files (from the phone or the server), follow up in a conversation and export it as Markdown. Nothing runs without your tap. |
+| ✨ **And more** | Server monitor (CPU, memory, disks, processes), active-session previews, home-screen widget and shortcuts, session logs, anonymised crash reports you can post on GitHub, English and French. |
 
 ## 📲 Install
 
@@ -106,7 +107,7 @@ Modules: `app` (Compose UI), `core:data` (Room + SQLCipher, import, backup, sync
 
 ## 🔒 Privacy
 
-Nautile has no server and collects nothing. Your hosts, keys and passwords stay in an encrypted database on the phone. Data leaves the device only when you ask: a connection to your own servers, a backup or sync file to the destination you picked (encrypted first), or a request to the AI provider you configured (only your question, the host's address and protocol, the terminal screen if you tick it and the files you attach).
+Nautile has no server and collects nothing. Your hosts, keys and passwords stay in an encrypted database on the phone. Data leaves the device only when you ask: a connection to your own servers, a backup or sync file to the destination you picked (encrypted first), or a request to the AI provider you configured (only your question, the host's address and protocol, the terminal screen if you tick it and the files you attach). After a crash, Nautile shows an anonymised report that you can post as a GitHub issue yourself.
 
 ## 🤝 Contributing
 

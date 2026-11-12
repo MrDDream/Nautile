@@ -1,0 +1,6 @@
+• AI assistant: provider choice (DeepSeek added), system prompts, dictation, attached files, conversation and Markdown export
+• AI settings: per-provider switches, model picker with search and filters
+• Scheduled backups (time, network, charging), 5 versions kept, Backup and sync menu
+• Active session previews, close confirmation
+• Snippets, hosts and groups redesigned
+• Anonymised crash reports you can post on GitHub

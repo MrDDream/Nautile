@@ -1,0 +1,6 @@
+• Assistant IA : choix du fournisseur (dont DeepSeek), prompts système, dictée, fichiers joints, conversation et export Markdown
+• Réglages IA : activation par fournisseur, sélecteur de modèles avec recherche et filtres
+• Sauvegardes planifiées (heure, réseau, recharge), 5 versions gardées, menu Sauvegarde et synchro
+• Aperçu des sessions actives, confirmation de fermeture
+• Snippets, hôtes et groupes repensés
+• Rapports de plantage anonymisés à publier sur GitHub
