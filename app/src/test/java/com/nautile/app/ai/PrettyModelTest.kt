@@ -18,6 +18,8 @@ class PrettyModelTest {
             "grok-4" to "Grok 4",
             "mistral-large-latest" to "Mistral Large",
             "qwen3" to "Qwen3",
+            "deepseek-chat" to "DeepSeek Chat",
+            "deepseek-reasoner" to "DeepSeek Reasoner",
         ).forEach { (id, name) -> assertEquals(id, name, prettyModel(id)) }
     }
 }

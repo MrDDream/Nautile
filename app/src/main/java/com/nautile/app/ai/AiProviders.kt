@@ -39,6 +39,7 @@ enum class AiProviderKind(
     GEMINI("Google Gemini", "gemini-2.5-flash", "https://generativelanguage.googleapis.com/v1beta", keyHint = "AIza…"),
     GROK("xAI Grok", "grok-4", "https://api.x.ai/v1", keyHint = "xai-…"),
     MISTRAL("Mistral", "mistral-large-latest", "https://api.mistral.ai/v1"),
+    DEEPSEEK("DeepSeek", "deepseek-chat", "https://api.deepseek.com/v1", keyHint = "sk-…"),
     LOCAL(tr("Local (Ollama, LM Studio…)"), "llama3.1", "http://192.168.1.10:11434/v1", needsKey = false, editableUrl = true),
     CUSTOM(tr("Autre (compatible OpenAI)"), "", "https://openrouter.ai/api/v1", editableUrl = true),
     ;
@@ -69,6 +70,7 @@ fun prettyModel(id: String): String {
         val (major, minor, family) = r.destructured
         return cap(family) + " " + major + if (minor.isNotEmpty()) ".$minor" else ""
     }
+    if (m.startsWith("deepseek-")) return "DeepSeek " + m.removePrefix("deepseek-").split('-').joinToString(" ") { cap(it) }
     Regex("^gpt-([a-z0-9.]+)(?:-(.+))?$").find(m)?.let { r ->
         val (version, rest) = r.destructured
         return "GPT-$version" + if (rest.isNotEmpty()) " " + rest.replace('-', ' ') else ""
