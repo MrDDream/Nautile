@@ -177,7 +177,7 @@ fun SnippetsScreen(onOpenSession: (Long) -> Unit) {
             }
         }
         FloatingActionButton(
-            onClick = { creating = true }, containerColor = Nt.PrimaryContainer, contentColor = Nt.OnPrimaryContainer, shape = CircleShape,
+            onClick = { creating = true }, containerColor = Nt.FabContainer, contentColor = Nt.OnPrimaryContainer, shape = CircleShape,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp).size(60.dp).primaryBorder(CircleShape),
         ) { Icon(Icons.Filled.Add, contentDescription = tr("Nouveau snippet"), modifier = Modifier.size(28.dp)) }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp))

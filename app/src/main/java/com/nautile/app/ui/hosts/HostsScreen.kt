@@ -194,7 +194,7 @@ fun HostsScreen(
 
         FloatingActionButton(
             onClick = { newHost = true },
-            containerColor = Nt.PrimaryContainer,
+            containerColor = Nt.FabContainer,
             contentColor = Nt.OnPrimaryContainer,
             shape = CircleShape,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp).size(60.dp).primaryBorder(CircleShape),

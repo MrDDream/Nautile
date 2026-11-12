@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -84,6 +85,12 @@ object Nt {
         ButtonStyle.OUTLINE -> Color.Transparent
     }
     val OnPrimaryContainer get() = if (palette.buttonStyle == ButtonStyle.FILLED) palette.onAccent else palette.accent
+    /** Floating buttons (« + »): the same look, but opaque, since the list scrolls under them. */
+    val FabContainer get() = when (palette.buttonStyle) {
+        ButtonStyle.FILLED -> palette.accent
+        ButtonStyle.TONAL -> palette.accent.copy(alpha = 0.16f).compositeOver(palette.surface)
+        ButtonStyle.OUTLINE -> palette.surface
+    }
     /** Border of main buttons (Contour style only). */
     val PrimaryBorder: Color? get() = if (palette.buttonStyle == ButtonStyle.OUTLINE) palette.accent else null
 

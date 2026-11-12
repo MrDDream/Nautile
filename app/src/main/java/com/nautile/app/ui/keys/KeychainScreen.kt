@@ -204,7 +204,7 @@ fun KeychainScreen(onBack: () -> Unit, vm: KeychainViewModel = viewModel(factory
 
         if (tab != KTab.Known) ExtendedFloatingActionButton(
             onClick = { if (tab == KTab.Keys) showGenerate = true else creatingIdentity = true },
-            containerColor = Nt.PrimaryContainer, contentColor = Nt.OnPrimaryContainer, shape = RoundedCornerShape(18.dp),
+            containerColor = Nt.FabContainer, contentColor = Nt.OnPrimaryContainer, shape = RoundedCornerShape(18.dp),
             icon = { Icon(Icons.Filled.Add, contentDescription = null) },
             text = { Text(if (tab == KTab.Keys) tr("Générer une clé") else tr("Nouvelle identité"), fontWeight = FontWeight.SemiBold) },
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp).primaryBorder(RoundedCornerShape(18.dp)),

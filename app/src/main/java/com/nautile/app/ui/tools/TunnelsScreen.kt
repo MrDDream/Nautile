@@ -129,7 +129,7 @@ fun TunnelsScreen(onBack: () -> Unit) {
             }
         }
         ExtendedFloatingActionButton(
-            onClick = { creating = true }, containerColor = Nt.PrimaryContainer, contentColor = Nt.OnPrimaryContainer, shape = RoundedCornerShape(18.dp),
+            onClick = { creating = true }, containerColor = Nt.FabContainer, contentColor = Nt.OnPrimaryContainer, shape = RoundedCornerShape(18.dp),
             icon = { Icon(Icons.Filled.Add, contentDescription = null) }, text = { Text(tr("Nouvelle règle"), fontWeight = FontWeight.SemiBold) },
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp).primaryBorder(RoundedCornerShape(18.dp)),
         )
