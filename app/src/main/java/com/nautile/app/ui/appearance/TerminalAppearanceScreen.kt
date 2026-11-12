@@ -346,34 +346,15 @@ private fun KeyboardSettings() {
     fun label(id: String) = com.nautile.app.ui.terminal.KeyCatalog.byId(id)?.label ?: id
 
     SectionLabel(tr("Barre de touches"))
-    Hint(tr("Touches affichées au-dessus du clavier, dans cet ordre. Touchez-en une pour la déplacer ou la retirer."))
-    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ids.forEach { id ->
-            val on = id == selected
-            androidx.compose.material3.Surface(
-                onClick = { selected = if (on) null else id }, shape = RoundedCornerShape(10.dp),
-                color = if (on) Nt.Accent.copy(alpha = 0.16f) else Nt.KeyBg,
-                border = BorderStroke(1.dp, if (on) Nt.Accent else Nt.Border),
-                modifier = Modifier.height(40.dp).semantics { this.selected = on; contentDescription = com.nautile.app.ui.terminal.KeyCatalog.byId(id)?.description ?: id },
-            ) {
-                Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                    Text(label(id), fontFamily = Nt.Mono, fontSize = 14.sp, color = if (on) Nt.Accent else Nt.Text, maxLines = 1)
-                }
-            }
-        }
-        androidx.compose.material3.Surface(
-            onClick = { adding = true }, shape = RoundedCornerShape(10.dp), color = Color.Transparent,
-            border = BorderStroke(1.dp, Nt.Border), modifier = Modifier.height(40.dp),
-        ) { Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) { Text(tr("+ Ajouter"), color = Nt.Accent, fontSize = 14.sp) } }
-    }
-    selected?.let { id ->
-        val i = ids.indexOf(id)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(label(id), fontFamily = Nt.Mono, fontSize = 14.sp, modifier = Modifier.weight(1f))
-            OutlinedButton(onClick = { if (i > 0) prefs.setCompactKeys(ids.toMutableList().apply { add(i - 1, removeAt(i)) }) }, enabled = i > 0) { Text("←", color = Nt.Text) }
-            OutlinedButton(onClick = { if (i < ids.lastIndex) prefs.setCompactKeys(ids.toMutableList().apply { add(i + 1, removeAt(i)) }) }, enabled = i in 0 until ids.lastIndex) { Text("→", color = Nt.Text) }
+    Hint(tr("Telle qu'elle s'affiche au-dessus du clavier. Appui long puis glissez une touche pour la déplacer ; touchez-la pour la retirer."))
+    com.nautile.app.ui.terminal.ReorderableKeyRow(
+        ids, selected, onSelect = { selected = if (selected == it) null else it }, onReorder = prefs::setCompactKeys,
+    )
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { adding = true }) { Text(tr("+ Ajouter une touche"), color = Nt.Accent) }
+        selected?.let { id ->
             OutlinedButton(onClick = { prefs.setCompactKeys(ids - id); selected = null }, border = BorderStroke(1.dp, Nt.Pink.copy(alpha = 0.5f))) {
-                Text(tr("Retirer"), color = Nt.Pink)
+                Text(tr("Retirer « %1\$s »", com.nautile.app.ui.terminal.KeyCatalog.byId(id)?.description ?: label(id)), color = Nt.Pink, maxLines = 1)
             }
         }
     }
@@ -398,9 +379,10 @@ private fun KeyboardSettings() {
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     com.nautile.app.ui.terminal.KeyCatalog.all.filter { it.id !in ids }.forEach { def ->
                         androidx.compose.material3.Surface(
-                            onClick = { prefs.setCompactKeys(ids + def.id) }, shape = RoundedCornerShape(9.dp), color = Nt.KeyBg,
-                            border = BorderStroke(1.dp, Nt.Border), modifier = Modifier.height(38.dp).semantics { contentDescription = def.description },
-                        ) { Box(Modifier.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) { Text(def.label, fontFamily = Nt.Mono, fontSize = 13.sp, maxLines = 1) } }
+                            onClick = { prefs.setCompactKeys(ids + def.id) }, shape = RoundedCornerShape(10.dp), color = Nt.KeyBg,
+                            border = BorderStroke(1.dp, Nt.Border),
+                            modifier = Modifier.height(42.dp).width(com.nautile.app.ui.terminal.keyWidth(def)).semantics { contentDescription = def.description },
+                        ) { com.nautile.app.ui.terminal.KeyFace(def) }
                     }
                 }
             }

@@ -56,6 +56,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.semantics.selected
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Close
@@ -122,11 +128,7 @@ fun KeyboardArea(
         HorizontalDivider(color = Nt.Border)
         if (editing) EditBar(
             ids = ids, selected = selected, onSelect = { selected = if (selected == it) null else it },
-            onMove = { delta ->
-                val id = selected ?: return@EditBar
-                val i = ids.indexOf(id); val j = (i + delta).coerceIn(0, ids.lastIndex)
-                if (i >= 0 && i != j) prefs.setCompactKeys(ids.toMutableList().apply { removeAt(i); add(j, id) })
-            },
+            onReorder = prefs::setCompactKeys,
             onRemove = { selected?.let(::toggle) },
             onReset = { prefs.setCompactKeys(TerminalPrefs.DEFAULT_COMPACT_KEYS); selected = null },
             onDone = { editing = false; selected = null },
@@ -170,7 +172,7 @@ fun KeyboardArea(
     }
 }
 
-private fun keyWidth(def: KeyDef) = when {
+internal fun keyWidth(def: KeyDef) = when {
     def.icon != null || def.action is KeyAction.Tool -> 46.dp
     def.label.length <= 2 -> 42.dp
     def.label.length <= 4 -> 56.dp
@@ -208,38 +210,98 @@ private fun TabStrip(selected: PanelTab?, keyboardActive: Boolean, onTab: (Panel
 @Composable
 private fun EditBar(
     ids: List<String>, selected: String?, onSelect: (String) -> Unit,
-    onMove: (Int) -> Unit, onRemove: () -> Unit, onReset: () -> Unit, onDone: () -> Unit,
+    onReorder: (List<String>) -> Unit, onRemove: () -> Unit, onReset: () -> Unit, onDone: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            ids.mapNotNull(KeyCatalog::byId).forEach { def ->
-                val on = def.id == selected
-                Surface(
-                    onClick = { onSelect(def.id) }, shape = RoundedCornerShape(10.dp),
-                    color = if (on) Nt.Accent.copy(alpha = 0.18f) else KeyBg,
-                    border = BorderStroke(if (on) 2.dp else 1.dp, if (on) Nt.Accent else Nt.Border),
-                    modifier = Modifier.height(40.dp).width(keyWidth(def)).semantics { contentDescription = "${def.description}${if (on) tr(", sélectionnée") else ""}" },
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        if (def.icon != null) Icon(def.icon, null, tint = Nt.Accent, modifier = Modifier.size(18.dp))
-                        else Text(def.label, fontFamily = Nt.Mono, fontSize = 13.sp, color = Nt.Text, maxLines = 1)
-                    }
-                }
-            }
-            if (ids.isEmpty()) Text(tr("Barre vide : touchez des touches ci-dessous pour les ajouter."), color = Nt.Muted, fontSize = 12.sp, modifier = Modifier.padding(8.dp))
-        }
+        if (ids.isEmpty()) Text(tr("Barre vide : touchez des touches ci-dessous pour les ajouter."), color = Nt.Muted, fontSize = 12.sp, modifier = Modifier.padding(8.dp))
+        else ReorderableKeyRow(ids, selected, onSelect, onReorder)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (selected == null) tr("Touchez une touche de la grille pour l'ajouter ou la retirer ; touchez-en une ici pour la déplacer.")
-                else tr("Déplacez ou retirez la touche sélectionnée."),
+                if (selected == null) tr("Appui long puis glissez pour déplacer ; touchez la grille pour ajouter ou retirer.")
+                else tr("Retirez la touche sélectionnée, ou glissez-la pour la déplacer."),
                 color = Nt.Muted, fontSize = 11.sp, modifier = Modifier.weight(1f),
             )
-            if (selected != null) {
-                androidx.compose.material3.IconButton(onClick = { onMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Déplacer à gauche"), tint = Nt.TextSoft) }
-                androidx.compose.material3.IconButton(onClick = { onMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, tr("Déplacer à droite"), tint = Nt.TextSoft) }
-                androidx.compose.material3.IconButton(onClick = onRemove) { Icon(Icons.Outlined.Delete, tr("Retirer de la barre"), tint = Nt.Pink) }
-            } else TextButton(onClick = onReset) { Text(tr("Par défaut"), color = Nt.TextSoft, fontSize = 12.sp) }
+            if (selected != null) androidx.compose.material3.IconButton(onClick = onRemove) { Icon(Icons.Outlined.Delete, tr("Retirer de la barre"), tint = Nt.Pink) }
+            else TextButton(onClick = onReset) { Text(tr("Par défaut"), color = Nt.TextSoft, fontSize = 12.sp) }
             TextButton(onClick = onDone) { Text(tr("Terminé"), color = Nt.Accent, fontWeight = FontWeight.SemiBold) }
+        }
+    }
+}
+
+/** How a key looks, in the bar and wherever it is edited: its icon (IA, password, paste) or its label. */
+@Composable
+internal fun KeyFace(def: KeyDef, highlighted: Boolean = false, selected: Boolean = false) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (def.icon != null) Icon(def.icon, contentDescription = null, tint = Nt.Accent, modifier = Modifier.size(20.dp))
+        else Text(
+            def.label, fontFamily = Nt.Mono, fontSize = if (def.label.length > 4) 12.sp else 15.sp, fontWeight = FontWeight.Medium,
+            color = if (highlighted || selected) Nt.Accent else Nt.Text, maxLines = 1, overflow = TextOverflow.Clip,
+        )
+    }
+}
+
+/**
+ * The key bar as it will appear, to rearrange: press and hold a key then drag it sideways; tap to select it.
+ * The new order is reported when the finger is lifted.
+ */
+@Composable
+internal fun ReorderableKeyRow(ids: List<String>, selected: String?, onSelect: (String) -> Unit, onReorder: (List<String>) -> Unit, modifier: Modifier = Modifier) {
+    var order by remember(ids) { mutableStateOf(ids) }
+    var dragging by remember { mutableStateOf<String?>(null) }
+    var offset by remember { mutableFloatStateOf(0f) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val view = androidx.compose.ui.platform.LocalView.current
+    val gap = 5.dp
+    fun widthPx(id: String) = with(density) { ((KeyCatalog.byId(id)?.let(::keyWidth) ?: 42.dp) + gap).toPx() }
+
+    Row(modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(gap)) {
+        order.forEach { id ->
+            val def = KeyCatalog.byId(id) ?: return@forEach
+            androidx.compose.runtime.key(id) {
+                val isDragged = dragging == id
+                val on = id == selected
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = when { isDragged -> Nt.Accent.copy(alpha = 0.22f); on -> Nt.Accent.copy(alpha = 0.16f); else -> KeyBg },
+                    border = BorderStroke(if (on || isDragged) 2.dp else 1.dp, if (on || isDragged) Nt.Accent else Nt.Border),
+                    shadowElevation = if (isDragged) 8.dp else 0.dp,
+                    modifier = Modifier.height(42.dp).width(keyWidth(def))
+                        .zIndex(if (isDragged) 1f else 0f)
+                        .graphicsLayer {
+                            translationX = if (isDragged) offset else 0f
+                            val k = if (isDragged) 1.08f else 1f
+                            scaleX = k; scaleY = k
+                        }
+                        .pointerInput(id) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    dragging = id; offset = 0f
+                                    view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                                },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    offset += amount.x
+                                    val i = order.indexOf(id)
+                                    // Swap with the neighbour once past half of it, keeping the key under the finger.
+                                    if (offset > 0 && i < order.lastIndex && offset > widthPx(order[i + 1]) / 2) {
+                                        offset -= widthPx(order[i + 1])
+                                        order = order.toMutableList().apply { add(i + 1, removeAt(i)) }
+                                    } else if (offset < 0 && i > 0 && -offset > widthPx(order[i - 1]) / 2) {
+                                        offset += widthPx(order[i - 1])
+                                        order = order.toMutableList().apply { add(i - 1, removeAt(i)) }
+                                    }
+                                },
+                                onDragEnd = { dragging = null; offset = 0f; if (order != ids) onReorder(order) },
+                                onDragCancel = { dragging = null; offset = 0f; if (order != ids) onReorder(order) },
+                            )
+                        }
+                        .clickable { onSelect(id) }
+                        .semantics {
+                            contentDescription = def.description + if (on) tr(", sélectionnée") else ""
+                            this.selected = on
+                        },
+                ) { KeyFace(def, selected = on) }
+            }
         }
     }
 }
@@ -303,15 +365,7 @@ private fun Key(def: KeyDef, target: KeyTarget, modifier: Modifier) {
         color = if (active) Nt.Accent.copy(alpha = 0.16f) else KeyBg,
         border = BorderStroke(1.dp, if (active) Nt.Accent else Nt.Border),
         modifier = modifier.semantics { contentDescription = def.description },
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            if (def.icon != null) Icon(def.icon, contentDescription = null, tint = Nt.Accent, modifier = Modifier.size(20.dp))
-            else Text(
-                def.label, fontFamily = Nt.Mono, fontSize = if (def.label.length > 4) 12.sp else 15.sp, fontWeight = FontWeight.Medium,
-                color = if (active) Nt.Accent else Nt.Text, maxLines = 1, overflow = TextOverflow.Clip,
-            )
-        }
-    }
+    ) { KeyFace(def, highlighted = active) }
 }
 
 

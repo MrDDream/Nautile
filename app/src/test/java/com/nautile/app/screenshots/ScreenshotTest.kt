@@ -34,6 +34,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -212,6 +214,36 @@ class ScreenshotTest {
         session.terminal.feed(bytes, 0, bytes.size)
         idle()
         shoot("terminal")
+    }
+
+    @Test fun keyboardSettings() {
+        root(); compose.onNodeWithText(tr("Réglages")).performClick(); idle()
+        compose.onNodeWithText(tr("Terminal")).performClick(); idle()
+        compose.onNodeWithText(tr("Clavier")).performClick()
+        shoot("settings-keys")
+    }
+
+    @Test fun aiSettings() {
+        root(); compose.onNodeWithText(tr("Réglages")).performClick(); idle()
+        compose.onNodeWithText(tr("Assistant IA")).performClick(); idle()
+        compose.onRoot().performTouchInput { swipeUp() }
+        shoot("settings-ai")
+    }
+
+    @Test fun autocomplete() {
+        val session = fakeSession()
+        runBlocking {
+            val now = System.currentTimeMillis()
+            listOf("sudo su", "sudo systemctl restart nginx", "sudo apt update && sudo apt upgrade -y", "sudo docker compose up -d")
+                .forEachIndexed { i, cmd -> app.database.toolsDao().insertHistory(1, cmd, now - i * 60_000) }
+        }
+        compose.setContent { NautileTheme { PhoneFrame { TerminalScreen(1, onBack = {}, onNewSession = {}, onSftp = {}, onMonitor = {}) } } }
+        idle()
+        repeat(20) { if (session.terminal.emulator == null) idle() }
+        val bytes = (SCREEN.replace("\n", "\r\n") + "sudo").toByteArray()
+        session.terminal.feed(bytes, 0, bytes.size)
+        session._typed.value = "sudo"
+        shoot("autocomplete")
     }
 
     @Test fun terminalDisplay() {

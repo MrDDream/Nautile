@@ -27,6 +27,7 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,7 +56,9 @@ import kotlinx.coroutines.launch
 /** « Assistant IA »: pick a provider (with its status), set it up, test it and make it the active one. */
 @Composable
 fun AiSettingsScreen(onBack: () -> Unit) {
-    val ai = (LocalContext.current.applicationContext as NautileApp).ai
+    val app = LocalContext.current.applicationContext as NautileApp
+    val ai = app.ai
+    val aiLines by app.terminalPrefs.aiLines.collectAsState()
     val scope = rememberCoroutineScope()
     /** Bumped after any save so the badges re-read the stored configuration. */
     var revision by remember { mutableIntStateOf(0) }
@@ -165,10 +168,16 @@ fun AiSettingsScreen(onBack: () -> Unit) {
         NtCard {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(tr("✓ Votre demande, l'adresse et le protocole de l'hôte"), fontSize = 13.sp, color = Nt.TextSoft)
-                Text(tr("✓ Les 40 dernières lignes du terminal, seulement si « Joindre l'écran » est coché"), fontSize = 13.sp, color = Nt.TextSoft)
+                Text(tr("✓ Les %1\$s dernières lignes du terminal, seulement si « Joindre l'écran » est coché", aiLines), fontSize = 13.sp, color = Nt.TextSoft)
                 Text(tr("✕ Jamais vos mots de passe, vos clés ni votre historique"), fontSize = 13.sp, color = Nt.TextSoft)
             }
         }
+
+        SectionLabel(tr("Lignes du terminal jointes"), Modifier.padding(top = 4.dp))
+        com.nautile.app.ui.common.Segmented(
+            com.nautile.app.session.TerminalPrefs.AI_LINE_CHOICES.map { it to "$it" }, aiLines, app.terminalPrefs::setAiLines,
+        )
+        Hint(tr("Plus de lignes donnent plus de contexte pour expliquer une erreur, mais la requête est plus longue et plus coûteuse. L'historique de défilement est inclus."))
         Hint(tr("Les clés API restent chiffrées sur l'appareil (Android Keystore)."))
         if (cfg.apiKey != null) OutlinedButton(
             onClick = { ai.forgetKey(kind); revision++ }, modifier = Modifier.fillMaxWidth(),

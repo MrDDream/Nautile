@@ -19,6 +19,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,7 +62,8 @@ fun AssistantDialog(session: ActiveSession, screen: () -> String?, onDismiss: ()
                     placeholder = tr("Trouver les 10 plus gros fichiers de /var"))
                 Row(Modifier.clickable { withScreen = !withScreen }, verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(withScreen, { withScreen = it }, colors = CheckboxDefaults.colors(checkedColor = Nt.Accent))
-                    Text(tr("Joindre l'écran (40 dernières lignes) — pour expliquer une erreur"), fontSize = 13.sp, color = Nt.TextSoft)
+                    val lines by (LocalContext.current.applicationContext as com.nautile.app.NautileApp).terminalPrefs.aiLines.collectAsState()
+                    Text(tr("Joindre l'écran (%1\$s dernières lignes) — pour expliquer une erreur", lines), fontSize = 13.sp, color = Nt.TextSoft)
                 }
                 if (busy) LinearProgressIndicator(color = Nt.Accent, trackColor = Nt.Border, modifier = Modifier.fillMaxWidth())
                 error?.let { Text(it, color = Nt.Pink, fontSize = 13.sp) }

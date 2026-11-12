@@ -99,6 +99,11 @@ class TerminalPrefs(private val context: Context) {
     val haptic: StateFlow<Boolean> = _haptic.asStateFlow()
     fun setHaptic(enabled: Boolean) { _haptic.value = enabled; prefs.edit().putBoolean(KEY_HAPTIC, enabled).apply() }
 
+    private val _aiLines = MutableStateFlow(prefs.getInt(KEY_AI_LINES, DEFAULT_AI_LINES))
+    /** How many terminal lines « Joindre l'écran » sends to the AI assistant (scrollback included). */
+    val aiLines: StateFlow<Int> = _aiLines.asStateFlow()
+    fun setAiLines(n: Int) { _aiLines.value = n; prefs.edit().putInt(KEY_AI_LINES, n).apply() }
+
     private val _logSessions = MutableStateFlow(prefs.getBoolean(KEY_LOGS, false))
     /** Record each session's output to a log file. */
     val logSessions: StateFlow<Boolean> = _logSessions.asStateFlow()
@@ -176,6 +181,9 @@ class TerminalPrefs(private val context: Context) {
         private const val KEY_HISTORY = "history"
         private const val KEY_LOGS = "log_sessions"
         private const val KEY_HAPTIC = "haptic"
+        private const val KEY_AI_LINES = "ai_lines"
+        const val DEFAULT_AI_LINES = 100
+        val AI_LINE_CHOICES = listOf(40, 100, 200, 500)
         private const val KEY_COMPACT = "compact_keys"
         val DEFAULT_COMPACT_KEYS = listOf("ai", "password", "paste", "ctrl", "esc", "tab", "-", "/", "|", "~", "left", "up", "down", "right", "home", "end", "ctrl_c")
         private const val KEY_THEME = "theme"

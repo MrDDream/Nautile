@@ -1,5 +1,9 @@
 package com.nautile.app.ui.terminal
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
+import androidx.compose.material.icons.outlined.History
 import com.nautile.i18n.tr
 
 import androidx.compose.foundation.BorderStroke
@@ -96,7 +100,11 @@ fun TerminalScreen(initialSessionId: Long, onBack: () -> Unit, onNewSession: () 
     if (showAssistant) AssistantDialog(
         current,
         screen = {
-            current.terminal.emulator?.let { e -> e.screen.getSelectedText(0, e.cursorRow - 40, e.mColumns, e.cursorRow).trimEnd() }
+            current.terminal.emulator?.let { e ->
+                // Lines above the screen come from the scrollback, as far as it goes.
+                val from = (e.cursorRow - manager.prefs.aiLines.value).coerceAtLeast(-e.screen.activeTranscriptRows)
+                e.screen.getSelectedText(0, from, e.mColumns, e.cursorRow).trimEnd()
+            }
         },
         onDismiss = { showAssistant = false },
         onInsert = { cmd, run ->
@@ -230,11 +238,17 @@ fun TerminalScreen(initialSessionId: Long, onBack: () -> Unit, onNewSession: () 
                 }, onClose = { manager.close(current) })
             }
         }
-        if (suggestions.isNotEmpty()) SuggestionBar(typed.orEmpty(), suggestions) { full ->
-            val suffix = full.removePrefix(typed.orEmpty())
-            val bytes = suffix.toByteArray()
-            current.terminal.write(bytes, 0, bytes.size)
-        }
+        if (suggestions.isNotEmpty()) SuggestionBar(
+            typed.orEmpty(), suggestions,
+            onPick = { full ->
+                val bytes = full.removePrefix(typed.orEmpty()).toByteArray()
+                current.terminal.write(bytes, 0, bytes.size)
+            },
+            onRun = { full ->
+                val bytes = (full.removePrefix(typed.orEmpty()) + "\r").toByteArray()
+                current.terminal.write(bytes, 0, bytes.size)
+            },
+        )
         KeyboardArea(
             target = keyTarget,
             prefs = manager.prefs,
@@ -391,22 +405,46 @@ private fun ClosedBanner(state: SessionState.Closed, modifier: Modifier, onRecon
     }
 }
 
+/**
+ * Commands from this host's history that start with what is being typed, best match first:
+ * the part already typed is dimmed, the rest is what a tap adds; ⏎ adds it and runs it.
+ */
 @Composable
-private fun SuggestionBar(typed: String, items: List<String>, onPick: (String) -> Unit) {
+private fun SuggestionBar(typed: String, items: List<String>, onPick: (String) -> Unit, onRun: (String) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().background(Nt.Bar).horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(start = 8.dp, end = 8.dp, top = 8.dp),
+        Modifier.fillMaxWidth().background(Nt.Bar).horizontalScroll(androidx.compose.foundation.rememberScrollState())
+            .padding(start = 10.dp, end = 8.dp, top = 6.dp, bottom = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        items.forEach { cmd ->
-            Surface(onClick = { onPick(cmd) }, shape = RoundedCornerShape(9.dp), color = Nt.Surface, border = BorderStroke(1.dp, Nt.Border), modifier = Modifier.height(34.dp)) {
-                Box(Modifier.padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
+        Icon(Icons.Outlined.History, contentDescription = tr("Suggestions de l'historique"), tint = Nt.Muted, modifier = Modifier.size(18.dp))
+        items.forEachIndexed { i, cmd ->
+            val best = i == 0
+            Surface(
+                onClick = { onPick(cmd) }, shape = RoundedCornerShape(10.dp),
+                color = if (best) Nt.Accent.copy(alpha = 0.10f) else Nt.Surface,
+                border = BorderStroke(1.dp, if (best) Nt.Accent.copy(alpha = 0.55f) else Nt.Border),
+                modifier = Modifier.height(38.dp).semantics { contentDescription = tr("Compléter : %1\$s", cmd) },
+            ) {
+                Row(Modifier.padding(start = 12.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         androidx.compose.ui.text.buildAnnotatedString {
                             withStyle(androidx.compose.ui.text.SpanStyle(color = Nt.Muted)) { append(cmd.take(typed.length)) }
-                            withStyle(androidx.compose.ui.text.SpanStyle(color = Nt.Text)) { append(cmd.drop(typed.length)) }
+                            withStyle(androidx.compose.ui.text.SpanStyle(color = if (best) Nt.Accent else Nt.Text, fontWeight = FontWeight.SemiBold)) {
+                                append(cmd.drop(typed.length))
+                            }
                         },
-                        fontFamily = Nt.Mono, fontSize = 12.sp, maxLines = 1,
+                        fontFamily = Nt.Mono, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 240.dp),
                     )
+                    Box(
+                        Modifier.padding(start = 6.dp).size(32.dp).clip(RoundedCornerShape(8.dp))
+                            .clickable(onClickLabel = tr("Exécuter")) { onRun(cmd) }
+                            .semantics { contentDescription = tr("Exécuter %1\$s", cmd) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardReturn, contentDescription = null, tint = if (best) Nt.Accent else Nt.Muted, modifier = Modifier.size(16.dp))
+                    }
                 }
             }
         }

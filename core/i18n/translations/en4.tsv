@@ -361,3 +361,12 @@ COULEURS	COLOURS
 POLICE	FONT
 Rechercher dans l'historique	Search the history
 Aucune connexion ne correspond à « %1\$s ».	No connection matches “%1\$s”.
+Joindre l'écran (%1\$s dernières lignes) — pour expliquer une erreur	Attach the screen (last %1\$s lines) — to explain an error
+Appui long puis glissez pour déplacer ; touchez la grille pour ajouter ou retirer.	Press and hold, then drag to move; tap the grid to add or remove.
+Retirez la touche sélectionnée, ou glissez-la pour la déplacer.	Remove the selected key, or drag it to move it.
+Telle qu'elle s'affiche au-dessus du clavier. Appui long puis glissez une touche pour la déplacer ; touchez-la pour la retirer.	As shown above the keyboard. Press and hold a key, then drag it to move it; tap it to remove it.
++ Ajouter une touche	+ Add a key
+Retirer « %1\$s »	Remove “%1\$s”
+✓ Les %1\$s dernières lignes du terminal, seulement si « Joindre l'écran » est coché	✓ The last %1\$s terminal lines, only if “Attach the screen” is ticked
+Lignes du terminal jointes	Terminal lines attached
+Plus de lignes donnent plus de contexte pour expliquer une erreur, mais la requête est plus longue et plus coûteuse. L'historique de défilement est inclus.	More lines give more context to explain an error, but the request is longer and costs more. The scrollback is included.
