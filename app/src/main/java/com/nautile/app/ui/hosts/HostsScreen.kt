@@ -137,7 +137,7 @@ fun HostsScreen(
                                 Icon(Icons.Outlined.Close, contentDescription = tr("Effacer la recherche"), tint = Nt.Muted)
                             }
                         },
-                        placeholder = { Text(tr("Rechercher ou user@ip"), color = Nt.Placeholder, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text(tr("Hôte ou user@ip"), color = Nt.Placeholder, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         singleLine = true,
                         textStyle = TextStyle(fontFamily = Nt.Mono, fontSize = 13.sp, color = Nt.Text),
                         shape = RoundedCornerShape(14.dp),

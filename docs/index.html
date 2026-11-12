@@ -71,20 +71,15 @@
   .btn svg { width: 19px; height: 19px; }
   .facts { display: flex; flex-wrap: wrap; gap: 22px; margin-top: 28px; color: var(--muted); font-size: 14px; }
   .facts b { color: var(--text); font-family: var(--mono); font-weight: 500; }
-  .hero-term { background: var(--term); border: 1px solid var(--border); border-radius: 20px; padding: 18px 20px; font: 14px/1.75 var(--mono); color: #C5CED7; box-shadow: 0 30px 60px var(--shadow); overflow: hidden; }
-  .hero-term .dots { display: flex; gap: 7px; margin-bottom: 12px; }
-  .hero-term .dots i { width: 11px; height: 11px; border-radius: 6px; background: #2C3642; }
-  .hero-term .g { color: #5BD69A; } .hero-term .b { color: #7AA2F7; } .hero-term .a { color: #FFB547; } .hero-term .m { color: #6B7784; }
-  .cursor { display: inline-block; width: .6em; height: 1.1em; background: #FFB547; vertical-align: text-bottom; animation: blink 1.1s steps(1) infinite; }
-  @keyframes blink { 50% { opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } html { scroll-behavior: auto; } }
+  .hero-phone { justify-self: center; width: min(340px, 100%); height: auto; filter: drop-shadow(0 30px 60px var(--shadow)); transform: rotate(2deg); }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 
   section { padding: 72px 0; }
   h2 { font-size: clamp(28px, 4vw, 38px); letter-spacing: -.01em; margin: 0 0 12px; font-weight: 700; }
   .sub { color: var(--text-2); max-width: 40em; margin: 0 0 36px; }
-  .screens { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px; }
+  .screens { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px 22px; }
   .screens figure { margin: 0; text-align: center; }
-  .screens img { width: 100%; height: auto; border-radius: 26px; box-shadow: 0 18px 40px var(--shadow); }
+  .screens img { width: 100%; max-width: 300px; height: auto; filter: drop-shadow(0 18px 36px var(--shadow)); }
   .screens figcaption { margin-top: 12px; color: var(--muted); font-size: 14px; }
   .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 22px; }
@@ -112,6 +107,7 @@
     .hero .wrap, .split { grid-template-columns: 1fr; }
     .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .screens { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .hero-phone { transform: none; width: min(300px, 80%); }
     .top nav { display: none; }
     .toggles { margin-left: auto; }
   }
@@ -127,7 +123,7 @@
   <div class="wrap">
     <a class="brand" href="#"><img src="logo.svg" alt="" width="32" height="32">nautile<span>_</span></a>
     <nav aria-label="Sections">
-      <a href="#screens" data-i18n="nav.screens">Screens</a>
+      <a href="#screens" data-i18n="nav.screens">Screenshots</a>
       <a href="#features" data-i18n="nav.features">Features</a>
       <a href="#install" data-i18n="nav.install">Install</a>
       <a href="https://github.com/MrDDream/Nautile">GitHub</a>
@@ -163,15 +159,7 @@
           <span><b>EN</b> / <b>FR</b></span>
         </div>
       </div>
-      <div class="hero-term" aria-label="Example terminal session" role="img">
-        <div class="dots"><i></i><i></i><i></i></div>
-        <div><span class="m">$</span> nautile connect <span class="a">root@192.168.1.2</span></div>
-        <div><span class="g">root@nas</span>:<span class="b">~</span># docker compose ps</div>
-        <div>jellyfin&nbsp;&nbsp;&nbsp;&nbsp;<span class="g">Up 3 days</span></div>
-        <div>immich&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="g">Up 3 days</span></div>
-        <div>nextcloud&nbsp;&nbsp;&nbsp;<span class="a">Restarting</span></div>
-        <div><span class="g">root@nas</span>:<span class="b">~</span># <span class="cursor"></span></div>
-      </div>
+      <img class="hero-phone" data-shot="terminal" src="assets/shots/en-dark-terminal.png" alt="Nautile terminal session" width="416" height="892">
     </div>
   </section>
 
@@ -180,10 +168,12 @@
       <h2 data-i18n="screens.title">Made for a phone</h2>
       <p class="sub" data-i18n="screens.lead">Big touch targets, a key bar for what the keyboard lacks, and everything one tap away: connect, reconnect, open files, run a snippet.</p>
       <div class="screens">
-        <figure><img src="assets/hosts.svg" alt="Hosts list with a quick connection" width="390" height="844" loading="lazy"><figcaption data-i18n="screens.hosts">Hosts and quick connection</figcaption></figure>
-        <figure><img src="assets/terminal.svg" alt="Terminal session with the key bar" width="390" height="844" loading="lazy"><figcaption data-i18n="screens.terminal">A real terminal with a key bar</figcaption></figure>
-        <figure><img src="assets/desktop.svg" alt="Windows remote desktop" width="390" height="844" loading="lazy"><figcaption data-i18n="screens.desktop">Remote desktop (RDP)</figcaption></figure>
-        <figure><img src="assets/connections.svg" alt="Active sessions and history" width="390" height="844" loading="lazy"><figcaption data-i18n="screens.connections">Active sessions and history</figcaption></figure>
+        <figure><img data-shot="hosts" src="assets/shots/en-dark-hosts.png" alt="Hosts and groups" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.hosts">Hosts and groups</figcaption></figure>
+        <figure><img data-shot="quick" src="assets/shots/en-dark-quick.png" alt="Quick connection" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.quick">Quick connection without saving</figcaption></figure>
+        <figure><img data-shot="terminal" src="assets/shots/en-dark-terminal.png" alt="Terminal" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.terminal">A real terminal with a key bar</figcaption></figure>
+        <figure><img data-shot="connections" src="assets/shots/en-dark-connections.png" alt="Connections" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.connections">Active sessions and history</figcaption></figure>
+        <figure><img data-shot="snippets" src="assets/shots/en-dark-snippets.png" alt="Snippets" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.snippets">Snippets run on several servers</figcaption></figure>
+        <figure><img data-shot="settings" src="assets/shots/en-dark-settings.png" alt="Settings" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.settings">Settings at a glance</figcaption></figure>
       </div>
     </div>
   </section>
@@ -254,7 +244,7 @@
 <script>
   // French: English is the HTML's own text.
   const FR = {
-    "nav.screens": "Écrans", "nav.features": "Fonctionnalités", "nav.install": "Installer",
+    "nav.screens": "Captures", "nav.features": "Fonctionnalités", "nav.install": "Installer",
     "hero.eyebrow": "Version 0.1.1 · Android 8.0+ · GPL-3.0",
     "hero.title": "Tes serveurs,<br><em>dans ta poche.</em>",
     "hero.lead": "Nautile est un client SSH, Mosh et bureau à distance libre pour Android : un vrai terminal, SFTP, tunnels, snippets et synchro chiffrée. Pas de cloud, pas de compte : tes hôtes, clés et mots de passe restent chiffrés sur ton téléphone.",
@@ -262,8 +252,12 @@
     "facts.server": "serveur, compte ou traqueur",
     "screens.title": "Pensé pour un téléphone",
     "screens.lead": "De grandes zones tactiles, une barre de touches pour ce qui manque au clavier, et tout à portée de pouce : se connecter, se reconnecter, ouvrir des fichiers, lancer un snippet.",
-    "screens.hosts": "Hôtes et connexion rapide", "screens.terminal": "Un vrai terminal avec barre de touches",
-    "screens.desktop": "Bureau à distance (RDP)", "screens.connections": "Sessions actives et historique",
+    "shot.hosts": "Hôtes et groupes",
+    "shot.quick": "Connexion rapide sans enregistrer",
+    "shot.terminal": "Un vrai terminal avec barre de touches",
+    "shot.connections": "Sessions actives et historique",
+    "shot.snippets": "Snippets lancés sur plusieurs serveurs",
+    "shot.settings": "Réglages en un coup d’œil",
     "features.title": "Tout ce qu’il faut en déplacement",
     "features.lead": "Ce que tu utilises tous les jours sur un portable, repensé pour un écran tactile.",
     "f1.t": "Un vrai terminal", "f1.d": "xterm-256color, onglets et écran partagé, pincer pour zoomer, une barre de touches à ta façon, 10 thèmes et 5 Nerd Fonts (ou la tienne).",
@@ -303,12 +297,20 @@
     document.title = META[lang].title;
     document.querySelector('meta[name="description"]').content = META[lang].desc;
     if (save) try { localStorage.setItem("nautile-lang", lang); } catch (e) {}
+    updateShots();
   }
   function setTheme(theme, save) {
     document.documentElement.dataset.theme = theme;
     document.querySelectorAll("[data-theme-set]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeSet === theme)));
     document.querySelector('meta[name="theme-color"]').content = theme === "light" ? "#F6F4EF" : "#0B0E12";
     if (save) try { localStorage.setItem("nautile-theme", theme); } catch (e) {}
+    updateShots();
+  }
+  /** Captures exist per language and theme: assets/shots/<lang>-<theme>-<screen>.png */
+  function updateShots() {
+    const lang = document.documentElement.lang === "fr" ? "fr" : "en";
+    const theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+    document.querySelectorAll("[data-shot]").forEach((img) => { img.src = `assets/shots/${lang}-${theme}-${img.dataset.shot}.png`; });
   }
   document.querySelectorAll("[data-lang]").forEach((b) => b.addEventListener("click", () => setLang(b.dataset.lang, true)));
   document.querySelectorAll("[data-theme-set]").forEach((b) => b.addEventListener("click", () => setTheme(b.dataset.themeSet, true)));

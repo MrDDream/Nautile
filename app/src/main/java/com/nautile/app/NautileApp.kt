@@ -15,10 +15,11 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.security.Security
 
 /** Manual dependency container; small enough not to need a DI framework yet. */
-class NautileApp : Application() {
+open class NautileApp : Application() {
     val appScope = MainScope()
 
-    val database: NautileDatabase by lazy {
+    /** Open so that screenshot tests can use an in-memory database. */
+    open val database: NautileDatabase by lazy {
         NautileDatabase.open(this, DatabaseKeyStore(this).passphrase())
     }
     val hostRepository: HostRepository by lazy { HostRepository(database) }

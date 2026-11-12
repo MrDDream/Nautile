@@ -351,4 +351,4 @@ Incluse	Included
 Ce mot de passe ne déchiffre pas le fichier existant : utilisez celui choisi sur l'autre appareil.	This password does not decrypt the existing file: use the one chosen on the other device.
 Conflit d'écriture répété avec un autre appareil	Repeated write conflict with another device
 Le mot de passe ne déchiffre pas le fichier de synchronisation	The password does not decrypt the sync file
-Rechercher ou user@ip	Search or user@ip
+Hôte ou user@ip	Host or user@ip

@@ -1,8 +1,13 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="Logo de Nautile" width="104" height="104">
+  <img src="docs/logo.svg" alt="Icône de Nautile" width="112" height="112">
 </p>
 
-<h1 align="center">Nautile</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/wordmark-light.svg">
+    <img src="docs/wordmark-dark.svg" alt="nautile_" width="260">
+  </picture>
+</h1>
 
 <p align="center">
   <b>Tes serveurs, dans ta poche.</b><br>
@@ -25,10 +30,22 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/hosts.svg" alt="Hôtes et connexion rapide" width="200">
-  <img src="docs/assets/terminal.svg" alt="Session terminal" width="200">
-  <img src="docs/assets/desktop.svg" alt="Bureau à distance" width="200">
-  <img src="docs/assets/connections.svg" alt="Sessions actives et historique" width="200">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/shots/fr-light-hosts.png">
+    <img src="docs/assets/shots/fr-dark-hosts.png" alt="Hôtes et groupes" width="200">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/shots/fr-light-terminal.png">
+    <img src="docs/assets/shots/fr-dark-terminal.png" alt="Session terminal avec la barre de touches" width="200">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/shots/fr-light-connections.png">
+    <img src="docs/assets/shots/fr-dark-connections.png" alt="Sessions actives et historique" width="200">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/shots/fr-light-snippets.png">
+    <img src="docs/assets/shots/fr-dark-snippets.png" alt="Snippets" width="200">
+  </picture>
 </p>
 
 ---
