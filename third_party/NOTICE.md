@@ -43,3 +43,9 @@ Nerd Fonts v3.5.1:
 `core/rdp/src/main/java/com/freerdp/freerdpcore/services/LibFreeRDP.java` is adapted from FreeRDP's
 aFreeRDP (MPL 2.0, file-level copyleft: its source stays available under MPL 2.0); the changes are
 described in its header. The MPL 2.0 allows combining these files with this GPLv3 application.
+
+## AI provider logos
+
+`app/src/main/java/com/nautile/app/ui/common/ProviderLogo.kt` holds path data from
+[Lobe Icons](https://github.com/lobehub/lobe-icons) 1.102.0 (MIT). The logos are trademarks of their
+owners and are only used to name the service the user configured.
