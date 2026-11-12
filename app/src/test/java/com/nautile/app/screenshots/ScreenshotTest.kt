@@ -233,8 +233,52 @@ class ScreenshotTest {
     @Test fun aiSettings() {
         root(); compose.onNodeWithText(tr("Réglages")).performClick(); idle()
         compose.onNodeWithText(tr("Assistant IA")).performClick(); idle()
-        compose.onRoot().performTouchInput { swipeUp() }
         shoot("settings-ai")
+    }
+
+    /** A sheet as Android draws it, inside the phone frame (a real one is a separate window). */
+    @Composable
+    private fun SheetOver(content: @Composable () -> Unit, sheet: @Composable () -> Unit) {
+        Box(Modifier.fillMaxSize()) {
+            content()
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)))
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Nt.Surface).padding(top = 22.dp),
+            ) { sheet() }
+        }
+    }
+
+    @Test fun aiProvider() {
+        compose.setContent {
+            NautileTheme {
+                PhoneFrame {
+                    SheetOver({ com.nautile.app.ui.settings.AiSettingsScreen(onBack = {}) }) {
+                        com.nautile.app.ui.settings.ProviderSheetContent(com.nautile.app.ai.AiProviderKind.CLAUDE, onSaved = {}, onDismiss = {})
+                    }
+                }
+            }
+        }
+        shoot("settings-ai-provider")
+    }
+
+    @Test fun aiModels() {
+        val models = listOf(
+            "gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-5-pro", "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini", "o3", "o4-mini",
+            "text-embedding-3-large", "tts-1", "whisper-1", "gpt-image-1", "gpt-4o-realtime-preview",
+        )
+        compose.setContent {
+            NautileTheme {
+                PhoneFrame {
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)), contentAlignment = Alignment.Center) {
+                        Box(Modifier.fillMaxWidth(0.94f).fillMaxSize(0.9f).clip(RoundedCornerShape(24.dp)).background(Nt.Surface)) {
+                            com.nautile.app.ui.settings.ModelPickerContent(models, null, "gpt-5-mini", onRetry = {}, onPick = {}, onClose = {})
+                        }
+                    }
+                }
+            }
+        }
+        shoot("settings-ai-models")
     }
 
     @Test fun autocomplete() {

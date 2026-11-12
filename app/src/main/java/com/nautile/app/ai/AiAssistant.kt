@@ -32,10 +32,29 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
         get() = secrets.get(KEY_PROVIDER)?.let { runCatching { AiProviderKind.valueOf(it) }.getOrNull() } ?: AiProviderKind.CLAUDE
         set(v) = secrets.put(KEY_PROVIDER, v.name)
 
-    /** Providers set up and able to answer, the active one first (a keyless one counts once its address was saved). */
-    fun readyProviders(): List<AiProviderKind> = AiProviderKind.entries
-        .filter { isReady(config(it)) && (it.needsKey || it == provider || secrets.get("url_${it.name}") != null) }
-        .sortedBy { if (it == provider) 0 else 1 }
+    /** Set up: a key (or, for a keyless one, a saved address) and a model. */
+    fun isConfigured(kind: AiProviderKind): Boolean =
+        isReady(config(kind)) && (kind.needsKey || secrets.get("url_${kind.name}") != null || secrets.get("model_${kind.name}") != null)
+
+    private val _enabled = MutableStateFlow(AiProviderKind.entries.associateWith { loadEnabled(it) })
+    /** Providers switched on in the settings; only those are offered in the terminal. */
+    val enabled: StateFlow<Map<AiProviderKind, Boolean>> = _enabled.asStateFlow()
+
+    /** Before the switches existed, a provider set up was in use: it stays on. */
+    private fun loadEnabled(kind: AiProviderKind): Boolean =
+        if (prefs.contains("enabled_${kind.name}")) prefs.getBoolean("enabled_${kind.name}", false) else isConfigured(kind)
+
+    fun setEnabled(kind: AiProviderKind, on: Boolean) {
+        prefs.edit().putBoolean("enabled_${kind.name}", on).apply()
+        _enabled.value = _enabled.value + (kind to on)
+        if (on && !isOn(provider)) provider = kind
+        if (!on && provider == kind) readyProviders().firstOrNull()?.let { provider = it }
+    }
+
+    private fun isOn(kind: AiProviderKind) = _enabled.value[kind] == true && isConfigured(kind)
+
+    /** Providers switched on and able to answer, the last used first. */
+    fun readyProviders(): List<AiProviderKind> = AiProviderKind.entries.filter { isOn(it) }.sortedBy { if (it == provider) 0 else 1 }
 
     private val _prompts = MutableStateFlow(loadPrompts())
     /** The user's own system prompts; the built-in one is [defaultPrompt]. */
@@ -101,8 +120,8 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
 
     fun isReady(c: AiConfig = config()) = (!c.kind.needsKey || c.apiKey != null) && (c.kind != AiProviderKind.CUSTOM || c.model.isNotBlank())
 
-    val configured: Boolean get() = isReady()
-    val providerLabel: String get() = provider.label
+    val configured: Boolean get() = readyProviders().isNotEmpty()
+    val providerLabel: String get() = (readyProviders().firstOrNull() ?: provider).label
 
     suspend fun models(c: AiConfig): List<String> = withContext(Dispatchers.IO) { AiProviders.create(c).models() }
 

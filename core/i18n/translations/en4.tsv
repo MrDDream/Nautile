@@ -413,3 +413,25 @@ Pédagogue	Teacher
 Explique chaque option de la commande, pour quelqu'un qui débute.	Explain every option of the command, for a beginner.
 Dicter	Dictate
 Aucune reconnaissance vocale sur cet appareil (installez Google ou une app de dictée).	No speech recognition on this device (install Google or a dictation app).
+Sans clé API	No API key
+Clé API requise	API key required
+Nouvelle clé API (facultatif)	New API key (optional)
+Choisir un modèle	Choose a model
+Connexion OK. Réponse : %1\$s	Connection OK. Answer: %1\$s
+Texte	Text
+Rapides	Fast
+Puissants	Powerful
+Raisonnement	Reasoning
+Rechercher un modèle	Search models
+Utiliser « %1\$s »	Use “%1\$s”
+Nom saisi à la main	Typed by hand
+Impossible de charger la liste : %1\$s	Could not load the list: %1\$s
+Vérifiez la clé et l'adresse, ou saisissez le nom du modèle ci-dessus.	Check the key and address, or type the model name above.
+Réessayer	Retry
+Chargement des modèles…	Loading models…
+Aucun modèle ne correspond.	No model matches.
+Sélectionné	Selected
+Fournisseurs	Providers
+Non configuré	Not set up
+Les fournisseurs activés sont proposés dans l'assistant du terminal ; le dernier utilisé passe en premier. La roue dentée règle la clé, l'adresse et le modèle.	Enabled providers are offered in the terminal assistant; the last one used comes first. The gear sets the key, address and model.
+Configurer %1\$s	Set up %1\$s

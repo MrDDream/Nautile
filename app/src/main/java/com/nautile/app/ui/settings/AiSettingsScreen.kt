@@ -56,124 +56,63 @@ import com.nautile.app.ui.common.NtCard
 import com.nautile.app.ui.common.NtTextField
 import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.theme.Nt
-import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 
-/** « Assistant IA »: pick a provider (with its status), set it up, test it and make it the active one. */
+/** « Assistant IA »: switch providers on or off, set each one up (gear), then the prompts and what is sent. */
 @Composable
 fun AiSettingsScreen(onBack: () -> Unit) {
     val app = LocalContext.current.applicationContext as NautileApp
     val ai = app.ai
     val aiLines by app.terminalPrefs.aiLines.collectAsState()
-    val scope = rememberCoroutineScope()
-    /** Bumped after any save so the badges re-read the stored configuration. */
+    val enabled by ai.enabled.collectAsState()
+    /** Bumped after a provider sheet closes, so the rows re-read the stored configuration. */
     var revision by remember { mutableIntStateOf(0) }
-    var active by remember { mutableStateOf(ai.provider) }
-    var kind by remember { mutableStateOf(ai.provider) }
-    val cfg = remember(kind, revision) { ai.config(kind) }
-    var key by remember(kind) { mutableStateOf("") }
-    var model by remember(kind) { mutableStateOf(cfg.model) }
-    var url by remember(kind) { mutableStateOf(cfg.baseUrl.orEmpty()) }
-    var models by remember(kind) { mutableStateOf<List<String>>(emptyList()) }
-    var modelMenu by remember { mutableStateOf(false) }
-    var status by remember(kind) { mutableStateOf<Pair<Boolean, String>?>(null) }
-    var busy by remember { mutableStateOf(false) }
-
-    fun current() = AiConfig(kind, key.trim().ifEmpty { cfg.apiKey }, model.trim(), url.trim().ifEmpty { null } ?: kind.defaultBaseUrl)
+    var configuring by remember { mutableStateOf<AiProviderKind?>(null) }
+    /** Switched on while not set up yet: turn it on once the sheet saved a working configuration. */
+    var enableAfter by remember { mutableStateOf(false) }
 
     SettingsPage(tr("Assistant IA"), onBack) {
         Text(tr("Décrivez ce que vous voulez faire dans le terminal, l'assistant propose la commande. Rien n'est exécuté sans votre accord."),
             color = Nt.TextSoft, fontSize = 13.sp, lineHeight = 19.sp)
 
-        SectionLabel(tr("Fournisseur"), Modifier.padding(top = 4.dp))
+        SectionLabel(tr("Fournisseurs"), Modifier.padding(top = 4.dp))
         NtCard {
             AiProviderKind.entries.forEachIndexed { i, k ->
                 if (i > 0) HorizontalDivider(color = Nt.Border)
-                val c = remember(k, revision) { ai.config(k) }
-                val ready = remember(k, revision) { ai.isReady(c) }
-                val (badge, color) = when {
-                    k == active && ready -> tr("Actif") to Nt.Green
-                    c.apiKey != null -> tr("Clé enregistrée") to Nt.TextSoft
-                    !k.needsKey -> tr("Sans clé") to Nt.TextSoft
-                    else -> tr("À configurer") to Nt.Accent
-                }
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(role = Role.RadioButton) { kind = k }
-                        .background(if (k == kind) Nt.Accent.copy(alpha = 0.06f) else Color.Transparent).padding(end = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(k == kind, onClick = null, modifier = Modifier.padding(start = 12.dp, end = 10.dp), colors = RadioButtonDefaults.colors(selectedColor = Nt.Accent))
-                    Box(Modifier.padding(end = 12.dp)) { com.nautile.app.ui.common.ProviderLogo(k, 22.dp) }
-                    Text(k.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    Box(Modifier.height(24.dp).clip(RoundedCornerShape(12.dp)).background(color.copy(alpha = 0.13f)).padding(horizontal = 9.dp), contentAlignment = Alignment.Center) {
-                        Text(badge, color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
-        }
-
-        NtCard {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    com.nautile.app.ui.common.ProviderLogo(kind, 22.dp)
-                    Text(kind.label, style = MaterialTheme.typography.titleMedium)
-                }
-                if (kind.editableUrl) NtTextField(url, { url = it }, tr("Adresse de l'API"), mono = true, placeholder = kind.defaultBaseUrl ?: "https://…/v1")
-                if (kind == AiProviderKind.LOCAL)
-                    Hint(tr("Ollama : http://IP-du-PC:11434/v1 (lancer avec OLLAMA_HOST=0.0.0.0). LM Studio : http://IP-du-PC:1234/v1."))
-                NtTextField(
-                    key, { key = it },
-                    when {
-                        cfg.apiKey != null -> tr("Clé API (enregistrée — saisir pour remplacer)")
-                        kind.needsKey -> tr("Clé API")
-                        else -> tr("Clé API (facultative)")
+                val configured = remember(k, revision) { ai.isConfigured(k) }
+                val model = remember(k, revision) { ai.config(k).model }
+                val on = enabled[k] == true && configured
+                ProviderRow(
+                    kind = k,
+                    detail = when {
+                        configured -> com.nautile.app.ai.prettyModel(model)
+                        else -> tr("Non configuré")
                     },
-                    mono = true, placeholder = kind.keyHint, visualTransformation = PasswordVisualTransformation(),
+                    configured = configured,
+                    on = on,
+                    isDefault = on && ai.readyProviders().firstOrNull() == k,
+                    onToggle = { want ->
+                        if (want && !configured) { enableAfter = true; configuring = k } else ai.setEnabled(k, want)
+                    },
+                    onConfigure = { enableAfter = false; configuring = k },
                 )
-                Box {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NtTextField(model, { model = it }, tr("Modèle"), Modifier.weight(1f), mono = true)
-                        TextButton(enabled = !busy, onClick = {
-                            busy = true; status = null
-                            scope.launch {
-                                runCatching { ai.models(current()) }
-                                    .onSuccess { models = it; modelMenu = it.isNotEmpty(); if (it.isEmpty()) status = false to tr("Aucun modèle renvoyé") }
-                                    .onFailure { status = false to (it.message ?: tr("Échec")) }
-                                busy = false
-                            }
-                        }) { Text(tr("Liste"), color = Nt.Accent) }
-                    }
-                    DropdownMenu(modelMenu, { modelMenu = false }, modifier = Modifier.heightIn(max = 360.dp)) {
-                        models.forEach { m -> DropdownMenuItem(text = { Text(m, fontFamily = Nt.Mono, fontSize = 13.sp) }, onClick = { model = m; modelMenu = false }) }
-                    }
-                }
-                Button(
-                    onClick = {
-                        busy = true; status = null
-                        scope.launch {
-                            val c = current()
-                            ai.save(kind, key.trim().ifEmpty { null }, model, url)
-                            key = ""
-                            status = runCatching { ai.test(c) }.fold(
-                                onSuccess = { answer ->
-                                    ai.provider = kind; active = kind
-                                    true to tr("Connexion OK · %1\$s est le fournisseur actif. Réponse : %2\$s", kind.label, answer.take(80))
-                                },
-                                onFailure = { false to tr("Échec : %1\$s (réglages enregistrés, fournisseur actif inchangé)", it.message ?: "") },
-                            )
-                            revision++
-                            busy = false
-                        }
-                    },
-                    enabled = !busy && model.isNotBlank(), modifier = Modifier.fillMaxWidth().height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Nt.PrimaryContainer, contentColor = Nt.OnPrimaryContainer),
-                    border = Nt.PrimaryBorder?.let { BorderStroke(2.dp, it) },
-                ) { Text(if (kind == active) tr("Tester") else tr("Tester et utiliser"), fontWeight = FontWeight.SemiBold) }
-                if (busy) LinearProgressIndicator(color = Nt.Accent, trackColor = Nt.Border, modifier = Modifier.fillMaxWidth())
-                status?.let { (ok, text) -> Text(text, color = if (ok) Nt.Green else Nt.Pink, fontSize = 13.sp) }
             }
         }
+        Hint(tr("Les fournisseurs activés sont proposés dans l'assistant du terminal ; le dernier utilisé passe en premier. La roue dentée règle la clé, l'adresse et le modèle."))
 
         PromptsSection(ai)
+
+        SectionLabel(tr("Lignes du terminal jointes"), Modifier.padding(top = 4.dp))
+        com.nautile.app.ui.common.Segmented(
+            com.nautile.app.session.TerminalPrefs.AI_LINE_CHOICES.map { it to "$it" }, aiLines, app.terminalPrefs::setAiLines,
+        )
+        Hint(tr("Plus de lignes donnent plus de contexte pour expliquer une erreur, mais la requête est plus longue et plus coûteuse. L'historique de défilement est inclus."))
 
         SectionLabel(tr("Ce qui est envoyé"), Modifier.padding(top = 4.dp))
         NtCard {
@@ -183,17 +122,49 @@ fun AiSettingsScreen(onBack: () -> Unit) {
                 Text(tr("✕ Jamais vos mots de passe, vos clés ni votre historique"), fontSize = 13.sp, color = Nt.TextSoft)
             }
         }
-
-        SectionLabel(tr("Lignes du terminal jointes"), Modifier.padding(top = 4.dp))
-        com.nautile.app.ui.common.Segmented(
-            com.nautile.app.session.TerminalPrefs.AI_LINE_CHOICES.map { it to "$it" }, aiLines, app.terminalPrefs::setAiLines,
-        )
-        Hint(tr("Plus de lignes donnent plus de contexte pour expliquer une erreur, mais la requête est plus longue et plus coûteuse. L'historique de défilement est inclus."))
         Hint(tr("Les clés API restent chiffrées sur l'appareil (Android Keystore)."))
-        if (cfg.apiKey != null) OutlinedButton(
-            onClick = { ai.forgetKey(kind); revision++ }, modifier = Modifier.fillMaxWidth(),
-            border = BorderStroke(1.dp, Nt.Pink.copy(alpha = 0.5f)),
-        ) { Text(tr("Oublier la clé %1\$s", kind.label), color = Nt.Pink) }
+    }
+
+    configuring?.let { k ->
+        ProviderSheet(
+            kind = k,
+            onSaved = { working -> if (enableAfter && working) ai.setEnabled(k, true) },
+            onDismiss = { configuring = null; enableAfter = false; revision++ },
+        )
+    }
+}
+
+@Composable
+private fun ProviderRow(
+    kind: AiProviderKind,
+    detail: String,
+    configured: Boolean,
+    on: Boolean,
+    isDefault: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onConfigure: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable(onClick = onConfigure).padding(start = 14.dp, end = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(Nt.Bg), contentAlignment = Alignment.Center) {
+            com.nautile.app.ui.common.ProviderLogo(kind, 22.dp, tint = if (on) Nt.Text else Nt.TextSoft)
+        }
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(kind.label, style = MaterialTheme.typography.titleMedium, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (isDefault) Box(Modifier.clip(RoundedCornerShape(6.dp)).background(Nt.Green.copy(alpha = 0.14f)).padding(horizontal = 6.dp, vertical = 1.dp)) {
+                    Text(tr("Par défaut"), color = Nt.Green, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            Text(detail, fontSize = 12.sp, color = if (configured) Nt.Muted else Nt.Accent, maxLines = 1)
+        }
+        IconButton(onClick = onConfigure) {
+            Icon(Icons.Outlined.Settings, contentDescription = tr("Configurer %1\$s", kind.label), tint = Nt.TextSoft)
+        }
+        Switch(on, onToggle, colors = SwitchDefaults.colors(checkedTrackColor = Nt.Accent, uncheckedTrackColor = Nt.Toggle))
     }
 }
 

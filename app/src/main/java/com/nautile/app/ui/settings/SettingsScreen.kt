@@ -107,7 +107,8 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
     val density = LocalDensity.current
     val fontSp = (fontPx / density.fontScale / density.density).toInt()
     val lockOn = app.appLock.enabled
-    val aiReady = remember { app.ai.isReady() }
+    val aiFirst = remember { app.ai.readyProviders().firstOrNull() }
+    val aiReady = aiFirst != null
     val logCount = remember { SessionLogs.list(app).size }
     var query by rememberSaveable { mutableStateOf("") }
     val q = fold(query.trim())
@@ -126,7 +127,7 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
     )
     val services = listOf(
         Entry(Icons.Outlined.AutoAwesome, lavender, tr("Assistant IA"),
-            if (aiReady) "${app.ai.providerLabel} · ${com.nautile.app.ai.prettyModel(app.ai.config().model)}" else tr("À configurer"),
+            if (aiReady) "${aiFirst?.label} · ${com.nautile.app.ai.prettyModel(app.ai.config(aiFirst ?: app.ai.provider).model)}" else tr("À configurer"),
             "ia ai intelligence claude anthropic openai gemini mistral ollama cle key api modele model", SettingsRoutes.AI,
             dot = if (aiReady) Nt.Green else Nt.Accent),
         Entry(Icons.Outlined.Lock, Nt.Green, tr("Sécurité, sauvegarde et synchro"),
