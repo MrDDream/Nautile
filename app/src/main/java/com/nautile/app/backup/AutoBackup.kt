@@ -38,72 +38,36 @@ object AutoBackup {
         val password = password ?: prefs.password() ?: error(tr("Mot de passe de sauvegarde non enregistré"))
         val bytes = app.backups.export(password).toByteArray()
         withContext(Dispatchers.IO) {
-            when (dest) {
-                is BackupDestination.Document -> writeDocument(app, Uri.parse(dest.uri), bytes)
-                is BackupDestination.WebDav -> {
-                    rotate(dest, prefs.webDavPassword())
-                    put(dest, prefs.webDavPassword(), bytes)
-                }
-            }
+            val store = BackupStores.of(app, dest, prefs)
+            store.rotate()
+            store.write(bytes)
             BackupVersions.add(app, bytes)
         }
         prefs.markExported()
     }.onFailure { e -> app.backupPrefs.markFailed(e.message ?: e.javaClass.simpleName) }
 
-    private fun writeDocument(context: Context, uri: Uri, bytes: ByteArray) {
-        // Some providers (cloud ones) do not support truncate mode "wt".
-        val out = runCatching { context.contentResolver.openOutputStream(uri, "wt") }.getOrNull()
-            ?: context.contentResolver.openOutputStream(uri, "w")
-            ?: throw IOException(tr("Le fichier de sauvegarde n'est plus accessible : choisissez-le à nouveau"))
-        out.use { it.write(bytes) }
-    }
-
     /** Full URL of the backup file: a folder URL (ending with /) gets [FILE_NAME]. */
     fun webDavFileUrl(url: String) = if (url.endsWith("/")) url + FILE_NAME else url
 
-    private fun put(dest: BackupDestination.WebDav, password: String?, bytes: ByteArray) {
-        val request = Request.Builder().url(webDavFileUrl(dest.url))
-            .put(bytes.toRequestBody("application/octet-stream".toMediaType()))
-            .apply { if (dest.username.isNotEmpty()) header("Authorization", Credentials.basic(dest.username, password.orEmpty())) }
-            .build()
-        http.newCall(request).execute().use { r ->
-            if (!r.isSuccessful) throw IOException(
-                when (r.code) {
-                    401, 403 -> tr("WebDAV : identifiants refusés")
-                    404, 409 -> tr("WebDAV : dossier introuvable")
-                    else -> tr("WebDAV : erreur %1\$s", r.code)
-                },
-            )
-        }
-    }
-
-    /**
-     * Keeps the previous backups on the server: nautile.backup → nautile.backup.1 → … → .4, so five
-     * copies exist before the oldest is overwritten. Missing files are skipped.
-     */
-    private fun rotate(dest: BackupDestination.WebDav, password: String?) {
-        val base = webDavFileUrl(dest.url)
-        fun move(from: String, to: String) = runCatching {
-            http.newCall(
-                Request.Builder().url(from).method("MOVE", null).header("Destination", to).header("Overwrite", "T")
-                    .apply { if (dest.username.isNotEmpty()) header("Authorization", Credentials.basic(dest.username, password.orEmpty())) }.build(),
-            ).execute().close()
-        }
-        for (i in BackupVersions.KEEP - 2 downTo 1) move("$base.$i", "$base.${i + 1}")
-        move(base, "$base.1")
-    }
-
     /** Checks a WebDAV destination by writing a small file next to the backup, then deleting it. */
     suspend fun testWebDav(url: String, username: String, password: String): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
-            val probe = BackupDestination.WebDav(webDavFileUrl(url) + ".test", username)
-            put(probe, password, "nautile".toByteArray())
-            runCatching {
-                http.newCall(Request.Builder().url(probe.url).delete()
-                    .apply { if (username.isNotEmpty()) header("Authorization", Credentials.basic(username, password)) }.build()).execute().close()
-            }
-            Unit
+        runCatching { BackupStores.probe(WebDavStore(url, username, password, http)) }
+    }
+
+    /** Same for S3. */
+    suspend fun testS3(dest: BackupDestination.S3, secret: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching { BackupStores.probe(S3Store(S3Client(dest.endpoint, dest.region, dest.bucket, dest.accessKey, secret, http), dest.key)) }
+    }
+
+    /** « Téléphone › Syncthing › Nautile » for a folder picked with Android's picker. */
+    fun describeFolder(context: Context, tree: Uri): String {
+        val provider = when (tree.authority) {
+            "com.android.externalstorage.documents" -> tr("Téléphone")
+            "org.nextcloud.documents", "com.nextcloud.client.documents" -> "Nextcloud"
+            else -> tree.authority.orEmpty()
         }
+        val path = runCatching { android.provider.DocumentsContract.getTreeDocumentId(tree).substringAfter(':') }.getOrNull().orEmpty()
+        return listOf(provider, path.replace("/", " › ")).filter { it.isNotEmpty() }.joinToString(" › ")
     }
 
     /** « Google Drive », « OneDrive »… for a document picked with Android's file picker. */
@@ -179,7 +143,11 @@ object AutoBackup {
     }
 
     /** A file on the phone itself: no network needed. */
-    fun isLocal(dest: BackupDestination) = dest is BackupDestination.Document && Uri.parse(dest.uri).authority in LOCAL_AUTHORITIES
+    fun isLocal(dest: BackupDestination) = when (dest) {
+        is BackupDestination.Document -> Uri.parse(dest.uri).authority in LOCAL_AUTHORITIES
+        is BackupDestination.Folder -> Uri.parse(dest.treeUri).authority in LOCAL_AUTHORITIES
+        else -> false
+    }
 
     private val LOCAL_AUTHORITIES = setOf("com.android.externalstorage.documents", "com.android.providers.downloads.documents")
 

@@ -609,3 +609,23 @@ Toutes les %1\$s min	Every %1\$s min
 Toutes les heures	Every hour
 Toutes les %1\$s h	Every %1\$s h
 Une fois par jour	Once a day
+S3 : serveur introuvable (%1\$s)	S3: server not found (%1\$s)
+S3 : clé secrète ou région incorrecte	S3: wrong secret key or region
+S3 : accès refusé (clé ou droits sur le bucket)	S3: access denied (key or bucket permissions)
+S3 : bucket introuvable	S3: bucket not found
+S3 : erreur %1\$s	S3: error %1\$s
+Impossible de créer %1\$s dans le dossier	Cannot create %1\$s in the folder
+Dossier de sauvegarde inaccessible : choisissez-le à nouveau	Backup folder not reachable: choose it again
+Ce dossier ne permet pas d'y revenir plus tard : choisissez-en un autre	This folder cannot be reopened later: choose another one
+Syncthing, stockage du téléphone…	Syncthing, phone storage…
+Stockage S3	S3 storage
+Backblaze B2, Cloudflare R2, MinIO…	Backblaze B2, Cloudflare R2, MinIO…
+Google Drive ou OneDrive passent par le sélecteur d'Android (leur app doit être installée). Un dossier synchronisé par Syncthing, Nextcloud ou S3 sert aussi pour un ordinateur.	Google Drive or OneDrive go through Android's picker (their app must be installed). A folder synced by Syncthing, Nextcloud or S3 also works for a computer.
+Adresse (endpoint)	Address (endpoint)
+Région	Region
+Bucket	Bucket
+Chemin du fichier	File path
+Clé d'accès (ID)	Access key (ID)
+Clé secrète (enregistrée — saisir pour remplacer)	Secret key (saved — type to replace)
+Clé secrète	Secret key
+Créez une clé limitée à ce bucket. Le fichier est chiffré avant l'envoi ; activez les versions du bucket pour un historique côté serveur.	Create a key limited to this bucket. The file is encrypted before upload; turn on bucket versioning for a server-side history.

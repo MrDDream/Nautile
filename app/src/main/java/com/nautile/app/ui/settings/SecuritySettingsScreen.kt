@@ -8,6 +8,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,6 +26,8 @@ import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.IconButton
@@ -111,6 +115,7 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var webDavDialog by remember { mutableStateOf(false) }
+    var s3Dialog by remember { mutableStateOf(false) }
     var documentMenu by remember { mutableStateOf(false) }
     val syncOn by prefs.syncEnabled.collectAsState()
     val lastSync by prefs.lastSync.collectAsState()
@@ -169,6 +174,17 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
         }.onFailure { status = tr("Ce stockage ne permet pas d'y revenir plus tard : choisissez-en un autre") }
             .onSuccess {
                 prefs.setDestination(BackupDestination.Document(uri.toString(), AutoBackup.describe(app, uri)))
+                reschedule()
+                status = null
+            }
+    }
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            app.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        }.onFailure { status = tr("Ce dossier ne permet pas d'y revenir plus tard : choisissez-en un autre") }
+            .onSuccess {
+                prefs.setDestination(BackupDestination.Folder(uri.toString(), AutoBackup.describeFolder(app, uri)))
                 reschedule()
                 status = null
             }
@@ -317,9 +333,19 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
                         }
                     }
                     DestinationCard(
+                        tr("Dossier"), tr("Syncthing, stockage du téléphone…"), Icons.Outlined.Folder,
+                        destination is BackupDestination.Folder, Modifier.weight(1f).fillMaxHeight(),
+                    ) { pickFolder.launch(null) }
+                }
+                Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DestinationCard(
                         tr("Nextcloud"), tr("WebDAV, auto-hébergé"), Icons.Outlined.Dns,
                         destination is BackupDestination.WebDav, Modifier.weight(1f).fillMaxHeight(),
                     ) { webDavDialog = true }
+                    DestinationCard(
+                        tr("Stockage S3"), tr("Backblaze B2, Cloudflare R2, MinIO…"), Icons.Outlined.Inventory2,
+                        destination is BackupDestination.S3, Modifier.weight(1f).fillMaxHeight(),
+                    ) { s3Dialog = true }
                 }
                 destination?.let { d ->
                     Row(
@@ -327,14 +353,19 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            when (d) { is BackupDestination.Document -> d.label; is BackupDestination.WebDav -> AutoBackup.webDavFileUrl(d.url) },
+                            when (d) {
+                                is BackupDestination.Document -> d.label
+                                is BackupDestination.WebDav -> AutoBackup.webDavFileUrl(d.url)
+                                is BackupDestination.S3 -> "s3://${d.bucket}/${d.key}"
+                                is BackupDestination.Folder -> d.label + " › " + AutoBackup.FILE_NAME
+                            },
                             fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.TextSoft, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
                         TextButton(onClick = { prefs.setDestination(null); reschedule() }) { Text(tr("Retirer"), color = Nt.Pink, fontSize = 13.sp) }
                     }
                 }
-                if (destination == null) Hint(tr("Choisissez Google Drive ou OneDrive dans le sélecteur d'Android (leur app doit être installée), ou un dossier WebDAV."))
+                if (destination == null) Hint(tr("Google Drive ou OneDrive passent par le sélecteur d'Android (leur app doit être installée). Un dossier synchronisé par Syncthing, Nextcloud ou S3 sert aussi pour un ordinateur."))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 12.dp)) {
@@ -460,6 +491,14 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
             }
         }
     }
+    if (s3Dialog) S3Dialog(
+        initial = destination as? BackupDestination.S3,
+        onDismiss = { s3Dialog = false },
+    ) { dest, secret ->
+        s3Dialog = false
+        prefs.setDestination(dest, secret.ifEmpty { null })
+        reschedule()
+    }
     if (webDavDialog) WebDavDialog(
         initial = destination as? BackupDestination.WebDav,
         onDismiss = { webDavDialog = false },
@@ -558,6 +597,67 @@ private fun BackupPasswordDialog(confirm: Boolean, rememberMode: Boolean?, onDis
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Annuler"), color = Nt.TextSoft) } },
         confirmButton = { TextButton(onClick = { onOk(pw, keep) }, enabled = ok) { Text(if (confirm) tr("Valider") else tr("Importer"), color = Nt.Accent) } },
+    )
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun S3Dialog(initial: BackupDestination.S3?, onDismiss: () -> Unit, onSave: (BackupDestination.S3, String) -> Unit) {
+    val app = LocalContext.current.applicationContext as NautileApp
+    val scope = rememberCoroutineScope()
+    var endpoint by remember { mutableStateOf(initial?.endpoint.orEmpty()) }
+    var region by remember { mutableStateOf(initial?.region ?: "us-east-1") }
+    var bucket by remember { mutableStateOf(initial?.bucket.orEmpty()) }
+    var key by remember { mutableStateOf(initial?.key ?: AutoBackup.FILE_NAME) }
+    var access by remember { mutableStateOf(initial?.accessKey.orEmpty()) }
+    var secret by remember { mutableStateOf("") }
+    var testing by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<String?>(null) }
+    fun dest() = BackupDestination.S3(endpoint.trim(), region.trim().ifEmpty { "us-east-1" }, bucket.trim(), key.trim().trimStart('/').ifEmpty { AutoBackup.FILE_NAME }, access.trim())
+    val valid = endpoint.isNotBlank() && bucket.isNotBlank() && access.isNotBlank() && (secret.isNotBlank() || initial != null)
+    AlertDialog(
+        onDismissRequest = onDismiss, containerColor = Nt.Surface,
+        title = { Text(tr("Stockage S3")) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Presets: the endpoint and region formats of the common services.
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        Triple("Backblaze B2", "s3.eu-central-003.backblazeb2.com", "eu-central-003"),
+                        Triple("Cloudflare R2", "<compte>.r2.cloudflarestorage.com", "auto"),
+                        Triple("AWS", "s3.eu-west-3.amazonaws.com", "eu-west-3"),
+                        Triple("MinIO", "http://192.168.1.10:9000", "us-east-1"),
+                    ).forEach { (name, e, r) ->
+                        androidx.compose.material3.SuggestionChip(onClick = { endpoint = e; region = r; result = null }, label = { Text(name, fontSize = 12.sp) })
+                    }
+                }
+                NtTextField(endpoint, { endpoint = it.trim(); result = null }, tr("Adresse (endpoint)"), mono = true, placeholder = "s3.eu-central-003.backblazeb2.com",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NtTextField(region, { region = it.trim(); result = null }, tr("Région"), Modifier.weight(1f), mono = true)
+                    NtTextField(bucket, { bucket = it.trim(); result = null }, tr("Bucket"), Modifier.weight(1f), mono = true)
+                }
+                NtTextField(key, { key = it.trim(); result = null }, tr("Chemin du fichier"), mono = true, placeholder = AutoBackup.FILE_NAME)
+                NtTextField(access, { access = it.trim(); result = null }, tr("Clé d'accès (ID)"), mono = true)
+                NtTextField(secret, { secret = it.trim(); result = null },
+                    if (initial != null) tr("Clé secrète (enregistrée — saisir pour remplacer)") else tr("Clé secrète"),
+                    mono = true, visualTransformation = PasswordVisualTransformation())
+                Hint(tr("Créez une clé limitée à ce bucket. Le fichier est chiffré avant l'envoi ; activez les versions du bucket pour un historique côté serveur."))
+                if (testing) LinearProgressIndicator(color = Nt.Accent, trackColor = Nt.Border, modifier = Modifier.fillMaxWidth())
+                result?.let { Text(it, fontSize = 13.sp, color = Nt.TextSoft) }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                testing = true; result = null
+                scope.launch {
+                    val usedSecret = secret.ifEmpty { app.backupPrefs.s3Secret().orEmpty() }
+                    result = AutoBackup.testS3(dest(), usedSecret).fold({ tr("Connexion réussie : écriture possible") }, { tr("Échec : %1\$s", it.message) })
+                    testing = false
+                }
+            }, enabled = valid && !testing) { Text(tr("Tester"), color = Nt.TextSoft) }
+        },
+        confirmButton = { TextButton(onClick = { onSave(dest(), secret) }, enabled = valid) { Text(tr("Enregistrer"), color = Nt.Accent) } },
     )
 }
 

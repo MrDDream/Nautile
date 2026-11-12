@@ -79,6 +79,8 @@ android {
             it.systemProperty("nautile.screenshots", project.findProperty("nautileScreenshots")?.toString().orEmpty())
             // scripts/vnc-it.sh server, for the screenshot of a real VNC desktop.
             it.systemProperty("nautile.vncPort", project.findProperty("vncPort")?.toString().orEmpty())
+            // scripts/s3-it.sh MinIO, for the S3 backup store test.
+            it.systemProperty("nautile.s3Port", project.findProperty("s3Port")?.toString().orEmpty())
         }
     }
     buildFeatures {

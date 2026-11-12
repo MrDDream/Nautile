@@ -42,10 +42,6 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
     private val prefs get() = app.backupPrefs
     private var pending: Job? = null
 
-    /** What the destination holds now; [etag] is null for documents (no conditional write there). */
-    private class Remote(val text: String?, val etag: String?)
-
-    private class ConflictException : IOException("conflict")
 
     /** Downloads, merges and uploads. [password] overrides the stored one (first synchronisation). */
     suspend fun sync(password: String? = null): Result<SyncMerge.Stats> = mutex.withLock {
@@ -58,7 +54,8 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
             while (true) {
                 try {
                     val dirtyBefore = merge.lastChange() > prefs.syncedChange
-                    val remote = withContext(Dispatchers.IO) { read(dest) }
+                    val store = BackupStores.of(app, dest, prefs)
+                    val remote = withContext(Dispatchers.IO) { store.read() }
                     val data = remote.text?.let { withContext(Dispatchers.Default) { BackupCodec.import(it, pw) } }
                     val stats = data?.let { merge.merge(it) } ?: SyncMerge.Stats()
                     val now = System.currentTimeMillis()
@@ -69,7 +66,7 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
                     if (data == null || dirtyBefore || stats.changed || now - myLastSeen > 12 * 3600_000L) {
                         val text = withContext(Dispatchers.Default) { BackupCodec.export(merge.snapshot(devices), pw) }
                         withContext(Dispatchers.IO) {
-                            write(dest, text, remote)
+                            store.write(text.toByteArray(), remote)
                             // The synchronised file is also the backup: keep a daily copy on the phone.
                             BackupVersions.addIfOlder(app, text.toByteArray(), 20 * 3600_000L)
                         }
@@ -99,14 +96,14 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
     /** Whether the destination already holds a file (another device set it up). */
     suspend fun remoteExists(): Boolean = withContext(Dispatchers.IO) {
         val dest = prefs.destination.value ?: return@withContext false
-        runCatching { read(dest).text != null }.getOrDefault(false)
+        runCatching { BackupStores.of(app, dest, prefs).read().text != null }.getOrDefault(false)
     }
 
     /** Checks [password] against the existing remote file. */
     suspend fun checkPassword(password: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val dest = prefs.destination.value ?: error(tr("Aucune destination choisie"))
-            val text = read(dest).text ?: return@runCatching
+            val text = BackupStores.of(app, dest, prefs).read().text ?: return@runCatching
             withContext(Dispatchers.Default) { BackupCodec.import(text, password) }
             Unit
         }
@@ -129,58 +126,5 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
                 if (!_running.value) requestSoon()
             }
         })
-    }
-
-    private fun read(dest: BackupDestination): Remote = when (dest) {
-        is BackupDestination.Document -> {
-            val text = try {
-                app.contentResolver.openInputStream(Uri.parse(dest.uri))?.use { it.readBytes().decodeToString() }
-            } catch (_: FileNotFoundException) { null }
-            Remote(text?.takeIf { it.isNotBlank() }, null)
-        }
-        is BackupDestination.WebDav -> {
-            val req = Request.Builder().url(AutoBackup.webDavFileUrl(dest.url)).get().auth(dest).build()
-            http.newCall(req).execute().use { r ->
-                when {
-                    r.code == 404 -> Remote(null, null)
-                    r.isSuccessful -> Remote(r.body?.string()?.takeIf { it.isNotBlank() }, r.header("ETag"))
-                    r.code == 401 || r.code == 403 -> throw IOException(tr("WebDAV : identifiants refusés"))
-                    else -> throw IOException(tr("WebDAV : erreur %1\$s", r.code))
-                }
-            }
-        }
-    }
-
-    private fun write(dest: BackupDestination, text: String, remote: Remote) {
-        val bytes = text.toByteArray()
-        when (dest) {
-            is BackupDestination.Document -> {
-                val uri = Uri.parse(dest.uri)
-                val out = runCatching { app.contentResolver.openOutputStream(uri, "wt") }.getOrNull()
-                    ?: app.contentResolver.openOutputStream(uri, "w")
-                    ?: throw IOException(tr("Le fichier de sauvegarde n'est plus accessible : choisissez-le à nouveau"))
-                out.use { it.write(bytes) }
-            }
-            is BackupDestination.WebDav -> {
-                val req = Request.Builder().url(AutoBackup.webDavFileUrl(dest.url))
-                    .put(bytes.toRequestBody("application/octet-stream".toMediaType())).auth(dest)
-                    .apply {
-                        when {
-                            remote.etag != null -> header("If-Match", remote.etag)
-                            remote.text == null -> header("If-None-Match", "*")
-                        }
-                    }.build()
-                http.newCall(req).execute().use { r ->
-                    when {
-                        r.code == 412 -> throw ConflictException()
-                        !r.isSuccessful -> throw IOException(tr("WebDAV : erreur %1\$s", r.code))
-                    }
-                }
-            }
-        }
-    }
-
-    private fun Request.Builder.auth(dest: BackupDestination.WebDav) = apply {
-        if (dest.username.isNotEmpty()) header("Authorization", Credentials.basic(dest.username, prefs.webDavPassword().orEmpty()))
     }
 }

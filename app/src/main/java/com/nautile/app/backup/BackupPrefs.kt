@@ -12,6 +12,10 @@ sealed interface BackupDestination {
     data class Document(val uri: String, val label: String) : BackupDestination
     /** A WebDAV URL (Nextcloud, ownCloud…); a URL ending with / is a folder. */
     data class WebDav(val url: String, val username: String) : BackupDestination
+    /** An S3 bucket (AWS, Backblaze B2, Cloudflare R2, MinIO…); the secret key stays in the [SecretStore]. */
+    data class S3(val endpoint: String, val region: String, val bucket: String, val key: String, val accessKey: String) : BackupDestination
+    /** A folder picked with Android's picker (one Syncthing or the Nextcloud app keeps in step with a computer). */
+    data class Folder(val treeUri: String, val label: String) : BackupDestination
 }
 
 /** How often the automatic backup runs; the daily and longer ones run at a chosen time. */
@@ -106,20 +110,28 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
         prefs.edit().putString(KEY_ERROR, reason).apply()
     }
 
-    fun setDestination(d: BackupDestination?, webDavPassword: String? = null) {
+    /** [secret]: the WebDAV password or the S3 secret key, when given. */
+    fun setDestination(d: BackupDestination?, secret: String? = null) {
         _destination.value = d
         val e = prefs.edit().remove(KEY_DOC_URI).remove(KEY_DOC_LABEL).remove(KEY_DAV_URL).remove(KEY_DAV_USER)
+            .remove(KEY_S3_ENDPOINT).remove(KEY_S3_REGION).remove(KEY_S3_BUCKET).remove(KEY_S3_KEY).remove(KEY_S3_ACCESS)
+            .remove(KEY_FOLDER_URI).remove(KEY_FOLDER_LABEL)
         when (d) {
             is BackupDestination.Document -> e.putString(KEY_DOC_URI, d.uri).putString(KEY_DOC_LABEL, d.label)
             is BackupDestination.WebDav -> e.putString(KEY_DAV_URL, d.url).putString(KEY_DAV_USER, d.username)
+            is BackupDestination.S3 -> e.putString(KEY_S3_ENDPOINT, d.endpoint).putString(KEY_S3_REGION, d.region).putString(KEY_S3_BUCKET, d.bucket)
+                .putString(KEY_S3_KEY, d.key).putString(KEY_S3_ACCESS, d.accessKey)
+            is BackupDestination.Folder -> e.putString(KEY_FOLDER_URI, d.treeUri).putString(KEY_FOLDER_LABEL, d.label)
             null -> {}
         }
         e.apply()
-        if (d !is BackupDestination.WebDav) secrets.put(SECRET_DAV, null) else if (webDavPassword != null) secrets.put(SECRET_DAV, webDavPassword)
+        if (d !is BackupDestination.WebDav) secrets.put(SECRET_DAV, null) else if (secret != null) secrets.put(SECRET_DAV, secret)
+        if (d !is BackupDestination.S3) secrets.put(SECRET_S3, null) else if (secret != null) secrets.put(SECRET_S3, secret)
         if (d == null) { setAuto(false); setSyncEnabled(false) }
     }
 
     fun webDavPassword(): String? = secrets.get(SECRET_DAV)
+    fun s3Secret(): String? = secrets.get(SECRET_S3)
 
     fun setAuto(v: Boolean) { _auto.value = v; prefs.edit().putBoolean(KEY_AUTO, v).apply() }
     fun setFrequency(f: BackupFrequency) { _frequency.value = f; prefs.edit().putString(KEY_FREQ, f.name).apply() }
@@ -160,6 +172,13 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
     private fun loadDestination(): BackupDestination? {
         prefs.getString(KEY_DOC_URI, null)?.let { return BackupDestination.Document(it, prefs.getString(KEY_DOC_LABEL, null).orEmpty()) }
         prefs.getString(KEY_DAV_URL, null)?.let { return BackupDestination.WebDav(it, prefs.getString(KEY_DAV_USER, null).orEmpty()) }
+        prefs.getString(KEY_S3_BUCKET, null)?.let { bucket ->
+            return BackupDestination.S3(
+                prefs.getString(KEY_S3_ENDPOINT, null).orEmpty(), prefs.getString(KEY_S3_REGION, null) ?: "us-east-1", bucket,
+                prefs.getString(KEY_S3_KEY, null) ?: AutoBackup.FILE_NAME, prefs.getString(KEY_S3_ACCESS, null).orEmpty(),
+            )
+        }
+        prefs.getString(KEY_FOLDER_URI, null)?.let { return BackupDestination.Folder(it, prefs.getString(KEY_FOLDER_LABEL, null).orEmpty()) }
         return null
     }
 
@@ -186,6 +205,14 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
         private const val KEY_DAV_USER = "dav_user"
         private const val SECRET_PASSWORD = "backup_password"
         private const val SECRET_DAV = "backup_webdav_password"
+        private const val SECRET_S3 = "backup_s3_secret"
+        private const val KEY_S3_ENDPOINT = "s3_endpoint"
+        private const val KEY_S3_REGION = "s3_region"
+        private const val KEY_S3_BUCKET = "s3_bucket"
+        private const val KEY_S3_KEY = "s3_key"
+        private const val KEY_S3_ACCESS = "s3_access"
+        private const val KEY_FOLDER_URI = "folder_uri"
+        private const val KEY_FOLDER_LABEL = "folder_label"
         /** After this, Settings suggests backing up again. */
         const val STALE_AFTER_MS = 30L * 24 * 3600 * 1000
 
