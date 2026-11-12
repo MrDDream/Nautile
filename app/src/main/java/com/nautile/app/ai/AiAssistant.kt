@@ -139,12 +139,19 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
         screen: String?,
         kind: AiProviderKind = provider,
         system: String = promptText(promptId.value),
+        files: List<AiFile> = emptyList(),
     ): Suggestion = withContext(Dispatchers.IO) {
         val c = config(kind)
         if (!isReady(c)) throw AiException(tr("Configurez l'assistant dans Réglages › Assistant IA"))
         val user = buildString {
             append(if (com.nautile.i18n.I18n.english) "Machine: " else "Machine : ").append(hostDescription).append("\n\n")
             if (screen != null) append(tr("Fin de l'écran du terminal :\n```\n")).append(screen).append("\n```\n\n")
+            files.forEach { f ->
+                append(tr("Fichier joint « %1\$s »", f.name))
+                if (f.cut) append(if (f.tail) tr(" (fin du fichier, %1\$s sur %2\$s)", AiFiles.sizeLabel(AiFiles.MAX_BYTES.toLong()), AiFiles.sizeLabel(f.size))
+                    else tr(" (début du fichier, %1\$s sur %2\$s)", AiFiles.sizeLabel(AiFiles.MAX_BYTES.toLong()), AiFiles.sizeLabel(f.size)))
+                append(" :\n```\n").append(f.text).append("\n```\n\n")
+            }
             append(if (com.nautile.i18n.I18n.english) "Request: " else "Demande : ").append(request)
         }
         parse(AiProviders.create(c).complete(system, user).trim())
@@ -161,7 +168,8 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
 
         private val SYSTEM = """
             Tu es l'assistant d'un client SSH sur téléphone. L'utilisateur décrit ce qu'il veut faire sur le serveur
-            auquel il est connecté (ou demande d'expliquer une erreur visible à l'écran).
+            auquel il est connecté, demande d'expliquer une erreur visible à l'écran, ou joint des fichiers
+            (configuration, journaux, JSON…) à analyser ou corriger.
             Réponds en français, brièvement :
             - d'abord UNE commande shell prête à coller, dans un seul bloc ```bash``` (plusieurs commandes enchaînées
               avec && si nécessaire) ; omets le bloc si aucune commande ne convient ;
@@ -172,7 +180,8 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
 
         private val SYSTEM_EN = """
             You are the assistant of an SSH client on a phone. The user describes what they want to do on the server
-            they are connected to (or asks to explain an error visible on screen).
+            they are connected to, asks to explain an error visible on screen, or attaches files
+            (configuration, logs, JSON…) to analyse or fix.
             Answer in English, briefly:
             - first ONE shell command ready to paste, in a single ```bash``` block (several commands chained with &&
               if needed); leave the block out if no command fits;

@@ -106,7 +106,7 @@ Modules : `app` (interface Compose), `core:data` (Room + SQLCipher, import, sauv
 
 ## 🔒 Vie privée
 
-Nautile n'a pas de serveur et ne collecte rien. Tes hôtes, clés et mots de passe restent dans une base chiffrée sur le téléphone. Les données ne sortent que si tu le demandes : une connexion à tes propres serveurs, un fichier de sauvegarde ou de synchro vers la destination choisie (chiffré avant), ou une question au fournisseur d'IA que tu as configuré (seulement ta demande, l'adresse et le protocole de l'hôte, et l'écran du terminal si tu le coches).
+Nautile n'a pas de serveur et ne collecte rien. Tes hôtes, clés et mots de passe restent dans une base chiffrée sur le téléphone. Les données ne sortent que si tu le demandes : une connexion à tes propres serveurs, un fichier de sauvegarde ou de synchro vers la destination choisie (chiffré avant), ou une question au fournisseur d'IA que tu as configuré (seulement ta demande, l'adresse et le protocole de l'hôte, l'écran du terminal si tu le coches et les fichiers que tu joins).
 
 ## 🤝 Contribuer
 

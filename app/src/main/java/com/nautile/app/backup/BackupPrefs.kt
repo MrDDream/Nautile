@@ -14,7 +14,15 @@ sealed interface BackupDestination {
     data class WebDav(val url: String, val username: String) : BackupDestination
 }
 
-enum class BackupFrequency(val days: Long) { DAY(1), WEEK(7), MONTH(30) }
+/** How often the automatic backup runs; the daily and longer ones run at a chosen time. */
+enum class BackupFrequency(val hours: Long) {
+    HOURS_6(6), HOURS_12(12), DAY(24), WEEK(24 * 7), MONTH(24 * 30);
+
+    val atTime: Boolean get() = hours >= 24
+}
+
+/** Which networks the backup and the synchronisation may use. */
+enum class BackupNetwork { WIFI, ANY }
 
 /** Backup settings and status. The backup password and the WebDAV password stay in the [SecretStore]. */
 class BackupPrefs(context: Context, private val secrets: SecretStore) {
@@ -116,6 +124,32 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
     fun setAuto(v: Boolean) { _auto.value = v; prefs.edit().putBoolean(KEY_AUTO, v).apply() }
     fun setFrequency(f: BackupFrequency) { _frequency.value = f; prefs.edit().putString(KEY_FREQ, f.name).apply() }
 
+    private val _time = MutableStateFlow(prefs.getInt(KEY_TIME, 3 * 60))
+    /** Minutes after midnight for the daily, weekly and monthly backups. */
+    val time: StateFlow<Int> = _time.asStateFlow()
+    fun setTime(minutes: Int) { _time.value = minutes; prefs.edit().putInt(KEY_TIME, minutes).apply() }
+
+    private val _weekday = MutableStateFlow(prefs.getInt(KEY_WEEKDAY, 7))
+    /** ISO day of week (1 = Monday) for the weekly backup. */
+    val weekday: StateFlow<Int> = _weekday.asStateFlow()
+    fun setWeekday(d: Int) { _weekday.value = d; prefs.edit().putInt(KEY_WEEKDAY, d).apply() }
+
+    private val _network = MutableStateFlow(
+        prefs.getString(KEY_NETWORK, null)?.let { n -> BackupNetwork.entries.firstOrNull { it.name == n } } ?: BackupNetwork.WIFI,
+    )
+    val network: StateFlow<BackupNetwork> = _network.asStateFlow()
+    fun setNetwork(n: BackupNetwork) { _network.value = n; prefs.edit().putString(KEY_NETWORK, n.name).apply() }
+
+    private val _charging = MutableStateFlow(prefs.getBoolean(KEY_CHARGING, false))
+    /** Only while the phone is charging. */
+    val charging: StateFlow<Boolean> = _charging.asStateFlow()
+    fun setCharging(v: Boolean) { _charging.value = v; prefs.edit().putBoolean(KEY_CHARGING, v).apply() }
+
+    private val _batteryOk = MutableStateFlow(prefs.getBoolean(KEY_BATTERY, true))
+    /** Not when the battery is low. */
+    val batteryOk: StateFlow<Boolean> = _batteryOk.asStateFlow()
+    fun setBatteryOk(v: Boolean) { _batteryOk.value = v; prefs.edit().putBoolean(KEY_BATTERY, v).apply() }
+
     fun password(): String? = secrets.get(SECRET_PASSWORD)
     fun setPassword(p: String?) {
         secrets.put(SECRET_PASSWORD, p)
@@ -140,6 +174,11 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
         private const val KEY_ERROR = "last_error"
         private const val KEY_AUTO = "auto"
         private const val KEY_FREQ = "frequency"
+        private const val KEY_TIME = "time"
+        private const val KEY_WEEKDAY = "weekday"
+        private const val KEY_NETWORK = "network"
+        private const val KEY_CHARGING = "charging"
+        private const val KEY_BATTERY = "battery_ok"
         private const val KEY_DOC_URI = "doc_uri"
         private const val KEY_DOC_LABEL = "doc_label"
         private const val KEY_DAV_URL = "dav_url"

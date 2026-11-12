@@ -106,7 +106,7 @@ Modules: `app` (Compose UI), `core:data` (Room + SQLCipher, import, backup, sync
 
 ## 🔒 Privacy
 
-Nautile has no server and collects nothing. Your hosts, keys and passwords stay in an encrypted database on the phone. Data leaves the device only when you ask: a connection to your own servers, a backup or sync file to the destination you picked (encrypted first), or a request to the AI provider you configured (only your question, the host's address and protocol, and the terminal screen if you tick it).
+Nautile has no server and collects nothing. Your hosts, keys and passwords stay in an encrypted database on the phone. Data leaves the device only when you ask: a connection to your own servers, a backup or sync file to the destination you picked (encrypted first), or a request to the AI provider you configured (only your question, the host's address and protocol, the terminal screen if you tick it and the files you attach).
 
 ## 🤝 Contributing
 

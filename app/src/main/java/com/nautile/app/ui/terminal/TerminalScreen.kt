@@ -107,6 +107,13 @@ fun TerminalScreen(initialSessionId: Long, onBack: () -> Unit, onNewSession: () 
             }
         },
         onDismiss = { showAssistant = false },
+        // Files of a saved host are read over SFTP (quick connections have no host to reopen).
+        readRemote = if (current.isSaved) { path ->
+            manager.sftp.with(current.hostId) { sftp ->
+                val full = if (path.startsWith("~")) sftp.home().trimEnd('/') + path.drop(1) else path
+                sftp.openRead(full).use { com.nautile.app.ai.AiFiles.read(full, it) }
+            }
+        } else null,
         onInsert = { cmd, run ->
             showAssistant = false
             if (run) manager.run(current, cmd) else { val b = cmd.toByteArray(); current.terminal.write(b, 0, b.size) }

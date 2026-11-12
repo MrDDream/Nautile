@@ -74,6 +74,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nautile.app.NautileApp
 import com.nautile.app.ai.AiAssistant
+import com.nautile.app.ai.AiFile
+import com.nautile.app.ai.AiFiles
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material3.TextButton
 import com.nautile.app.ai.prettyModel
 import com.nautile.app.session.ActiveSession
 import com.nautile.app.ui.common.ProviderLogo
@@ -89,10 +97,16 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AssistantDialog(session: ActiveSession, screen: () -> String?, onDismiss: () -> Unit, onInsert: (String, Boolean) -> Unit) {
+fun AssistantDialog(
+    session: ActiveSession,
+    screen: () -> String?,
+    onDismiss: () -> Unit,
+    onInsert: (String, Boolean) -> Unit,
+    readRemote: (suspend (String) -> AiFile)? = null,
+) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = Nt.Surface) {
-        AssistantPanel(session, screen, onDismiss, onInsert)
+        AssistantPanel(session, screen, onDismiss, onInsert, readRemote = readRemote)
     }
 }
 
@@ -105,6 +119,8 @@ internal fun AssistantPanel(
     onInsert: (String, Boolean) -> Unit,
     initialRequest: String = "",
     initialResult: AiAssistant.Suggestion? = null,
+    readRemote: (suspend (String) -> AiFile)? = null,
+    initialFiles: List<AiFile> = emptyList(),
 ) {
     val app = LocalContext.current.applicationContext as NautileApp
     val ai = app.ai
@@ -116,6 +132,10 @@ internal fun AssistantPanel(
     var kind by remember { mutableStateOf(ready.firstOrNull()) }
     var request by remember { mutableStateOf(initialRequest) }
     var withScreen by remember { mutableStateOf(false) }
+    var files by remember { mutableStateOf(initialFiles) }
+    var fileMenu by remember { mutableStateOf(false) }
+    var serverDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     var job by remember { mutableStateOf<Job?>(null) }
     var result by remember { mutableStateOf(initialResult) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -126,7 +146,7 @@ internal fun AssistantPanel(
         if (text.isBlank() || busy) return
         error = null; result = null
         job = scope.launch {
-            runCatching { ai.ask(text.trim(), "${session.address} (${session.protocolLabel})", if (screenToo) screen() else null, k) }
+            runCatching { ai.ask(text.trim(), "${session.address} (${session.protocolLabel})", if (screenToo) screen() else null, k, files = files) }
                 .onSuccess { result = it }
                 .onFailure { if (it !is kotlinx.coroutines.CancellationException) error = it.message ?: tr("Échec de la requête") }
             job = null
@@ -140,6 +160,23 @@ internal fun AssistantPanel(
         val heard = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
         if (!heard.isNullOrEmpty()) request = if (request.isBlank()) heard.replaceFirstChar { it.uppercase() } else request.trimEnd() + " " + heard
     }
+    // Files: any document of the phone, read as text.
+    val pickFile = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val name = context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                        ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: uri.lastPathSegment.orEmpty()
+                    context.contentResolver.openInputStream(uri)?.use { AiFiles.read(name, it) } ?: error(tr("Fichier illisible"))
+                }
+            }.onSuccess { f -> files = files.filterNot { it.name == f.name } + f }
+                .onFailure { error = it.message ?: tr("Fichier illisible") }
+        }
+    }
+
     fun dictate() {
         val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -244,8 +281,38 @@ internal fun AssistantPanel(
                 Switch(withScreen, { withScreen = it }, colors = SwitchDefaults.colors(checkedTrackColor = Nt.Accent, uncheckedTrackColor = Nt.Toggle))
             }
 
+            // Files
+            ChipRow {
+                files.forEach { f ->
+                    FileChip(f) { files = files - f }
+                }
+                if (files.size < MAX_FILES) Box {
+                    Row(
+                        Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).border(1.dp, Nt.Border, RoundedCornerShape(18.dp))
+                            .clickable(role = Role.Button) { if (readRemote == null) pickFile.launch(arrayOf("*/*")) else fileMenu = true }
+                            .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(Icons.Outlined.AttachFile, contentDescription = null, tint = Nt.Accent, modifier = Modifier.size(18.dp))
+                        Text(tr("Joindre un fichier"), fontSize = 13.sp, color = Nt.Accent, fontWeight = FontWeight.Medium)
+                    }
+                    androidx.compose.material3.DropdownMenu(fileMenu, onDismissRequest = { fileMenu = false }) {
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(tr("Depuis le serveur (%1\$s)", session.alias)) },
+                            leadingIcon = { Icon(Icons.Outlined.Dns, contentDescription = null) },
+                            onClick = { fileMenu = false; serverDialog = true },
+                        )
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(tr("Depuis le téléphone")) },
+                            leadingIcon = { Icon(Icons.Outlined.PhoneAndroid, contentDescription = null) },
+                            onClick = { fileMenu = false; pickFile.launch(arrayOf("*/*")) },
+                        )
+                    }
+                }
+            }
+
             // Ideas while nothing has been asked yet
-            if (result == null && error == null && !busy && request.isBlank()) {
+            if (result == null && error == null && !busy && request.isBlank() && files.isEmpty()) {
                 ChipRow {
                     Idea(tr("Expliquer l'écran")) { withScreen = true; send(tr("Explique ce qui est affiché à l'écran et ce que je dois faire."), true) }
                     Idea(tr("Espace disque")) { send(tr("Montre l'espace disque utilisé et les plus gros dossiers")) }
@@ -266,6 +333,77 @@ internal fun AssistantPanel(
             result?.let { r -> Answer(r, onInsert) }
         }
     }
+
+    if (serverDialog && readRemote != null) ServerFileDialog(
+        host = session.alias,
+        read = readRemote,
+        onDismiss = { serverDialog = false },
+        onRead = { f -> serverDialog = false; files = files.filterNot { it.name == f.name } + f },
+    )
+}
+
+private const val MAX_FILES = 3
+
+@Composable
+private fun FileChip(f: AiFile, onRemove: () -> Unit) {
+    Row(
+        Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).background(Nt.Accent.copy(alpha = 0.12f)).padding(start = 12.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(Icons.Outlined.Description, contentDescription = null, tint = Nt.Accent, modifier = Modifier.size(16.dp))
+        Text(f.name.substringAfterLast('/'), fontSize = 13.sp, color = Nt.Text, fontWeight = FontWeight.Medium, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 160.dp))
+        Text(
+            if (f.cut) tr("%1\$s · coupé", AiFiles.sizeLabel(f.size)) else AiFiles.sizeLabel(f.size),
+            fontSize = 11.sp, color = if (f.cut) Nt.Accent else Nt.Muted,
+        )
+        Box(Modifier.size(28.dp).clip(CircleShape).clickable(role = Role.Button, onClick = onRemove), contentAlignment = Alignment.Center) {
+            Icon(Icons.Outlined.Close, contentDescription = tr("Retirer %1\$s", f.name), tint = Nt.TextSoft, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+/** A path on the connected server, read over SFTP. */
+@Composable
+private fun ServerFileDialog(host: String, read: suspend (String) -> AiFile, onDismiss: () -> Unit, onRead: (AiFile) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var path by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    fun go(p: String = path) {
+        if (p.isBlank() || busy) return
+        busy = true; problem = null
+        scope.launch {
+            runCatching { read(p.trim()) }.onSuccess(onRead).onFailure { problem = it.message ?: tr("Lecture impossible") }
+            busy = false
+        }
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Nt.Surface,
+        title = { Text(tr("Fichier sur %1\$s", host)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                com.nautile.app.ui.common.NtTextField(
+                    path, { path = it }, tr("Chemin"), mono = true, placeholder = "/etc/nginx/nginx.conf",
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                )
+                ChipRow {
+                    listOf("/var/log/syslog", "/etc/hosts", "~/.bashrc", "~/docker-compose.yml").forEach { p -> Idea(p) { path = p; go(p) } }
+                }
+                if (busy) LinearProgressIndicator(color = Nt.Accent, trackColor = Nt.Border, modifier = Modifier.fillMaxWidth())
+                problem?.let { Text(it, color = Nt.Pink, fontSize = 13.sp) }
+                Text(tr("Texte seulement, %1\$s au plus : le début d'un fichier, la fin d'un journal.", AiFiles.sizeLabel(AiFiles.MAX_BYTES.toLong())),
+                    color = Nt.Muted, fontSize = 12.sp)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Annuler"), color = Nt.TextSoft) } },
+        confirmButton = {
+            TextButton(onClick = { go() }, enabled = path.isNotBlank() && !busy) {
+                Text(tr("Joindre"), color = Nt.Accent, fontWeight = FontWeight.SemiBold)
+            }
+        },
+    )
 }
 
 @Composable

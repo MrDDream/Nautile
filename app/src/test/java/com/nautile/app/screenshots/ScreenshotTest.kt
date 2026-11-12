@@ -33,6 +33,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
@@ -249,6 +250,17 @@ class ScreenshotTest {
         }
     }
 
+    @Test fun backupSchedule() {
+        app.backupPrefs.setDestination(com.nautile.app.backup.BackupDestination.Document("content://com.google.android.apps.docs.storage/document/x", "Google Drive › nautile.backup"))
+        app.backupPrefs.setAuto(true)
+        app.backupPrefs.setFrequency(com.nautile.app.backup.BackupFrequency.WEEK)
+        app.backupPrefs.markExported(System.currentTimeMillis() - 3 * 24 * 3_600_000L)
+        compose.setContent { NautileTheme { PhoneFrame { com.nautile.app.ui.settings.SecuritySettingsScreen(onBack = {}, onOpenKnownHosts = {}) } } }
+        idle()
+        compose.onNodeWithText(tr("Pas si la batterie est faible")).performScrollTo()
+        shoot("settings-backup")
+    }
+
     @Test fun aiProvider() {
         compose.setContent {
             NautileTheme {
@@ -324,6 +336,10 @@ class ScreenshotTest {
                             com.nautile.app.ui.terminal.AssistantPanel(
                                 session, screen = { null }, onDismiss = {}, onInsert = { _, _ -> },
                                 initialRequest = tr("Pourquoi papote-api redémarre en boucle ?"),
+                                initialFiles = listOf(
+                                    com.nautile.app.ai.AiFile("/srv/stacks/papote/compose.yml", "", 1_850, cut = false, tail = false),
+                                    com.nautile.app.ai.AiFile("/var/log/syslog", "", 3_400_000, cut = true, tail = true),
+                                ),
                                 initialResult = com.nautile.app.ai.AiAssistant.Suggestion(
                                     "docker logs --tail 50 papote-api && docker inspect -f '{{.State.ExitCode}}' papote-api",
                                     tr("L'API n'arrive pas à joindre **PostgreSQL** sur `10.0.0.31:5432` (ECONNREFUSED) : la base est arrêtée ou n'écoute pas sur cette adresse. Vérifiez le conteneur de la base, puis relancez l'API."),

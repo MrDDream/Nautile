@@ -119,6 +119,7 @@ fun AiSettingsScreen(onBack: () -> Unit) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(tr("✓ Votre demande, l'adresse et le protocole de l'hôte"), fontSize = 13.sp, color = Nt.TextSoft)
                 Text(tr("✓ Les %1\$s dernières lignes du terminal, seulement si « Joindre l'écran » est coché", aiLines), fontSize = 13.sp, color = Nt.TextSoft)
+                Text(tr("✓ Les fichiers que vous joignez (texte, %1\$s au plus chacun)", com.nautile.app.ai.AiFiles.sizeLabel(com.nautile.app.ai.AiFiles.MAX_BYTES.toLong())), fontSize = 13.sp, color = Nt.TextSoft)
                 Text(tr("✕ Jamais vos mots de passe, vos clés ni votre historique"), fontSize = 13.sp, color = Nt.TextSoft)
             }
         }

@@ -435,3 +435,45 @@ Fournisseurs	Providers
 Non configuré	Not set up
 Les fournisseurs activés sont proposés dans l'assistant du terminal ; le dernier utilisé passe en premier. La roue dentée règle la clé, l'adresse et le modèle.	Enabled providers are offered in the terminal assistant; the last one used comes first. The gear sets the key, address and model.
 Configurer %1\$s	Set up %1\$s
+Récurrence	Recurrence
+6 h	6 h
+12 h	12 h
+Heure	Time
+Prochaine sauvegarde : %1\$s	Next backup: %1\$s
+Conditions	Conditions
+Wi-Fi seulement	Wi-Fi only
+Wi-Fi ou mobile	Wi-Fi or mobile
+Fichier sur le téléphone : aucun réseau nécessaire.	File on the phone: no network needed.
+Seulement en charge	Only while charging
+Pas si la batterie est faible	Not when the battery is low
+Si une condition manque à l'heure prévue, Android lance la sauvegarde dès qu'elle est remplie.	If a condition is missing at the planned time, Android runs the backup as soon as it is met.
+La synchronisation passe toutes les heures, quand ces conditions sont remplies.	Synchronisation runs every hour, when these conditions are met.
+Heure de la sauvegarde	Backup time
+OK	OK
+aujourd'hui à %1\$s	today at %1\$s
+demain à %1\$s	tomorrow at %1\$s
+%1\$s à %2\$s	%1\$s at %2\$s
+Activée · %1\$s	On · %1\$s
+toutes les 6 heures	every 6 hours
+toutes les 12 heures	every 12 hours
+chaque jour	every day
+chaque semaine	every week
+chaque mois	every month
+« %1\$s » semble binaire : seuls les fichiers texte peuvent être joints.	“%1\$s” looks binary: only text files can be attached.
+%1\$s o	%1\$s B
+%1\$s Ko	%1\$s KB
+%1\$s Mo	%1\$s MB
+Fichier joint « %1\$s »	Attached file “%1\$s”
+ (fin du fichier, %1\$s sur %2\$s)	 (end of the file, %1\$s of %2\$s)
+ (début du fichier, %1\$s sur %2\$s)	 (start of the file, %1\$s of %2\$s)
+Joindre un fichier	Attach a file
+Depuis le serveur (%1\$s)	From the server (%1\$s)
+Depuis le téléphone	From the phone
+%1\$s · coupé	%1\$s · trimmed
+Retirer %1\$s	Remove %1\$s
+Lecture impossible	Cannot read the file
+Fichier sur %1\$s	File on %1\$s
+Chemin	Path
+Texte seulement, %1\$s au plus : le début d'un fichier, la fin d'un journal.	Text only, %1\$s at most: the start of a file, the end of a log.
+Joindre	Attach
+✓ Les fichiers que vous joignez (texte, %1\$s au plus chacun)	✓ The files you attach (text, %1\$s at most each)

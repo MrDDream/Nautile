@@ -305,7 +305,7 @@ fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
                             when {
                                 destination == null -> tr("Choisissez d'abord une destination")
                                 syncOn -> tr("La synchronisation met le fichier à jour à chaque modification")
-                                auto -> tr("Une fois par %1\$s, en Wi-Fi, batterie suffisante", frequencyWord(frequency))
+                                auto -> tr("Activée · %1\$s", frequencyLabel(frequency))
                                 else -> tr("Seulement quand vous le demandez")
                             },
                             color = Nt.Muted, fontSize = 12.sp,
@@ -323,10 +323,8 @@ fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
                         colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Nt.Accent, uncheckedTrackColor = Nt.Toggle),
                     )
                 }
-                if (auto) Segmented(
-                    listOf(BackupFrequency.DAY to tr("Jour"), BackupFrequency.WEEK to tr("Semaine"), BackupFrequency.MONTH to tr("Mois")),
-                    frequency, { prefs.setFrequency(it); reschedule() },
-                )
+                if ((auto || syncOn) && destination != null)
+                    BackupSchedule(prefs, scheduleShown = auto && !syncOn, needsNetwork = !AutoBackup.isLocal(destination!!), onChange = ::reschedule)
 
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
@@ -405,8 +403,12 @@ fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
     }
 }
 
-private fun frequencyWord(f: BackupFrequency) = when (f) {
-    BackupFrequency.DAY -> tr("jour"); BackupFrequency.WEEK -> tr("semaine"); BackupFrequency.MONTH -> tr("mois")
+private fun frequencyLabel(f: BackupFrequency) = when (f) {
+    BackupFrequency.HOURS_6 -> tr("toutes les 6 heures")
+    BackupFrequency.HOURS_12 -> tr("toutes les 12 heures")
+    BackupFrequency.DAY -> tr("chaque jour")
+    BackupFrequency.WEEK -> tr("chaque semaine")
+    BackupFrequency.MONTH -> tr("chaque mois")
 }
 
 @Composable
