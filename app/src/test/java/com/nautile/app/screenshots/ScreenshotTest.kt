@@ -214,6 +214,17 @@ class ScreenshotTest {
         shoot("terminal")
     }
 
+    @Test fun terminalDisplay() {
+        val session = fakeSession()
+        compose.setContent { NautileTheme { PhoneFrame { TerminalScreen(1, onBack = {}, onNewSession = {}, onSftp = {}, onMonitor = {}) } } }
+        idle()
+        repeat(20) { if (session.terminal.emulator == null) idle() }
+        val bytes = SCREEN.replace("\n", "\r\n").toByteArray()
+        session.terminal.feed(bytes, 0, bytes.size)
+        compose.onNodeWithContentDescription(tr("Affichage")).performClick()
+        shoot("terminal-display")
+    }
+
     companion object {
         private const val E = "\u001b["
         private val PROMPT = "${E}38;5;16;48;5;214m  docker-01 ${E}38;5;214;48;5;67m${E}38;5;255;48;5;67m  ~/stacks ${E}0;38;5;67m${E}0m "

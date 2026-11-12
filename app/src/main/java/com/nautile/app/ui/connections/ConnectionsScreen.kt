@@ -20,6 +20,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.Close
+import com.nautile.app.ui.common.HostAvatar
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.Lan
@@ -81,7 +84,9 @@ fun ConnectionsScreen(
     val terminals by app.sessions.sessions.collectAsState()
     val desktops by app.sessions.rdp.list.collectAsState()
     val history by remember { dao.observeConnections() }.collectAsState(initial = emptyList())
-    val savedIds by remember { app.hostRepository.hosts }.collectAsState(initial = emptyList())
+    val hosts by remember { app.hostRepository.hosts }.collectAsState(initial = emptyList())
+    val byId = hosts.associateBy { it.id }
+    var query by rememberSaveable { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     var confirmClear by remember { mutableStateOf(false) }
     val open = terminals.size + desktops.size
@@ -101,8 +106,9 @@ fun ConnectionsScreen(
                 terminals.forEachIndexed { i, s ->
                     if (i > 0) HorizontalDivider(color = Nt.Border)
                     val state by s.state.collectAsState()
+                    val host = byId[s.hostId]
                     SessionRow(
-                        icon = if (s.protocolLabel == tr("local")) Icons.Outlined.PhoneAndroid else Icons.Outlined.Terminal,
+                        avatar = { Avatar(host?.osId ?: (if (s.protocolLabel == tr("local")) "android" else null), s.alias, host?.color, Icons.Outlined.Terminal) },
                         title = s.alias, detail = "${s.address} · ${s.protocolLabel}", state = state,
                         onOpen = { onOpenTerminal(s.id) }, onClose = { app.sessions.close(s) },
                     )
@@ -110,7 +116,10 @@ fun ConnectionsScreen(
                 desktops.forEachIndexed { i, d ->
                     if (i > 0 || terminals.isNotEmpty()) HorizontalDivider(color = Nt.Border)
                     val state by d.state.collectAsState()
-                    SessionRow(Icons.Outlined.DesktopWindows, d.alias, "${d.address} · rdp", state, onOpen = { onOpenDesktop(d.id) }, onClose = { app.sessions.rdp.close(d) })
+                    SessionRow(
+                        { Avatar(byId[d.hostId]?.osId ?: "windows", d.alias, byId[d.hostId]?.color, Icons.Outlined.DesktopWindows) },
+                        d.alias, "${d.address} · rdp", state, onOpen = { onOpenDesktop(d.id) }, onClose = { app.sessions.rdp.close(d) },
+                    )
                 }
             }
         }
@@ -125,16 +134,36 @@ fun ConnectionsScreen(
             Text(tr("Vos connexions apparaîtront ici, y compris les connexions rapides tapées dans la recherche des hôtes."),
                 color = Nt.Muted, fontSize = 13.sp, textAlign = TextAlign.Start)
         }
-        val byDay = history.groupBy { dayLabel(it.at) }
+        if (history.size > 3) item {
+            androidx.compose.material3.OutlinedTextField(
+                value = query, onValueChange = { query = it }, singleLine = true,
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = Nt.Muted) },
+                trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, contentDescription = tr("Effacer la recherche"), tint = Nt.Muted) } },
+                placeholder = { Text(tr("Rechercher dans l'historique"), color = Nt.Placeholder, fontSize = 14.sp, maxLines = 1) },
+                shape = RoundedCornerShape(14.dp),
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = Nt.Surface, focusedContainerColor = Nt.Surface,
+                    unfocusedBorderColor = Nt.Border, focusedBorderColor = Nt.Accent, cursorColor = Nt.Accent,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        val q = query.trim()
+        val shown = if (q.isEmpty()) history else history.filter { e ->
+            listOf(e.alias, e.hostname, e.username, "${e.username}@${e.hostname}", e.protocol.name).any { it.contains(q, ignoreCase = true) }
+        }
+        if (q.isNotEmpty() && shown.isEmpty()) item { Text(tr("Aucune connexion ne correspond à « %1\$s ».", q), color = Nt.Muted, fontSize = 13.sp) }
+        val byDay = shown.groupBy { dayLabel(it.at) }
         byDay.forEach { (day, entries) ->
             item(key = "day-$day") { Text(day, color = Nt.Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp)) }
             item(key = "list-$day") {
                 NtCard {
                     entries.forEachIndexed { i, e ->
                         if (i > 0) HorizontalDivider(color = Nt.Border)
-                        val saved = e.hostId != null && savedIds.any { it.id == e.hostId }
+                        val host = e.hostId?.let(byId::get)
+                        val saved = host != null
                         HistoryRow(
-                            e, saved,
+                            e, saved, host?.osId ?: if (e.protocol == Protocol.RDP) "windows" else null, host?.color,
                             onOpen = {
                                 if (saved) onConnect(e.hostId!!)
                                 else onQuickConnect(QuickTarget(e.protocol, e.username, e.hostname, e.port))
@@ -158,7 +187,7 @@ fun ConnectionsScreen(
 }
 
 @Composable
-private fun SessionRow(icon: ImageVector, title: String, detail: String, state: SessionState, onOpen: () -> Unit, onClose: () -> Unit) {
+private fun SessionRow(avatar: @Composable () -> Unit, title: String, detail: String, state: SessionState, onOpen: () -> Unit, onClose: () -> Unit) {
     val (color, label) = when (state) {
         SessionState.Connected -> Nt.Green to tr("connecté")
         is SessionState.Connecting -> Nt.Accent to tr("connexion…")
@@ -168,7 +197,7 @@ private fun SessionRow(icon: ImageVector, title: String, detail: String, state: 
         Modifier.fillMaxWidth().combinedClickableCompat(onOpen).padding(start = 14.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Tile(icon, Nt.Accent)
+        avatar()
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -182,7 +211,7 @@ private fun SessionRow(icon: ImageVector, title: String, detail: String, state: 
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HistoryRow(e: ConnectionLog, saved: Boolean, onOpen: () -> Unit, onSave: () -> Unit, onRemove: () -> Unit) {
+private fun HistoryRow(e: ConnectionLog, saved: Boolean, osId: String?, color: Long?, onOpen: () -> Unit, onSave: () -> Unit, onRemove: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     val address = buildString {
         if (e.username.isNotEmpty()) append(e.username).append('@')
@@ -196,7 +225,7 @@ private fun HistoryRow(e: ConnectionLog, saved: Boolean, onOpen: () -> Unit, onS
                 .padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Tile(protocolIcon(e.protocol), if (saved) Nt.Blue else Nt.TextSoft)
+            Avatar(osId, e.alias, color.takeIf { saved }, protocolIcon(e.protocol))
             Column(Modifier.weight(1f)) {
                 Text(e.alias, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
@@ -212,6 +241,13 @@ private fun HistoryRow(e: ConnectionLog, saved: Boolean, onOpen: () -> Unit, onS
             DropdownMenuItem(text = { Text(tr("Retirer de l'historique")) }, leadingIcon = { Icon(Icons.Outlined.Delete, null) }, onClick = { menu = false; onRemove() })
         }
     }
+}
+
+/** The host's OS logo when known (as in the hosts list), else its initial in its colour, else the protocol icon. */
+@Composable
+private fun Avatar(osId: String?, name: String, color: Long?, fallback: ImageVector) {
+    if (osId != null || color != null) HostAvatar(osId, name.take(1).uppercase(), color?.let { Color(it) } ?: Nt.TextSoft, size = 38.dp, corner = 10.dp)
+    else Tile(fallback, Nt.TextSoft)
 }
 
 @Composable

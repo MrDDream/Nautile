@@ -352,3 +352,12 @@ Ce mot de passe ne déchiffre pas le fichier existant : utilisez celui choisi su
 Conflit d'écriture répété avec un autre appareil	Repeated write conflict with another device
 Le mot de passe ne déchiffre pas le fichier de synchronisation	The password does not decrypt the sync file
 Hôte ou user@ip	Host or user@ip
+Aucun résultat pour « %1\$s »	No result for “%1\$s”
+Taille du texte : %1\$s	Text size: %1\$s
+Curseur bloc	Block cursor
+Curseur barre	Bar cursor
+Curseur souligné	Underline cursor
+COULEURS	COLOURS
+POLICE	FONT
+Rechercher dans l'historique	Search the history
+Aucune connexion ne correspond à « %1\$s ».	No connection matches “%1\$s”.

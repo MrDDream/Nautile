@@ -56,6 +56,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -86,7 +89,7 @@ class KeyTarget(
     fun isActive(def: KeyDef) = (def.action == KeyAction.Ctrl && modifiers.ctrl) || (def.action == KeyAction.Alt && modifiers.alt)
 }
 
-private enum class PanelTab(val label: String) { KEYS(tr("Touches")), SNIPPETS(tr("Snippets")), HISTORY(tr("Historique")), THEMES(tr("Thèmes")) }
+private enum class PanelTab(val label: String) { KEYS(tr("Touches")), SNIPPETS(tr("Snippets")), HISTORY(tr("Historique")), THEMES(tr("Affichage")) }
 
 /**
  * The accessory keyboard: a scrollable row of favourite keys and a tab strip, always shown above the
@@ -312,43 +315,128 @@ private fun Key(def: KeyDef, target: KeyTarget, modifier: Modifier) {
 }
 
 
+/** A list for the panel, with a search field once there is something to search. */
 @Composable
 private fun <T> SimpleList(items: List<T>, empty: String, title: (T) -> String, subtitle: (T) -> String?, onClick: (T) -> Unit) {
     if (items.isEmpty()) { Text(empty, color = Nt.Muted, modifier = Modifier.padding(20.dp)); return }
-    LazyColumn(Modifier.fillMaxSize()) {
-        items(items) { item ->
-            Column(Modifier.fillMaxWidth().clickable { onClick(item) }.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                Text(title(item), fontFamily = Nt.Mono, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                subtitle(item)?.let { Text(it, fontSize = 11.sp, color = Nt.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val q = query.trim()
+    val shown = if (q.isEmpty()) items else items.filter { title(it).contains(q, true) || subtitle(it)?.contains(q, true) == true }
+    Column(Modifier.fillMaxSize()) {
+        if (items.size > 3) androidx.compose.material3.OutlinedTextField(
+            value = query, onValueChange = { query = it }, singleLine = true,
+            leadingIcon = { Icon(androidx.compose.material.icons.Icons.Outlined.Search, contentDescription = null, tint = Nt.Muted) },
+            trailingIcon = {
+                if (query.isNotEmpty()) androidx.compose.material3.IconButton(onClick = { query = "" }) {
+                    Icon(androidx.compose.material.icons.Icons.Outlined.Close, contentDescription = tr("Effacer la recherche"), tint = Nt.Muted)
+                }
+            },
+            placeholder = { Text(tr("Rechercher"), color = Nt.Placeholder, fontSize = 13.sp) },
+            textStyle = androidx.compose.ui.text.TextStyle(fontFamily = Nt.Mono, fontSize = 13.sp, color = Nt.Text),
+            shape = RoundedCornerShape(12.dp),
+            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = Nt.Surface, focusedContainerColor = Nt.Surface,
+                unfocusedBorderColor = Nt.Border, focusedBorderColor = Nt.Accent, cursorColor = Nt.Accent,
+            ),
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 4.dp),
+        )
+        if (shown.isEmpty()) Text(tr("Aucun résultat pour « %1\$s »", q), color = Nt.Muted, modifier = Modifier.padding(20.dp))
+        LazyColumn(Modifier.fillMaxSize()) {
+            items(shown) { item ->
+                Column(Modifier.fillMaxWidth().clickable { onClick(item) }.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Text(title(item), fontFamily = Nt.Mono, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    subtitle(item)?.let { Text(it, fontSize = 11.sp, color = Nt.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                }
+            }
+        }
+    }
+}
+
+/** Display settings at hand while typing: size and cursor, colours, font. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun ThemesTab(prefs: TerminalPrefs) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val theme by prefs.theme.collectAsState()
+    val custom by prefs.customThemes.collectAsState()
+    val size by prefs.fontSize.collectAsState()
+    val cursor by prefs.cursorStyle.collectAsState()
+    val font by prefs.font.collectAsState()
+    val imported by prefs.importedFonts.collectAsState()
+    val sp = (size / density.fontScale / density.density).toInt()
+    val step = with(density) { 1.sp.toPx() }.toInt().coerceAtLeast(1)
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StepButton("A−", tr("Réduire"), enabled = size - step >= TerminalPrefs.MIN_FONT) { prefs.setFontSize(size - step) }
+            Text("$sp", fontFamily = Nt.Mono, fontSize = 15.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.width(32.dp)
+                .semantics { contentDescription = tr("Taille du texte : %1\$s", sp) })
+            StepButton("A+", tr("Agrandir"), enabled = size + step <= TerminalPrefs.MAX_FONT) { prefs.setFontSize(size + step) }
+            Box(Modifier.weight(1f))
+            listOf(0 to "█", 2 to "▏", 1 to "▁").forEach { (style, glyph) ->
+                val on = cursor == style
+                Surface(
+                    onClick = { prefs.setCursorStyle(style) }, shape = RoundedCornerShape(10.dp),
+                    color = if (on) Nt.Accent.copy(alpha = 0.16f) else KeyBg, border = BorderStroke(1.dp, if (on) Nt.Accent else Nt.Border),
+                    modifier = Modifier.size(40.dp).semantics {
+                        contentDescription = when (style) { 0 -> tr("Curseur bloc"); 2 -> tr("Curseur barre"); else -> tr("Curseur souligné") }
+                        selected = on
+                    },
+                ) { Box(contentAlignment = Alignment.Center) { Text(glyph, fontFamily = Nt.Mono, fontSize = 16.sp, color = if (on) Nt.Accent else Nt.TextSoft) } }
+            }
+        }
+
+        Text(tr("COULEURS"), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = Nt.Muted)
+        (TerminalThemes.builtIn + custom).chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { t ->
+                    val on = t.id == theme.id
+                    Surface(
+                        onClick = { prefs.setTheme(t) }, shape = RoundedCornerShape(12.dp), color = Color(t.background),
+                        border = BorderStroke(if (on) 2.dp else 1.dp, if (on) Nt.Accent else Nt.Border),
+                        modifier = Modifier.weight(1f).semantics { selected = on },
+                    ) {
+                        Column(Modifier.padding(horizontal = 10.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(t.name, color = Color(t.foreground), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                t.ansi.subList(1, 7).forEach { c -> Box(Modifier.size(9.dp).background(Color(c), RoundedCornerShape(2.dp))) }
+                            }
+                        }
+                    }
+                }
+                repeat(3 - row.size) { Box(Modifier.weight(1f)) }
+            }
+        }
+
+        Text(tr("POLICE"), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = Nt.Muted)
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            (com.nautile.app.session.TerminalFonts.builtIn + imported).forEach { f ->
+                val on = f.id == font.id
+                val family = androidx.compose.runtime.remember(f.id) {
+                    androidx.compose.ui.text.font.FontFamily(com.nautile.app.session.TerminalFonts.typeface(context, f))
+                }
+                Surface(
+                    onClick = { prefs.setFont(f) }, shape = RoundedCornerShape(10.dp),
+                    color = if (on) Nt.Accent.copy(alpha = 0.16f) else KeyBg, border = BorderStroke(1.dp, if (on) Nt.Accent else Nt.Border),
+                    modifier = Modifier.height(38.dp).semantics { selected = on },
+                ) {
+                    Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            if (f.id == com.nautile.app.session.TerminalFonts.SYSTEM_ID) tr("Système") else f.name,
+                            fontFamily = family, fontSize = 13.sp, color = if (on) Nt.Accent else Nt.Text, maxLines = 1,
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ThemesTab(prefs: TerminalPrefs) {
-    val theme by prefs.theme.collectAsState()
-    val size by prefs.fontSize.collectAsState()
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TerminalThemes.all.forEach { t ->
-                val on = t.id == theme.id
-                Surface(onClick = { prefs.setTheme(t) }, shape = RoundedCornerShape(12.dp), color = Color(t.background),
-                    border = BorderStroke(if (on) 2.dp else 1.dp, if (on) Nt.Accent else Nt.Border)) {
-                    Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(t.name, color = Color(t.foreground), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                            t.ansi.subList(1, 7).forEach { c -> Box(Modifier.size(10.dp).background(Color(c), RoundedCornerShape(2.dp))) }
-                        }
-                    }
-                }
-            }
-        }
-        Text(tr("Taille du texte · %1\$spx", size), color = Nt.TextSoft, fontSize = 13.sp)
-        Slider(
-            value = size.toFloat(), onValueChange = { prefs.setFontSize(it.toInt()) },
-            valueRange = TerminalPrefs.MIN_FONT.toFloat()..TerminalPrefs.MAX_FONT.toFloat(),
-            colors = SliderDefaults.colors(thumbColor = Nt.Accent, activeTrackColor = Nt.Accent),
-        )
-    }
+private fun StepButton(label: String, description: String, enabled: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick, enabled = enabled, shape = RoundedCornerShape(10.dp), color = KeyBg, border = BorderStroke(1.dp, Nt.Border),
+        modifier = Modifier.size(40.dp).semantics { contentDescription = description },
+    ) { Box(contentAlignment = Alignment.Center) { Text(label, fontSize = 14.sp, color = if (enabled) Nt.Text else Nt.Muted) } }
 }
