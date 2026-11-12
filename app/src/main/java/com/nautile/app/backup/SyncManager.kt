@@ -48,7 +48,7 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
         _running.value = true
         try {
             val pw = password ?: prefs.password() ?: error(tr("Mot de passe de sauvegarde non enregistré"))
-            val dest = prefs.destination.value ?: error(tr("Aucune destination choisie"))
+            val dest = prefs.syncTarget ?: error(tr("Aucun emplacement de synchronisation choisi"))
             val merge = SyncMerge(app.database)
             var attempt = 0
             while (true) {
@@ -95,14 +95,14 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
 
     /** Whether the destination already holds a file (another device set it up). */
     suspend fun remoteExists(): Boolean = withContext(Dispatchers.IO) {
-        val dest = prefs.destination.value ?: return@withContext false
+        val dest = prefs.syncTarget ?: return@withContext false
         runCatching { BackupStores.of(app, dest, prefs).read().text != null }.getOrDefault(false)
     }
 
     /** Checks [password] against the existing remote file. */
     suspend fun checkPassword(password: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val dest = prefs.destination.value ?: error(tr("Aucune destination choisie"))
+            val dest = prefs.syncTarget ?: error(tr("Aucun emplacement de synchronisation choisi"))
             val text = BackupStores.of(app, dest, prefs).read().text ?: return@runCatching
             withContext(Dispatchers.Default) { BackupCodec.import(text, password) }
             Unit

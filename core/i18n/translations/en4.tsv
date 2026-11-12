@@ -665,3 +665,34 @@ Recherche des appareils Nautile sur le réseau… Sur l'autre, affichez un code.
 Code affiché sur %1\$s :	Code shown on %1\$s:
 Code à 6 chiffres	6-digit code
 Association impossible	Pairing failed
+Fichier	File
+%1\$s · %2\$s %3\$s	%1\$s · %2\$s %3\$s
+jamais	never
+Synchronisé · %1\$s	Synced · %1\$s
+Manuelle · %1\$s	Manual · %1\$s
+Réglages de cet emplacement	Settings for this location
+Dernière tentative : %1\$s	Last attempt: %1\$s
+Ce fichier est celui de la synchronisation : il est mis à jour à chaque modification, pas sur un horaire.	This is the sync file: it is updated on every change, not on a schedule.
+Sauvegarder ici maintenant	Back up here now
+Modifier l'accès	Change access
+Utiliser pour la synchronisation	Use for sync
+Retirer cet emplacement	Remove this location
+Le fichier déjà envoyé reste en place ; Nautile n'y écrira plus.	The file already sent stays there; Nautile will no longer write to it.
+Confirmer le retrait	Confirm removal
+La première sauvegarde demandera un mot de passe : il chiffre le fichier et sera nécessaire pour restaurer.	The first backup will ask for a password: it encrypts the file and will be needed to restore.
+Ajouter un emplacement	Add a location
+Ajoutez d'abord un emplacement ci-dessous : son fichier sera partagé entre vos appareils.	First add a location below: its file will be shared between your devices.
+Sauvegarde envoyée vers %1\$s emplacements	Backup sent to %1\$s locations
+Fichier partagé	Shared file
+À choisir	Not chosen
+Sur chaque appareil : le même emplacement et le même mot de passe. Pour Google Drive ou OneDrive, choisissez « Fichier existant » sur le deuxième appareil.	On every device: the same location and the same password. For Google Drive or OneDrive, choose “Existing file” on the second device.
+Emplacements	Locations
+Google Drive, OneDrive, un dossier (Syncthing), Nextcloud ou un stockage S3 : ajoutez-en autant que vous voulez, chacun avec sa planification.	Google Drive, OneDrive, a folder (Syncthing), Nextcloud or S3 storage: add as many as you like, each with its own schedule.
+Sauvegarder partout	Back up everywhere
+Les %1\$s dernières sauvegardes restent aussi sur ce téléphone ; Nextcloud, S3 et les dossiers gardent les précédentes à côté (nautile.backup.1 à .4).	The last %1\$s backups also stay on this phone; Nextcloud, S3 and folders keep the previous ones alongside (nautile.backup.1 to .4).
+Tous vos appareils doivent utiliser le même fichier.	All your devices must use the same file.
+Aucun emplacement de synchronisation choisi	No sync location chosen
+Aucun emplacement de sauvegarde	No backup location
+USB série · %1\$s bauds	USB serial · %1\$s baud
+Aucune — connexion directe	None — direct connection
+ce téléphone	this phone

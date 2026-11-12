@@ -261,15 +261,39 @@ class ScreenshotTest {
         }
     }
 
+    private fun demoTargets(): List<com.nautile.app.backup.BackupTarget> {
+        val p = app.backupPrefs
+        val week = 7 * 24 * 3_600_000L
+        val drive = p.addTarget(com.nautile.app.backup.BackupDestination.Document("content://com.google.android.apps.docs.storage/document/x", "Google Drive › nautile.backup"))
+        p.updateTarget(drive.copy(auto = true, frequency = com.nautile.app.backup.BackupFrequency.WEEK, last = System.currentTimeMillis() - 3 * 24 * 3_600_000L))
+        val nas = p.addTarget(com.nautile.app.backup.BackupDestination.S3("s3.eu-central-003.backblazeb2.com", "eu-central-003", "nautile-perso", "nautile.backup", "k"))
+        p.updateTarget(nas.copy(auto = true, frequency = com.nautile.app.backup.BackupFrequency.DAY, time = 2 * 60, last = System.currentTimeMillis() - 5 * 3_600_000L))
+        val folder = p.addTarget(com.nautile.app.backup.BackupDestination.Folder("content://com.android.externalstorage.documents/tree/primary%3ASync", "Téléphone › Sync"))
+        p.updateTarget(folder.copy(last = System.currentTimeMillis() - week))
+        p.markExported(System.currentTimeMillis() - 5 * 3_600_000L)
+        return p.targets.value
+    }
+
     @Test fun backupSchedule() {
-        app.backupPrefs.setDestination(com.nautile.app.backup.BackupDestination.Document("content://com.google.android.apps.docs.storage/document/x", "Google Drive › nautile.backup"))
-        app.backupPrefs.setAuto(true)
-        app.backupPrefs.setFrequency(com.nautile.app.backup.BackupFrequency.WEEK)
-        app.backupPrefs.markExported(System.currentTimeMillis() - 3 * 24 * 3_600_000L)
+        demoTargets()
         compose.setContent { NautileTheme { PhoneFrame { com.nautile.app.ui.settings.BackupSettingsScreen(onBack = {}) } } }
         idle()
-        compose.onNodeWithText(tr("Seulement en charge")).performScrollTo()
+        compose.onNodeWithText(tr("Ajouter un emplacement")).performScrollTo()
         shoot("settings-backup")
+    }
+
+    @Test fun backupTarget() {
+        val t = demoTargets().first()
+        compose.setContent {
+            NautileTheme {
+                PhoneFrame {
+                    SheetOver({ com.nautile.app.ui.settings.BackupSettingsScreen(onBack = {}) }) {
+                        com.nautile.app.ui.settings.TargetSheetContent(t, synced = false, hasPassword = true, busy = false, {}, {}, {}, {}, {}, {}, {})
+                    }
+                }
+            }
+        }
+        shoot("settings-backup-target")
     }
 
     @Test fun snippetEditor() {

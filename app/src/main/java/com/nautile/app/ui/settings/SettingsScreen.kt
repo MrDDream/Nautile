@@ -104,7 +104,8 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
     val touch by rdp.touchMode.collectAsState()
     val quality by rdp.quality.collectAsState()
     val lastBackup by app.backupPrefs.lastExport.collectAsState()
-    val autoBackup by app.backupPrefs.auto.collectAsState()
+    val backupTargets by app.backupPrefs.targets.collectAsState()
+    val autoBackup = backupTargets.any { it.auto }
     val syncOn by app.backupPrefs.syncEnabled.collectAsState()
     val lastSync by app.backupPrefs.lastSync.collectAsState()
     val density = LocalDensity.current

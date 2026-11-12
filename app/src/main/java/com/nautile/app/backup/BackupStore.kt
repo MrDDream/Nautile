@@ -34,10 +34,10 @@ interface BackupStore {
 object BackupStores {
     private val http by lazy { OkHttpClient.Builder().callTimeout(2, TimeUnit.MINUTES).build() }
 
-    fun of(context: Context, dest: BackupDestination, prefs: BackupPrefs): BackupStore = when (dest) {
+    fun of(context: Context, target: BackupTarget, prefs: BackupPrefs): BackupStore = when (val dest = target.dest) {
         is BackupDestination.Document -> DocumentStore(context, Uri.parse(dest.uri))
-        is BackupDestination.WebDav -> WebDavStore(dest.url, dest.username, prefs.webDavPassword().orEmpty(), http)
-        is BackupDestination.S3 -> S3Store(S3Client(dest.endpoint, dest.region, dest.bucket, dest.accessKey, prefs.s3Secret().orEmpty(), http), dest.key)
+        is BackupDestination.WebDav -> WebDavStore(dest.url, dest.username, prefs.secret(target.id).orEmpty(), http)
+        is BackupDestination.S3 -> S3Store(S3Client(dest.endpoint, dest.region, dest.bucket, dest.accessKey, prefs.secret(target.id).orEmpty(), http), dest.key)
         is BackupDestination.Folder -> FolderStore(context, Uri.parse(dest.treeUri), AutoBackup.FILE_NAME)
     }
 

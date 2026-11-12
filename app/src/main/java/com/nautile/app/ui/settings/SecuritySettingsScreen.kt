@@ -8,6 +8,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
@@ -75,6 +79,7 @@ import com.nautile.app.backup.AutoBackup
 import com.nautile.app.backup.BackupDestination
 import com.nautile.app.backup.BackupFrequency
 import com.nautile.app.backup.BackupPrefs
+import com.nautile.app.backup.BackupTarget
 import com.nautile.app.ui.common.NtCard
 import com.nautile.app.ui.common.NtTextField
 import com.nautile.app.ui.common.SectionLabel
@@ -94,7 +99,7 @@ fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
     SettingsPage(tr("Sécurité"), onBack) { LockSection(onOpenKnownHosts) }
 }
 
-/** « Sauvegarde et synchro »: synchronisation, backup destination and schedule, export/import. */
+/** « Sauvegarde et synchro »: synchronisation, backup places (each with its schedule), export/import. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun BackupSettingsScreen(onBack: () -> Unit) {
@@ -102,27 +107,36 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
     val prefs = app.backupPrefs
     val scope = rememberCoroutineScope()
     val last by prefs.lastExport.collectAsState()
-    val lastError by prefs.lastError.collectAsState()
-    val destination by prefs.destination.collectAsState()
-    val auto by prefs.auto.collectAsState()
-    val frequency by prefs.frequency.collectAsState()
+    val targets by prefs.targets.collectAsState()
+    val syncTargetId by prefs.syncTargetId.collectAsState()
     val hasPassword by prefs.hasPassword.collectAsState()
     val stale = BackupPrefs.isStale(last)
+    val anyError = targets.firstOrNull { it.error != null }
 
     var ask by remember { mutableStateOf<Ask?>(null) }
+    /** The place whose automatic backup waits for a password. */
+    var autoFor by remember { mutableStateOf<String?>(null) }
     var pendingPassword by remember { mutableStateOf("") }
     var importText by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var webDavDialog by remember { mutableStateOf(false) }
-    var s3Dialog by remember { mutableStateOf(false) }
-    var documentMenu by remember { mutableStateOf(false) }
+    /** WebDAV / S3 dialog: adding (null target) or changing the access of a place. */
+    var webDavDialog by remember { mutableStateOf<BackupTarget?>(null) }
+    var webDavNew by remember { mutableStateOf(false) }
+    var s3Dialog by remember { mutableStateOf<BackupTarget?>(null) }
+    var s3New by remember { mutableStateOf(false) }
+    var adding by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<String?>(null) }
+    var choosingSync by remember { mutableStateOf(false) }
     val syncOn by prefs.syncEnabled.collectAsState()
     val lastSync by prefs.lastSync.collectAsState()
     val syncError by prefs.syncError.collectAsState()
     val devices by prefs.devices.collectAsState()
     val syncing by app.sync.running.collectAsState()
     var syncInfo by remember { mutableStateOf(false) }
+    val syncTarget = targets.firstOrNull { it.id == syncTargetId }
+
+    fun reschedule() = AutoBackup.schedule(app)
 
     fun syncNow(password: String? = null) {
         scope.launch {
@@ -132,62 +146,59 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
 
     /** Turns synchronisation on: join the existing file (its password) or start one (a new password). */
     fun enableSync() {
-        if (destination == null) { status = tr("Choisissez d'abord une destination (Google Drive, OneDrive ou Nextcloud)."); return }
+        if (targets.isEmpty()) { status = tr("Ajoutez d'abord un emplacement ci-dessous : son fichier sera partagé entre vos appareils."); return }
+        if (syncTarget == null) prefs.setSyncTarget(targets.first().id)
         busy = true
         scope.launch {
             val exists = app.sync.remoteExists()
             val stored = prefs.password()
             busy = false
             when {
-                stored != null && (!exists || app.sync.checkPassword(stored).isSuccess) -> { prefs.setSyncEnabled(true); AutoBackup.schedule(app); syncNow() }
+                stored != null && (!exists || app.sync.checkPassword(stored).isSuccess) -> { prefs.setSyncEnabled(true); reschedule(); syncNow() }
                 exists -> ask = Ask.JOIN_SYNC
                 else -> ask = Ask.START_SYNC
             }
         }
     }
 
-    fun reschedule() = AutoBackup.schedule(app)
-
-    fun backupNow(password: String?) {
+    /** To [targetId], or everywhere. */
+    fun backupNow(targetId: String?, password: String?) {
         busy = true; status = null
         scope.launch {
-            status = AutoBackup.run(app, password).fold({ tr("Sauvegarde envoyée") }, { tr("Échec : %1\$s", it.message) })
+            status = AutoBackup.run(app, targetId, password).fold(
+                { if (targetId == null && targets.size > 1) tr("Sauvegarde envoyée vers %1\$s emplacements", targets.size) else tr("Sauvegarde envoyée") },
+                { tr("Échec : %1\$s", it.message) },
+            )
             busy = false
         }
     }
 
-    val pickExisting = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    fun added(t: BackupTarget) {
+        reschedule()
+        status = null
+        editing = t.id
+    }
+
+    fun persist(uri: Uri, onFail: String, dest: () -> BackupDestination) {
         runCatching {
             app.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        }.onFailure { status = tr("Ce fichier ne peut pas être modifié par Nautile : choisissez-en un autre") }
-            .onSuccess {
-                prefs.setDestination(BackupDestination.Document(uri.toString(), AutoBackup.describe(app, uri)))
-                reschedule()
-                status = tr("Fichier choisi : activez la synchronisation pour le rejoindre.")
-            }
+        }.onFailure { status = onFail }.onSuccess { added(prefs.addTarget(dest())) }
+    }
+
+    val pickExisting = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) persist(uri, tr("Ce fichier ne peut pas être modifié par Nautile : choisissez-en un autre")) {
+            BackupDestination.Document(uri.toString(), AutoBackup.describe(app, uri))
+        }
     }
     val pickDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        runCatching {
-            app.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        }.onFailure { status = tr("Ce stockage ne permet pas d'y revenir plus tard : choisissez-en un autre") }
-            .onSuccess {
-                prefs.setDestination(BackupDestination.Document(uri.toString(), AutoBackup.describe(app, uri)))
-                reschedule()
-                status = null
-            }
+        if (uri != null) persist(uri, tr("Ce stockage ne permet pas d'y revenir plus tard : choisissez-en un autre")) {
+            BackupDestination.Document(uri.toString(), AutoBackup.describe(app, uri))
+        }
     }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        runCatching {
-            app.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        }.onFailure { status = tr("Ce dossier ne permet pas d'y revenir plus tard : choisissez-en un autre") }
-            .onSuccess {
-                prefs.setDestination(BackupDestination.Folder(uri.toString(), AutoBackup.describeFolder(app, uri)))
-                reschedule()
-                status = null
-            }
+        if (uri != null) persist(uri, tr("Ce dossier ne permet pas d'y revenir plus tard : choisissez-en un autre")) {
+            BackupDestination.Folder(uri.toString(), AutoBackup.describeFolder(app, uri))
+        }
     }
     val exportFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val pw = pendingPassword; pendingPassword = ""
@@ -258,7 +269,20 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
                         }
                     }
                 }
-                SyncOptions(prefs, needsNetwork = destination?.let { !AutoBackup.isLocal(it) } ?: true, onChange = ::reschedule)
+                // Which place holds the shared file.
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Nt.Bg).clickable { choosingSync = true }.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(destinationIcon(syncTarget?.dest), contentDescription = null, tint = Nt.TextSoft, modifier = Modifier.size(20.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(tr("Fichier partagé"), fontSize = 12.sp, color = Nt.Muted)
+                        Text(syncTarget?.let { destinationLabel(it.dest) } ?: tr("À choisir"), fontSize = 13.sp, color = Nt.Text, fontFamily = Nt.Mono,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = Nt.Muted)
+                }
+                SyncOptions(prefs, needsNetwork = syncTarget?.let { !AutoBackup.isLocal(it.dest) } ?: true, onChange = ::reschedule)
                 OutlinedButton(onClick = { syncNow() }, enabled = !syncing, modifier = Modifier.fillMaxWidth().height(42.dp)) {
                     Icon(Icons.Outlined.Sync, contentDescription = null, tint = Nt.Text, modifier = Modifier.size(18.dp))
                     Text("  " + if (syncing) tr("Synchronisation…") else tr("Synchroniser maintenant"), color = Nt.Text)
@@ -273,7 +297,7 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     listOf(
                         tr("Hôtes, clés, identités, snippets, tunnels et hôtes connus sont partagés entre vos appareils."),
-                        tr("Sur chaque appareil : la même destination ci-dessous et le même mot de passe. Pour Google Drive ou OneDrive, choisissez « Fichier existant » sur le deuxième appareil."),
+                        tr("Sur chaque appareil : le même emplacement et le même mot de passe. Pour Google Drive ou OneDrive, choisissez « Fichier existant » sur le deuxième appareil."),
                         tr("La modification la plus récente l'emporte, suppressions comprises."),
                         tr("Le fichier synchronisé sert aussi de sauvegarde ; une copie par jour reste sur ce téléphone."),
                         tr("Les clés API et les réglages d'affichage restent propres à chaque appareil."),
@@ -291,179 +315,143 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
         LanSyncSection()
 
         SectionLabel(tr("Sauvegarde"), Modifier.padding(top = 8.dp))
-        run {
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Nt.Surface)
-                    .border(1.dp, if (stale || lastError != null) Nt.Accent.copy(alpha = 0.5f) else Nt.Border, RoundedCornerShape(16.dp))
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    IconTile(if (stale) Icons.Outlined.CloudUpload else Icons.Outlined.CloudDone, if (stale) Nt.Accent else Nt.Green)
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            last?.let { tr("Dernière sauvegarde %1\$s", relativeTime(it)) } ?: tr("Aucune sauvegarde exportée"),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(if (stale) tr("Exportez-en une pour ne rien perdre en changeant de téléphone.") else tr("À jour"), color = Nt.Muted, fontSize = 12.sp)
-                    }
-                }
-                lastError?.let { err ->
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = Nt.Pink)
-                        Text(tr("Dernière tentative automatique : %1\$s", err), color = Nt.Pink, fontSize = 13.sp)
-                    }
-                }
-
-                Text(tr("Destination"), color = Nt.Muted, fontSize = 12.sp)
-                // Same height for both cards, whatever their text wraps to.
-                Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.weight(1f).fillMaxHeight()) {
-                        DestinationCard(
-                            tr("Fichier ou cloud"), tr("Google Drive, OneDrive, téléphone…"), Icons.Outlined.Cloud,
-                            destination is BackupDestination.Document, Modifier.fillMaxSize(),
-                        ) { documentMenu = true }
-                        androidx.compose.material3.DropdownMenu(documentMenu, onDismissRequest = { documentMenu = false }) {
-                            androidx.compose.material3.DropdownMenuItem(
-                                text = { Text(tr("Nouveau fichier")) },
-                                onClick = { documentMenu = false; pickDocument.launch(AutoBackup.FILE_NAME) },
-                            )
-                            androidx.compose.material3.DropdownMenuItem(
-                                text = { Text(tr("Fichier existant (autre appareil)")) },
-                                onClick = { documentMenu = false; pickExisting.launch(arrayOf("*/*")) },
-                            )
-                        }
-                    }
-                    DestinationCard(
-                        tr("Dossier"), tr("Syncthing, stockage du téléphone…"), Icons.Outlined.Folder,
-                        destination is BackupDestination.Folder, Modifier.weight(1f).fillMaxHeight(),
-                    ) { pickFolder.launch(null) }
-                }
-                Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DestinationCard(
-                        tr("Nextcloud"), tr("WebDAV, auto-hébergé"), Icons.Outlined.Dns,
-                        destination is BackupDestination.WebDav, Modifier.weight(1f).fillMaxHeight(),
-                    ) { webDavDialog = true }
-                    DestinationCard(
-                        tr("Stockage S3"), tr("Backblaze B2, Cloudflare R2, MinIO…"), Icons.Outlined.Inventory2,
-                        destination is BackupDestination.S3, Modifier.weight(1f).fillMaxHeight(),
-                    ) { s3Dialog = true }
-                }
-                destination?.let { d ->
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp)).background(Nt.Bg).padding(start = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            when (d) {
-                                is BackupDestination.Document -> d.label
-                                is BackupDestination.WebDav -> AutoBackup.webDavFileUrl(d.url)
-                                is BackupDestination.S3 -> "s3://${d.bucket}/${d.key}"
-                                is BackupDestination.Folder -> d.label + " › " + AutoBackup.FILE_NAME
-                            },
-                            fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.TextSoft, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = { prefs.setDestination(null); reschedule() }) { Text(tr("Retirer"), color = Nt.Pink, fontSize = 13.sp) }
-                    }
-                }
-                if (destination == null) Hint(tr("Google Drive ou OneDrive passent par le sélecteur d'Android (leur app doit être installée). Un dossier synchronisé par Syncthing, Nextcloud ou S3 sert aussi pour un ordinateur."))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text(tr("Sauvegarde automatique"), style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            when {
-                                destination == null -> tr("Choisissez d'abord une destination")
-                                syncOn -> tr("Assurée par la synchronisation (fichier à jour à chaque modification, une copie par jour sur le téléphone)")
-                                auto -> tr("Activée · %1\$s", frequencyLabel(frequency))
-                                else -> tr("Seulement quand vous le demandez")
-                            },
-                            color = Nt.Muted, fontSize = 12.sp,
-                        )
-                    }
-                    if (syncOn) Text(tr("Incluse"), color = Nt.Green, fontSize = 13.sp) else androidx.compose.material3.Switch(
-                        auto, { on ->
-                            when {
-                                !on -> { prefs.setAuto(false); reschedule() }
-                                hasPassword -> { prefs.setAuto(true); reschedule() }
-                                else -> ask = Ask.ENABLE_AUTO
-                            }
-                        },
-                        enabled = destination != null,
-                        colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Nt.Accent, uncheckedTrackColor = Nt.Toggle),
-                    )
-                }
-                if (auto && !syncOn && destination != null) {
-                    BackupOptions(prefs, needsNetwork = !AutoBackup.isLocal(destination!!), onChange = ::reschedule)
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = {
-                            when {
-                                destination == null -> ask = Ask.EXPORT_FILE
-                                hasPassword -> backupNow(null)
-                                else -> ask = Ask.BACKUP_NOW
-                            }
-                        },
-                        enabled = !busy, modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Nt.PrimaryContainer, contentColor = Nt.OnPrimaryContainer),
-                        border = Nt.PrimaryBorder?.let { BorderStroke(2.dp, it) },
-                    ) { Text(tr("Sauvegarder"), fontWeight = FontWeight.SemiBold) }
-                    OutlinedButton(onClick = { openFile.launch(arrayOf("*/*")) }, enabled = !busy, modifier = Modifier.weight(1f)) {
-                        Text(tr("Restaurer…"), color = Nt.Text)
-                    }
-                }
-                if (destination != null) TextButton(onClick = { ask = Ask.EXPORT_FILE }, enabled = !busy) {
-                    Text(tr("Exporter aussi une copie dans un fichier…"), color = Nt.Accent, fontSize = 13.sp)
-                }
-                if (busy) LinearProgressIndicator(color = Nt.Accent, trackColor = Nt.Border, modifier = Modifier.fillMaxWidth())
-                status?.let { Text(it, color = Nt.TextSoft, fontSize = 13.sp) }
-                // The last backups kept on the phone (and on the server for WebDAV).
-                val versions = remember(last) { com.nautile.app.backup.BackupVersions.list(app) }
-                if (versions.isNotEmpty()) {
-                    Text(tr("Versions précédentes"), color = Nt.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Nt.Bg)) {
-                        versions.forEachIndexed { i, v ->
-                            if (i > 0) androidx.compose.material3.HorizontalDivider(color = Nt.Border)
-                            Row(Modifier.fillMaxWidth().padding(start = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.History, contentDescription = null, tint = Nt.Muted, modifier = Modifier.size(18.dp))
-                                Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                    Text(pastText(v.at),
-                                        fontSize = 14.sp, color = Nt.Text)
-                                    Text(com.nautile.app.ai.AiFiles.sizeLabel(v.size) + if (i == 0) " · " + tr("la plus récente") else "", fontSize = 12.sp, color = Nt.Muted)
-                                }
-                                TextButton(onClick = {
-                                    importText = runCatching { v.file.readText() }.getOrNull()
-                                    if (importText == null) status = tr("Fichier illisible") else ask = Ask.IMPORT
-                                }) { Text(tr("Restaurer"), color = Nt.Accent, fontSize = 13.sp) }
-                            }
-                        }
-                    }
-                    Hint(
-                        tr("Les %1\$s dernières sauvegardes restent aussi sur ce téléphone.", com.nautile.app.backup.BackupVersions.KEEP) + " " +
-                            when (destination) {
-                                is BackupDestination.WebDav -> tr("Sur Nextcloud, les précédentes sont gardées à côté (nautile.backup.1 à .4).")
-                                else -> tr("Google Drive et OneDrive gardent en plus l'historique des versions du fichier.")
-                            },
-                    )
-                }
-                Hint(tr("Chiffrée sur le téléphone avant l'envoi (Argon2id + AES-256-GCM) : le stockage ne voit qu'un fichier illisible. Contient hôtes, clés, identités, snippets, tunnels et hôtes connus."))
-                if (hasPassword) TextButton(onClick = { prefs.setPassword(null); reschedule() }) {
-                    Text(tr("Oublier le mot de passe de sauvegarde"), color = Nt.Pink, fontSize = 13.sp)
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Nt.Surface)
+                .border(1.dp, if (stale || anyError != null) Nt.Warn.copy(alpha = 0.5f) else Nt.Border, RoundedCornerShape(16.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                IconTile(if (stale) Icons.Outlined.CloudUpload else Icons.Outlined.CloudDone, if (stale) Nt.Warn else Nt.Green)
+                Column(Modifier.weight(1f)) {
+                    Text(last?.let { tr("Dernière sauvegarde %1\$s", relativeTime(it)) } ?: tr("Aucune sauvegarde exportée"), style = MaterialTheme.typography.titleMedium)
+                    Text(if (stale) tr("Exportez-en une pour ne rien perdre en changeant de téléphone.") else tr("À jour"), color = Nt.Muted, fontSize = 12.sp)
                 }
             }
-        }
 
+            Text(tr("Emplacements"), color = Nt.Muted, fontSize = 12.sp)
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Nt.Bg)) {
+                targets.forEachIndexed { i, t ->
+                    if (i > 0) androidx.compose.material3.HorizontalDivider(color = Nt.Border)
+                    TargetRow(t, synced = syncOn && t.id == syncTargetId) { editing = t.id }
+                }
+                if (targets.isNotEmpty()) androidx.compose.material3.HorizontalDivider(color = Nt.Border)
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(role = Role.Button) { adding = true }.padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(Icons.Outlined.Add, contentDescription = null, tint = Nt.Accent)
+                    Text(tr("Ajouter un emplacement"), color = Nt.Accent, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            if (targets.isEmpty()) Hint(tr("Google Drive, OneDrive, un dossier (Syncthing), Nextcloud ou un stockage S3 : ajoutez-en autant que vous voulez, chacun avec sa planification."))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = {
+                        when {
+                            targets.isEmpty() -> ask = Ask.EXPORT_FILE
+                            hasPassword -> backupNow(null, null)
+                            else -> ask = Ask.BACKUP_NOW
+                        }
+                    },
+                    enabled = !busy, modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Nt.PrimaryContainer, contentColor = Nt.OnPrimaryContainer),
+                    border = Nt.PrimaryBorder?.let { BorderStroke(2.dp, it) },
+                ) { Text(if (targets.size > 1) tr("Sauvegarder partout") else tr("Sauvegarder"), fontWeight = FontWeight.SemiBold) }
+                OutlinedButton(onClick = { openFile.launch(arrayOf("*/*")) }, enabled = !busy, modifier = Modifier.weight(1f)) {
+                    Text(tr("Restaurer…"), color = Nt.Text)
+                }
+            }
+            if (targets.isNotEmpty()) TextButton(onClick = { ask = Ask.EXPORT_FILE }, enabled = !busy) {
+                Text(tr("Exporter aussi une copie dans un fichier…"), color = Nt.Accent, fontSize = 13.sp)
+            }
+            if (busy) LinearProgressIndicator(color = Nt.Accent, trackColor = Nt.Border, modifier = Modifier.fillMaxWidth())
+            status?.let { Text(it, color = Nt.TextSoft, fontSize = 13.sp) }
+            // The last backups kept on the phone.
+            val versions = remember(last) { com.nautile.app.backup.BackupVersions.list(app) }
+            if (versions.isNotEmpty()) {
+                Text(tr("Versions précédentes"), color = Nt.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Nt.Bg)) {
+                    versions.forEachIndexed { i, v ->
+                        if (i > 0) androidx.compose.material3.HorizontalDivider(color = Nt.Border)
+                        Row(Modifier.fillMaxWidth().padding(start = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.History, contentDescription = null, tint = Nt.Muted, modifier = Modifier.size(18.dp))
+                            Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                Text(pastText(v.at), fontSize = 14.sp, color = Nt.Text)
+                                Text(com.nautile.app.ai.AiFiles.sizeLabel(v.size) + if (i == 0) " · " + tr("la plus récente") else "", fontSize = 12.sp, color = Nt.Muted)
+                            }
+                            TextButton(onClick = {
+                                importText = runCatching { v.file.readText() }.getOrNull()
+                                if (importText == null) status = tr("Fichier illisible") else ask = Ask.IMPORT
+                            }) { Text(tr("Restaurer"), color = Nt.Accent, fontSize = 13.sp) }
+                        }
+                    }
+                }
+                Hint(tr("Les %1\$s dernières sauvegardes restent aussi sur ce téléphone ; Nextcloud, S3 et les dossiers gardent les précédentes à côté (nautile.backup.1 à .4).", com.nautile.app.backup.BackupVersions.KEEP))
+            }
+            Hint(tr("Chiffrée sur le téléphone avant l'envoi (Argon2id + AES-256-GCM) : le stockage ne voit qu'un fichier illisible. Contient hôtes, clés, identités, snippets, tunnels et hôtes connus."))
+            if (hasPassword) TextButton(onClick = { prefs.setPassword(null); reschedule() }) {
+                Text(tr("Oublier le mot de passe de sauvegarde"), color = Nt.Pink, fontSize = 13.sp)
+            }
+        }
     }
+
+    // ── Sheets and dialogs ─────────────────────────────────────────────────
+    if (adding) AddTargetSheet(
+        onDismiss = { adding = false },
+        onNewFile = { adding = false; pickDocument.launch(AutoBackup.FILE_NAME) },
+        onExistingFile = { adding = false; pickExisting.launch(arrayOf("*/*")) },
+        onFolder = { adding = false; pickFolder.launch(null) },
+        onWebDav = { adding = false; webDavNew = true },
+        onS3 = { adding = false; s3New = true },
+    )
+    editing?.let { id ->
+        targets.firstOrNull { it.id == id }?.let { t ->
+            TargetSheet(
+                t, synced = syncOn && t.id == syncTargetId, hasPassword = hasPassword, busy = busy,
+                onDismiss = { editing = null },
+                onUpdate = { prefs.updateTarget(it); reschedule() },
+                onAuto = { on ->
+                    when {
+                        !on -> { prefs.updateTarget(t.copy(auto = false)); reschedule() }
+                        hasPassword -> { prefs.updateTarget(t.copy(auto = true)); reschedule() }
+                        else -> { autoFor = t.id; ask = Ask.ENABLE_AUTO }
+                    }
+                },
+                onBackup = { if (hasPassword || (syncOn && t.id == syncTargetId)) backupNow(t.id, null) else { autoFor = t.id; ask = Ask.BACKUP_NOW } },
+                onAccess = { if (t.dest is BackupDestination.S3) s3Dialog = t else webDavDialog = t },
+                onUseForSync = { prefs.setSyncTarget(t.id); editing = null; if (syncOn) { reschedule(); syncNow() } else enableSync() },
+                onRemove = { editing = null; prefs.removeTarget(t.id); reschedule() },
+            )
+        }
+    }
+    if (choosingSync) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { choosingSync = false }, containerColor = Nt.Surface,
+        title = { Text(tr("Fichier partagé")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                targets.forEach { t ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { choosingSync = false; prefs.setSyncTarget(t.id); reschedule(); syncNow() }.padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        androidx.compose.material3.RadioButton(t.id == syncTargetId, onClick = null, colors = androidx.compose.material3.RadioButtonDefaults.colors(selectedColor = Nt.Accent))
+                        Text(destinationLabel(t.dest), fontSize = 13.sp, fontFamily = Nt.Mono, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                Hint(tr("Tous vos appareils doivent utiliser le même fichier."))
+            }
+        },
+        confirmButton = { TextButton(onClick = { choosingSync = false }) { Text(tr("Fermer"), color = Nt.TextSoft) } },
+    )
 
     ask?.let { mode ->
         BackupPasswordDialog(
             confirm = mode != Ask.IMPORT && mode != Ask.JOIN_SYNC,
             // Automatic backups need it stored; a manual one may remember it too.
             rememberMode = when (mode) { Ask.ENABLE_AUTO, Ask.START_SYNC, Ask.JOIN_SYNC -> true; Ask.BACKUP_NOW -> false; else -> null },
-            onDismiss = { ask = null; importText = null },
+            onDismiss = { ask = null; importText = null; autoFor = null },
         ) { pw, keep ->
             ask = null
             when (mode) {
@@ -471,8 +459,12 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
                     pendingPassword = pw
                     exportFile.launch("nautile-" + java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).format(java.util.Date()) + ".nautile")
                 }
-                Ask.BACKUP_NOW -> { if (keep) { prefs.setPassword(pw); reschedule() }; backupNow(pw) }
-                Ask.ENABLE_AUTO -> { prefs.setPassword(pw); prefs.setAuto(true); reschedule(); backupNow(null) }
+                Ask.BACKUP_NOW -> { if (keep) { prefs.setPassword(pw); reschedule() }; backupNow(autoFor, pw); autoFor = null }
+                Ask.ENABLE_AUTO -> {
+                    prefs.setPassword(pw)
+                    autoFor?.let { id -> prefs.target(id)?.let { prefs.updateTarget(it.copy(auto = true)) } }
+                    reschedule(); backupNow(autoFor, null); autoFor = null
+                }
                 Ask.START_SYNC -> { prefs.setPassword(pw); prefs.setSyncEnabled(true); reschedule(); syncNow() }
                 Ask.JOIN_SYNC -> scope.launch {
                     busy = true
@@ -493,27 +485,28 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
             }
         }
     }
-    if (s3Dialog) S3Dialog(
-        initial = destination as? BackupDestination.S3,
-        onDismiss = { s3Dialog = false },
+    if (s3New || s3Dialog != null) S3Dialog(
+        initial = s3Dialog?.dest as? BackupDestination.S3,
+        savedSecret = s3Dialog?.id?.let(prefs::secret),
+        onDismiss = { s3New = false; s3Dialog = null },
     ) { dest, secret ->
-        s3Dialog = false
-        prefs.setDestination(dest, secret.ifEmpty { null })
-        reschedule()
+        val t = s3Dialog
+        s3New = false; s3Dialog = null
+        if (t == null) added(prefs.addTarget(dest, secret.ifEmpty { null })) else { prefs.updateTarget(t.copy(dest = dest), secret.ifEmpty { null }); reschedule() }
     }
-    if (webDavDialog) WebDavDialog(
-        initial = destination as? BackupDestination.WebDav,
-        onDismiss = { webDavDialog = false },
+    if (webDavNew || webDavDialog != null) WebDavDialog(
+        initial = webDavDialog?.dest as? BackupDestination.WebDav,
+        onDismiss = { webDavNew = false; webDavDialog = null },
     ) { url, user, password ->
-        webDavDialog = false
-        prefs.setDestination(BackupDestination.WebDav(url, user), password.ifEmpty { null })
-        reschedule()
+        val t = webDavDialog
+        webDavNew = false; webDavDialog = null
+        val dest = BackupDestination.WebDav(url, user)
+        if (t == null) added(prefs.addTarget(dest, password.ifEmpty { null })) else { prefs.updateTarget(t.copy(dest = dest), password.ifEmpty { null }); reschedule() }
     }
 }
 
-
 @Composable
-private fun DestinationCard(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
+internal fun DestinationCard(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
     Surface(
         onClick = onClick, shape = RoundedCornerShape(12.dp), color = if (on) Nt.Accent.copy(alpha = 0.07f) else Nt.Bg,
         modifier = modifier.border(2.dp, if (on) Nt.Accent else Nt.Border, RoundedCornerShape(12.dp)).semantics { selected = on; role = Role.RadioButton },
@@ -604,8 +597,7 @@ private fun BackupPasswordDialog(confirm: Boolean, rememberMode: Boolean?, onDis
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun S3Dialog(initial: BackupDestination.S3?, onDismiss: () -> Unit, onSave: (BackupDestination.S3, String) -> Unit) {
-    val app = LocalContext.current.applicationContext as NautileApp
+private fun S3Dialog(initial: BackupDestination.S3?, savedSecret: String? = null, onDismiss: () -> Unit, onSave: (BackupDestination.S3, String) -> Unit) {
     val scope = rememberCoroutineScope()
     var endpoint by remember { mutableStateOf(initial?.endpoint.orEmpty()) }
     var region by remember { mutableStateOf(initial?.region ?: "us-east-1") }
@@ -653,7 +645,7 @@ private fun S3Dialog(initial: BackupDestination.S3?, onDismiss: () -> Unit, onSa
             TextButton(onClick = {
                 testing = true; result = null
                 scope.launch {
-                    val usedSecret = secret.ifEmpty { app.backupPrefs.s3Secret().orEmpty() }
+                    val usedSecret = secret.ifEmpty { savedSecret.orEmpty() }
                     result = AutoBackup.testS3(dest(), usedSecret).fold({ tr("Connexion réussie : écriture possible") }, { tr("Échec : %1\$s", it.message) })
                     testing = false
                 }

@@ -23,28 +23,43 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-/** Writes an encrypted backup to the chosen destination, now or on a schedule. */
+/** Writes encrypted backups to the chosen places, now or each on its own schedule. */
 object AutoBackup {
-    private const val WORK = "auto-backup"
+    private const val TAG = "auto-backup"
+    private const val SYNC_WORK = "sync"
+    private const val KEY_TARGET = "target"
     const val FILE_NAME = "nautile.backup"
     private val http by lazy { OkHttpClient.Builder().callTimeout(2, TimeUnit.MINUTES).build() }
 
-    /** Exports with [password] (default: the stored one) and writes it to the destination. */
-    suspend fun run(app: NautileApp, password: String? = null): Result<Unit> = runCatching {
+    /**
+     * Backs up to [targetId], or to every place when null; [password] defaults to the stored one.
+     * The synchronised place is synchronised instead (merged, not overwritten). Fails if any place failed.
+     */
+    suspend fun run(app: NautileApp, targetId: String? = null, password: String? = null): Result<Unit> = runCatching {
         val prefs = app.backupPrefs
-        // With synchronisation on, the file is shared: merge instead of overwriting the other devices' changes.
-        if (prefs.syncEnabled.value) { app.sync.sync(password).getOrThrow(); return@runCatching }
-        val dest = prefs.destination.value ?: error(tr("Aucune destination choisie"))
-        val password = password ?: prefs.password() ?: error(tr("Mot de passe de sauvegarde non enregistré"))
-        val bytes = app.backups.export(password).toByteArray()
-        withContext(Dispatchers.IO) {
-            val store = BackupStores.of(app, dest, prefs)
-            store.rotate()
-            store.write(bytes)
-            BackupVersions.add(app, bytes)
+        val targets = if (targetId == null) prefs.targets.value else listOfNotNull(prefs.target(targetId))
+        if (targets.isEmpty()) error(tr("Aucun emplacement de sauvegarde"))
+        val syncing = prefs.syncEnabled.value
+        val plain = targets.filterNot { syncing && it.id == prefs.syncTargetId.value }
+        var failure: Throwable? = null
+        if (plain.size < targets.size) app.sync.sync(password).onFailure { failure = it }
+        if (plain.isNotEmpty()) {
+            val pw = password ?: prefs.password() ?: error(tr("Mot de passe de sauvegarde non enregistré"))
+            val bytes = app.backups.export(pw).toByteArray()
+            withContext(Dispatchers.IO) { BackupVersions.add(app, bytes) }
+            plain.forEach { t ->
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val store = BackupStores.of(app, t, prefs)
+                        store.rotate()
+                        store.write(bytes)
+                    }
+                }.onSuccess { prefs.markDone(t.id) }
+                    .onFailure { e -> prefs.markFailed(t.id, e.message ?: e.javaClass.simpleName); failure = failure ?: e }
+            }
         }
-        prefs.markExported()
-    }.onFailure { e -> app.backupPrefs.markFailed(e.message ?: e.javaClass.simpleName) }
+        failure?.let { throw it }
+    }
 
     /** Full URL of the backup file: a folder URL (ending with /) gets [FILE_NAME]. */
     fun webDavFileUrl(url: String) = if (url.endsWith("/")) url + FILE_NAME else url
@@ -87,38 +102,51 @@ object AutoBackup {
         return listOfNotNull(provider.ifEmpty { null }, name).joinToString(" › ")
     }
 
-    /** Schedules or cancels the periodic backup to match the settings. */
+    private fun network(dest: BackupDestination, network: BackupNetwork) = when {
+        isLocal(dest) -> NetworkType.NOT_REQUIRED
+        network == BackupNetwork.ANY -> NetworkType.CONNECTED
+        else -> NetworkType.UNMETERED
+    }
+
+    /** Schedules each place's automatic backup and the synchronisation, cancels the rest. */
     fun schedule(app: NautileApp) {
         val prefs = app.backupPrefs
         val wm = WorkManager.getInstance(app)
-        val dest = prefs.destination.value
-        val sync = prefs.syncEnabled.value
-        if ((!prefs.auto.value && !sync) || dest == null || !prefs.hasPassword.value) { wm.cancelUniqueWork(WORK); return }
-        val local = isLocal(dest)
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(
-                when {
-                    local -> NetworkType.NOT_REQUIRED
-                    prefs.network.value == BackupNetwork.ANY -> NetworkType.CONNECTED
-                    else -> NetworkType.UNMETERED
-                },
-            )
-            // Synchronisation is light and must stay timely: no battery condition for it.
-            .setRequiresBatteryNotLow(!sync)
-            .setRequiresCharging(!sync && prefs.charging.value)
-            .build()
         val now = System.currentTimeMillis()
-        val request = if (sync) PeriodicWorkRequestBuilder<Worker>(prefs.syncMinutes.value.toLong().coerceAtLeast(15), TimeUnit.MINUTES).setConstraints(constraints).build()
-        else {
-            val f = prefs.frequency.value
-            val next = nextRun(f, prefs.time.value, prefs.weekday.value, prefs.lastExport.value, now)
-            PeriodicWorkRequestBuilder<Worker>(f.hours, TimeUnit.HOURS)
-                .setInitialDelay((next - now).coerceAtLeast(0), TimeUnit.MILLISECONDS)
-                .setConstraints(constraints)
-                .build()
+        val sync = prefs.syncEnabled.value
+        val syncTarget = prefs.syncTarget.takeIf { sync && prefs.hasPassword.value }
+
+        // Synchronisation: light and timely, no battery condition.
+        if (syncTarget == null) wm.cancelUniqueWork(SYNC_WORK)
+        else wm.enqueueUniquePeriodicWork(
+            SYNC_WORK, ExistingPeriodicWorkPolicy.UPDATE,
+            PeriodicWorkRequestBuilder<Worker>(prefs.syncMinutes.value.toLong().coerceAtLeast(15), TimeUnit.MINUTES)
+                .setInputData(androidx.work.workDataOf(KEY_TARGET to syncTarget.id))
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(network(syncTarget.dest, prefs.network.value)).build())
+                .build(),
+        )
+
+        // Each place on its own schedule (the synchronised one is kept up to date by the synchronisation).
+        val wanted = prefs.targets.value.filter { it.auto && prefs.hasPassword.value && it.id != syncTarget?.id }
+        val wantedNames = wanted.map { "$TAG-${it.id}" }.toSet()
+        runCatching {
+            wm.getWorkInfosByTag(TAG).get().flatMap { it.tags }.filter { it.startsWith("$TAG-") && it !in wantedNames }.forEach { wm.cancelUniqueWork(it) }
         }
-        // Re-created so a new time or frequency takes effect now; the delay keeps the rhythm of the last backup.
-        wm.enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE, request)
+        wm.cancelUniqueWork(TAG) // the single schedule of earlier versions
+        wanted.forEach { t ->
+            val next = nextRun(t.frequency, t.time, t.weekday, t.last, now)
+            val request = PeriodicWorkRequestBuilder<Worker>(t.frequency.hours, TimeUnit.HOURS)
+                .setInitialDelay((next - now).coerceAtLeast(0), TimeUnit.MILLISECONDS)
+                .setInputData(androidx.work.workDataOf(KEY_TARGET to t.id))
+                .setConstraints(
+                    Constraints.Builder().setRequiredNetworkType(network(t.dest, t.network))
+                        .setRequiresBatteryNotLow(true).setRequiresCharging(t.charging).build(),
+                )
+                .addTag(TAG).addTag("$TAG-${t.id}")
+                .build()
+            // Re-created so a new time or frequency takes effect now; the delay keeps the rhythm of the last backup.
+            wm.enqueueUniquePeriodicWork("$TAG-${t.id}", ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE, request)
+        }
     }
 
     /**
@@ -154,7 +182,9 @@ object AutoBackup {
     class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
         override suspend fun doWork(): Result {
             val app = applicationContext as NautileApp
-            return AutoBackup.run(app).fold(
+            val id = inputData.getString(KEY_TARGET) ?: return Result.failure()
+            if (app.backupPrefs.target(id) == null) return Result.failure()
+            return AutoBackup.run(app, id).fold(
                 onSuccess = { Result.success() },
                 onFailure = { e -> if (e is IOException && runAttemptCount < 3) Result.retry() else Result.failure() },
             )

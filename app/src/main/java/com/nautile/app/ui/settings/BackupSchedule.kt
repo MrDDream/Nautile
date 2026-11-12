@@ -72,13 +72,13 @@ private enum class Pick { FREQUENCY, TIME, NETWORK }
  * picker. The next run sits on top, so the effect of a change is visible at once.
  */
 @Composable
-internal fun BackupOptions(prefs: BackupPrefs, needsNetwork: Boolean, onChange: () -> Unit) {
-    val frequency by prefs.frequency.collectAsState()
-    val time by prefs.time.collectAsState()
-    val weekday by prefs.weekday.collectAsState()
-    val network by prefs.network.collectAsState()
-    val charging by prefs.charging.collectAsState()
-    val last by prefs.lastExport.collectAsState()
+internal fun BackupOptions(target: com.nautile.app.backup.BackupTarget, needsNetwork: Boolean, onUpdate: (com.nautile.app.backup.BackupTarget) -> Unit) {
+    val frequency = target.frequency
+    val time = target.time
+    val weekday = target.weekday
+    val network = target.network
+    val charging = target.charging
+    val last = target.last
     var pick by remember { mutableStateOf<Pick?>(null) }
 
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Nt.Bg)) {
@@ -107,13 +107,13 @@ internal fun BackupOptions(prefs: BackupPrefs, needsNetwork: Boolean, onChange: 
         }
         Divider()
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Switch) { prefs.setCharging(!charging); onChange() }
+            Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Switch) { onUpdate(target.copy(charging = !charging)) }
                 .padding(start = 14.dp, end = 12.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Icon(Icons.Outlined.BatteryChargingFull, contentDescription = null, tint = Nt.TextSoft, modifier = Modifier.size(20.dp))
             Text(tr("Seulement en charge"), fontSize = 15.sp, color = Nt.Text, modifier = Modifier.weight(1f))
-            Switch(charging, { prefs.setCharging(it); onChange() }, colors = SwitchDefaults.colors(checkedTrackColor = Nt.Accent, uncheckedTrackColor = Nt.Toggle))
+            Switch(charging, { onUpdate(target.copy(charging = it)) }, colors = SwitchDefaults.colors(checkedTrackColor = Nt.Accent, uncheckedTrackColor = Nt.Toggle))
         }
     }
 
@@ -122,19 +122,19 @@ internal fun BackupOptions(prefs: BackupPrefs, needsNetwork: Boolean, onChange: 
             tr("Fréquence"),
             BackupFrequency.entries.map { it to frequencyLabel(it).replaceFirstChar { c -> c.uppercase() } },
             frequency, onDismiss = { pick = null },
-        ) { prefs.setFrequency(it); pick = null; onChange() }
+        ) { onUpdate(target.copy(frequency = it)); pick = null }
         Pick.NETWORK -> ChoiceDialog(
             tr("Réseau"),
             BackupNetwork.entries.map { it to networkLabel(it) },
             network, onDismiss = { pick = null },
             detail = { if (it == BackupNetwork.WIFI) tr("Attend un Wi-Fi : aucune donnée mobile consommée") else tr("Wi-Fi ou 4G/5G, dès qu'une connexion est disponible") },
-        ) { prefs.setNetwork(it); pick = null; onChange() }
+        ) { onUpdate(target.copy(network = it)); pick = null }
         Pick.TIME -> TimeDialog(
             initial = time, weekday = weekday.takeIf { frequency == BackupFrequency.WEEK },
             onDismiss = { pick = null },
         ) { minutes, day ->
-            prefs.setTime(minutes); if (day != null) prefs.setWeekday(day)
-            pick = null; onChange()
+            onUpdate(target.copy(time = minutes, weekday = day ?: target.weekday))
+            pick = null
         }
         null -> {}
     }
