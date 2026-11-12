@@ -1,0 +1,4 @@
+• AI assistant as a sub-tab of the session in the terminal, one conversation per server kept on the phone
+• Attach a file: SFTP browser opening in the terminal's current directory
+• Better structured AI answers (headings, lists, code)
+• Opaque + buttons with the Tonal and Outline styles

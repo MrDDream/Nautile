@@ -1,0 +1,4 @@
+• Assistant IA en sous-onglet de la session dans le terminal, une conversation par serveur gardée sur le téléphone
+• Joindre un fichier : explorateur SFTP ouvert dans le dossier courant du terminal
+• Réponses de l'IA mieux structurées (titres, listes, code)
+• Boutons + opaques avec les styles Tonal et Contour
