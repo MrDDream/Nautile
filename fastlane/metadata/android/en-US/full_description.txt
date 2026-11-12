@@ -1,0 +1,11 @@
+<p><b>Your servers, in your pocket.</b> Nautile is a free SSH and remote-desktop client. No cloud, no account: your hosts, keys and passwords stay encrypted on the phone.</p>
+<ul>
+<li><b>Terminal</b>: xterm-256color, tabs and split screen, pinch to zoom, customisable key bar, 10 themes plus import, Nerd Fonts or your own font.</li>
+<li><b>SSH</b>: passwords, keys (Ed25519, RSA, ECDSA; OpenSSH, PEM, PuTTY) and identities, agent forwarding, ProxyJump, SOCKS5/HTTP proxies, port knocking, host-key pinning.</li>
+<li><b>Mosh, Telnet, USB serial and local shell.</b></li>
+<li><b>Remote desktop (RDP)</b> with FreeRDP 3: NLA/TLS, hardware H.264, sound, clipboard, direct touch or touchpad, optional SSH tunnel.</li>
+<li><b>Quick connection</b>: type root@192.168.1.2 in the search bar and connect without saving.</li>
+<li><b>SFTP</b>, <b>port forwarding</b> (-L, -R, -D) and <b>snippets</b> with variables.</li>
+<li><b>Encrypted backup and sync</b> (Argon2id + AES-256-GCM) through Google Drive, OneDrive or Nextcloud/WebDAV.</li>
+<li>Biometric lock, SQLCipher database, server monitor, optional AI assistant with your own key, widget, English and French.</li>
+</ul>

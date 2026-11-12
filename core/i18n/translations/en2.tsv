@@ -1,0 +1,177 @@
+Enregistrer pour cet hôte (base chiffrée)	Save for this host (encrypted database)
+Enregistrez vos commandes fréquentes pour les lancer en un geste, sur un ou plusieurs serveurs.	Save your frequent commands to run them in one tap, on one or several servers.
+Enregistré	Saved
+Enregistré : %1\$s est le fournisseur actif	Saved: %1\$s is the active provider
+Entrée	Enter
+Envoi de %1\$s lancé	Upload of %1\$s started
+Envoi vers %1\$s	Upload to %1\$s
+Envoyer	Send
+Erreur : %1\$s	Error: %1\$s
+Erreur Anthropic (%1\$s) : %2\$s	Anthropic error (%1\$s): %2\$s
+Erreur réseau	Network error
+Export impossible : %1\$s	Export failed: %1\$s
+Exporter	Export
+Exporter la clé privée	Export private key
+Exporter la clé privée…	Export private key…
+Exécuter	Run
+Exécuter %1\$s	Run %1\$s
+Exécuter sur %1\$s	Run on %1\$s
+Faire confiance	Trust
+Fermer	Close
+Fermer %1\$s	Close %1\$s
+Fermer l'écran partagé	Close split screen
+Fermer la session	Close session
+Fichier binaire : ouverture impossible	Binary file: cannot open
+Fichier chiffré (Argon2id + AES-256) contenant hôtes, clés, identités, snippets, tunnels et clés d'hôte. À conserver où vous voulez : rien ne passe par un cloud.	Encrypted file (Argon2id + AES-256) with hosts, keys, identities, snippets, tunnels and host keys. Keep it wherever you like: nothing goes through a cloud.
+Fichier illisible	Unreadable file
+Fichier trop gros pour l'éditeur (%1\$s Ko, max 2 Mo)	File too large for the editor (%1\$s KB, max 2 MB)
+Fichiers cachés	Hidden files
+Fichiers de %1\$s	Files of %1\$s
+Fin	End
+Fin de l'écran du terminal :\n```\n	End of the terminal screen:\n```\n
+Fournisseur	Provider
+Gauche	Left
+Gemini : réponse vide (filtrée ?)	Gemini: empty response (filtered?)
+Groupe	Group
+Génération impossible : %1\$s	Generation failed: %1\$s
+Génération…	Generating…
+Générer	Generate
+Générer une clé	Generate a key
+Générée ici	Generated here
+Haut	Up
+Historique	History
+Hôte de rebond	Jump host
+Hôte injoignable	Host unreachable
+Hôte introuvable	Host not found
+Hôte introuvable (%1\$s)	Host not found (%1\$s)
+Hôtes	Hosts
+Hôtes connus	Known hosts
+Identité	Identity
+Identités	Identities
+Il sera demandé à l'import. Sans lui, la sauvegarde est irrécupérable (8 caractères minimum).	It will be asked on import. Without it the backup cannot be recovered (8 characters minimum).
+Il sera tapé dans le terminal suivi d'Entrée (pour sudo, su…).	It will be typed in the terminal followed by Enter (for sudo, su…).
+Import impossible	Import failed
+Import impossible : %1\$s	Import failed: %1\$s
+Importer	Import
+Importer accepte un ~/.ssh/config ou un CSV (hostname, alias, port, user, group, tags).	Import accepts a ~/.ssh/config or a CSV (hostname, alias, port, user, group, tags).
+Importer un thème (.itermcolors, Xresources, Alacritty)	Import a theme (.itermcolors, Xresources, Alacritty)
+Importer une clé	Import a key
+Importer…	Import…
+Importé : 	Imported: 
+Importée	Imported
+Impossible d'ouvrir l'adaptateur USB	Cannot open the USB adapter
+Inférieur	Less than
+Insérer	Insert
+Joindre l'écran (40 dernières lignes) — pour expliquer une erreur	Attach the screen (last 40 lines) — to explain an error
+Journaux de session	Session logs
+La base de données est chiffrée (SQLCipher, clé dans l'Android Keystore).	The database is encrypted (SQLCipher, key in the Android Keystore).
+La clé présentée par %1\$s:%2\$s ne correspond plus à celle enregistrée. 	The key presented by %1\$s:%2\$s no longer matches the saved one. 
+La demande a été refusée par le modèle.	The model declined the request.
+La ligne actuelle ne demande pas de mot de passe. S'il est tapé maintenant, il apparaîtra en clair dans le terminal 	The current line is not asking for a password. If typed now, it will appear in clear in the terminal 
+Le bouton clé du terminal le tape pour vous à une invite sudo.	The terminal's key button types it for you at a sudo prompt.
+Le dossier et tout son contenu seront supprimés.	The folder and all its content will be deleted.
+Le lanceur ne permet pas d'épingler de raccourci	The launcher does not support pinned shortcuts
+Le nom du serveur est résolu par le proxy. Avec un hôte de rebond, le proxy de l'hôte de rebond s'applique.	The server name is resolved by the proxy. With a jump host, the jump host's proxy applies.
+Le serveur peut utiliser vos clés pour rebondir (ssh -A)	The server can use your keys to hop further (ssh -A)
+Le terminal garde ses propres couleurs : l'app peut être en clair et le terminal en sombre.	The terminal keeps its own colors: the app can be light and the terminal dark.
+Les commandes tapées sur cet hôte apparaîtront ici.	Commands typed on this host will appear here.
+Liaison série	Serial line
+Liste	List
+Local	Local
+Local (Ollama, LM Studio…)	Local (Ollama, LM Studio…)
+Locale	Local
+Masquer le clavier	Hide keyboard
+Mettre à jour la stack	Update the stack
+Modifier	Edit
+Modifier %1\$s	Edit %1\$s
+Modifier l'hôte	Edit host
+Modifier l'identité	Edit identity
+Modifier la barre	Edit the bar
+Modifier la règle	Edit rule
+Modifier le snippet	Edit snippet
+Modèle	Model
+Moniteur du serveur	Server monitor
+Mot de passe	Password
+Mot de passe (optionnel)	Password (optional)
+Mot de passe de la sauvegarde	Backup password
+Mot de passe de secours (optionnel)	Fallback password (optional)
+Mot de passe incorrect ou fichier altéré	Wrong password or corrupted file
+Mot de passe refusé	Password rejected
+Mot de passe sudo (optionnel)	sudo password (optional)
+Mémoire	Memory
+Mémoriser (sinon demandée à chaque connexion)	Remember (otherwise asked at each connection)
+Nautile a planté	Nautile crashed
+Nautile est verrouillée	Nautile is locked
+Nom	Name
+Nouveau dossier	New folder
+Nouveau snippet	New snippet
+Nouvel hôte	New host
+Nouvelle identité	New identity
+Nouvelle règle	New rule
+Nouvelle session	New session
+Nouvelles connexions	New connections
+Ollama : http://IP-du-PC:11434/v1 (lancer avec OLLAMA_HOST=0.0.0.0). LM Studio : http://IP-du-PC:1234/v1.	Ollama: http://PC-IP:11434/v1 (start it with OLLAMA_HOST=0.0.0.0). LM Studio: http://PC-IP:1234/v1.
+Options de %1\$s	Options for %1\$s
+Organisation	Organization
+Oublier la clé de %1\$s	Forget the key of %1\$s
+Oublier la phrase de passe	Forget passphrase
+Page précédente	Page up
+Page suivante	Page down
+Par défaut	Default
+Paramètres de sauvegarde invalides	Invalid backup parameters
+Parent	Parent
+Parenthèse fermante	Closing parenthesis
+Parenthèse ouvrante	Opening parenthesis
+Partager	Share
+Partager la clé publique	Share public key
+Partager le journal	Share log
+Permissions	Permissions
+Permissions modifiées	Permissions changed
+Phrase de passe	Passphrase
+Phrase de passe (recommandée)	Passphrase (recommended)
+Phrase de passe de la clé	Key passphrase
+Phrase de passe incorrecte	Wrong passphrase
+Phrase de passe mémorisée	Passphrase remembered
+Phrase de passe oubliée	Passphrase forgotten
+Phrase de passe requise	Passphrase required
+Plein	Filled
+Plus d'options	More options
+Port de knocking invalide : %1\$s	Invalid knocking port: %1\$s
+Port knocking (optionnel)	Port knocking (optional)
+Port knocking sur %1\$s (%2\$s)…	Port knocking on %1\$s (%2\$s)…
+Port série	Serial port
+Port série ouvert à %1\$s bauds	Serial port open at %1\$s baud
+Première connexion à %1\$s:%2\$s (%3\$s). Vérifiez l'empreinte avant de faire confiance.	First connection to %1\$s:%2\$s (%3\$s). Check the fingerprint before trusting it.
+Processus les plus gourmands	Top processes
+Proxy HTTP : %1\$s	HTTP proxy: %1\$s
+Proxy HTTP : connexion fermée	HTTP proxy: connection closed
+Proxy HTTP : réponse trop longue	HTTP proxy: response too long
+Proxy SOCKS5 : adresse invalide	SOCKS5 proxy: invalid address
+Proxy SOCKS5 : aucune méthode d'authentification acceptée	SOCKS5 proxy: no accepted authentication method
+Proxy SOCKS5 : connexion refusée (code %1\$s)	SOCKS5 proxy: connection refused (code %1\$s)
+Proxy SOCKS5 : identifiants refusés	SOCKS5 proxy: credentials rejected
+Proxy SOCKS5 : réponse invalide	SOCKS5 proxy: invalid response
+Proxy SOCKS5 sur le téléphone : les applis qui le configurent sortent par le serveur.	SOCKS5 proxy on the phone: apps configured to use it go out through the server.
+Proxy de %1\$s : adresse manquante	Proxy of %1\$s: address missing
+Préparation…	Preparing…
+Que voulez-vous faire ?	What do you want to do?
+Raccourci sur l'écran d'accueil	Home screen shortcut
+Rapport de crash	Crash report
+Rechercher un hôte	Search hosts
+Reconnecter	Reconnect
+Refuser	Reject
+Remplacer la clé	Replace key
+Renommer	Rename
+Renommer la clé	Rename key
+Renommé	Renamed
+Reprendre	Resume
+Retirer de la barre	Remove from the bar
+Retour	Back
+Retour aux hôtes	Back to hosts
+Retour aux réglages	Back to settings
+Routeur console	Console router
+Réduire	Smaller
+Réglages	Settings
+Réponds uniquement par le mot : OK	Reply with the single word: OK
+Réponse : 	Response: 
+Réponse inattendue de mosh-server : %1\$s	Unexpected mosh-server response: %1\$s

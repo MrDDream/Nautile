@@ -1,0 +1,50 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the report! Remove passwords, keys and private addresses from logs and screenshots. / Merci ! Retire mots de passe, clés et adresses privées des journaux et captures.
+  - type: input
+    id: version
+    attributes:
+      label: Nautile version
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Phone and Android version
+      placeholder: Pixel 8, Android 15
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [SSH / terminal, Mosh, Telnet / serial / local, Remote desktop (RDP), SFTP, Tunnels, Snippets, Keys / identities, Backup / sync, Settings, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. …\n2. …"
+  - type: textarea
+    id: server
+    attributes:
+      label: Server side (if relevant)
+      description: OS, SSH server (OpenSSH 9.x…), Windows version for RDP, Nextcloud…
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The crash report shown at the next launch, or `adb logcat`.
+      render: text

@@ -1,0 +1,353 @@
+Police	Font
+Supprimer cette police	Delete this font
+Nerd Font : symboles Powerline (Powerlevel10k, Starship)	Nerd Font: Powerline symbols (Powerlevel10k, Starship)
+Police importée	Imported font
+Police du système, sans symboles Powerline	System font, no Powerline symbols
+Importer une police (.ttf, .otf)	Import a font (.ttf, .otf)
+Appui long sur une police importée pour la supprimer.	Long-press an imported font to delete it.
+fichier trop volumineux (30 Mo max.)	file too large (30 MB max)
+ce fichier n'est pas une police TrueType ou OpenType	this file is not a TrueType or OpenType font
+Police « %1\$s » importée et appliquée	Font “%1\$s” imported and applied
+Police « %1\$s » appliquée, mais elle n'est pas à chasse fixe : les colonnes risquent d'être décalées.	Font “%1\$s” applied, but it is not monospaced: columns may be misaligned.
+Monospace du système	System monospace
+%1\$s est un bureau à distance, pas un terminal	%1\$s is a remote desktop, not a terminal
+%1\$s sessions terminal	%1\$s terminal sessions
+1 session terminal	1 terminal session
+%1\$s bureaux à distance	%1\$s remote desktops
+1 bureau à distance	1 remote desktop
+⚠ Le certificat du serveur a changé	⚠ The server certificate changed
+Certificat du serveur	Server certificate
+Le certificat présenté par %1\$s ne correspond plus à celui enregistré. 	The certificate presented by %1\$s no longer matches the saved one. 
+Cela peut venir d'un renouvellement du certificat… ou d'une attaque de l'homme du milieu.	This may come from a renewed certificate… or a man-in-the-middle attack.
+Première connexion à %1\$s (%2\$s). Windows utilise souvent un certificat auto-signé : vérifiez l'empreinte avant de faire confiance.	First connection to %1\$s (%2\$s). Windows often uses a self-signed certificate: check the fingerprint before trusting it.
+Le nom du certificat ne correspond pas à l'adresse.	The certificate name does not match the address.
+Émetteur	Issuer
+Remplacer le certificat	Replace the certificate
+Connexion à la passerelle	Gateway logon
+Connexion à Windows	Windows logon
+Domaine (optionnel)	Domain (optional)
+Session Windows	Windows session
+Mot de passe (demandé à la connexion si vide)	Password (asked when connecting if empty)
+Résolution	Resolution
+Taille de l'écran	Screen size
+Échelle (%)	Scale (%)
+Auto	Auto
+« Taille de l'écran » suit aussi la rotation (Windows 8.1 ou plus récent).	“Screen size” also follows rotation (Windows 8.1 or later).
+Auto négocie avec le serveur ; NLA vérifie le mot de passe avant d'ouvrir la session.	Auto negotiates with the server; NLA checks the password before opening the session.
+Sans objet avec un tunnel SSH	Not used with an SSH tunnel
+Son	Sound
+Joue le son de Windows sur le téléphone	Plays Windows sound on the phone
+Session console	Console session
+Ouvre la session console du serveur (mstsc /admin)	Opens the server's console session (mstsc /admin)
+Choisir : %1\$s	Choose: %1\$s
+Tunnel SSH	SSH tunnel
+Via %1\$s (redirection de port)	Via %1\$s (port forwarding)
+Bureau à distance	Remote desktop
+Bureau à distance indisponible sur cet appareil : %1\$s	Remote desktop unavailable on this device: %1\$s
+Tunnel SSH via %1\$s vers %2\$s:%3\$s	SSH tunnel via %1\$s to %2\$s:%3\$s
+Connexion RDP à %1\$s:%2\$s…	RDP connection to %1\$s:%2\$s…
+Paramètres de connexion refusés par FreeRDP	Connection settings rejected by FreeRDP
+Session terminée	Session ended
+Reconnexion…	Reconnecting…
+Identifiants refusés par le serveur	Credentials rejected by the server
+Mot de passe expiré : changez-le depuis Windows	Password expired: change it from Windows
+Compte désactivé	Account disabled
+Compte non autorisé à se connecter à distance	Account not allowed to log on remotely
+Adresse introuvable	Address not found
+Serveur injoignable (port fermé ou bureau à distance désactivé)	Server unreachable (port closed or remote desktop disabled)
+Échec de la négociation TLS	TLS negotiation failed
+Aucun mode de sécurité commun : essayez un autre réglage de sécurité	No common security mode: try another security setting
+Droits insuffisants pour ouvrir une session	Insufficient rights to log on
+Connexion refusée par le serveur	Connection refused by the server
+Se déconnecter de %1\$s ?	Disconnect from %1\$s?
+La session Windows reste ouverte sur le serveur : vous la retrouverez à la prochaine connexion.	The Windows session stays open on the server: you will find it at the next connection.
+Rester	Stay
+Déconnecter	Disconnect
+Coller le presse-papier du téléphone	Paste the phone's clipboard
+Clavier	Keyboard
+Se déconnecter	Disconnect
+Maj	Shift
+Touche Windows	Windows key
+Suppr	Del
+Pg↑	PgUp
+Pg↓	PgDn
+Ctrl+Alt+Suppr	Ctrl+Alt+Del
+Terminal	Terminal
+Police · %1\$s	Font · %1\$s
+Importer .ttf / .otf	Import .ttf / .otf
+ · importée	 · imported
+ · sans Powerline	 · no Powerline
+Toutes les polices fournies sont des Nerd Fonts : symboles Powerline pour Powerlevel10k et Starship.	All bundled fonts are Nerd Fonts: Powerline symbols for Powerlevel10k and Starship.
+ Appui long sur une police importée pour la supprimer.	 Long-press an imported font to delete it.
+Historique et journaux	History and logs
+Lire, partager ou supprimer	Read, share or delete
+Effacer l'historique (%1\$s commandes)	Clear history (%1\$s commands)
+Effacer les %1\$s commandes enregistrées ?	Clear the %1\$s saved commands?
+Les suggestions repartiront de zéro sur tous les hôtes.	Suggestions will start from scratch on every host.
+Effacer	Clear
+Contrôle tactile	Touch control
+Tactile direct	Direct touch
+Le doigt est le pointeur : on touche là où on clique.	Your finger is the pointer: touch where you click.
+Pavé tactile	Touchpad
+Le doigt déplace une flèche, comme sur un portable.	Your finger moves an arrow, like on a laptop.
+Qualité d'image	Image quality
+Rapide	Fast
+Haute	High
+S'adapte au réseau : H.264 matériel quand le serveur le permet.	Adapts to the network: hardware H.264 when the server allows it.
+Couleurs réduites et effets coupés, pour la 4G ou un tunnel lent.	Fewer colours and no effects, for mobile data or a slow tunnel.
+Fond d'écran, animations et meilleure image : à réserver au Wi-Fi.	Wallpaper, animations and the best image: keep it for Wi-Fi.
+Session	Session
+Presse-papier partagé	Shared clipboard
+Copier sur le PC, coller sur le téléphone, et inversement	Copy on the PC, paste on the phone, and the other way round
+Plein écran	Full screen
+Masque les barres d'Android pendant la session	Hides Android's bars during the session
+Barre de touches avec le clavier	Key bar with the keyboard
+Ctrl, Alt, ⊞, flèches, F1–F12	Ctrl, Alt, ⊞, arrows, F1–F12
+Afficher le pointeur Windows	Show the Windows pointer
+Toujours affiché avec le pavé tactile	Always shown with the touchpad
+Utile pour viser en tactile direct	Helps aiming in direct touch
+Valeurs par défaut pour tous les hôtes RDP ; la qualité et le presse-papier s'appliquent à la prochaine connexion. Résolution, sécurité et son se règlent dans la fiche de chaque hôte.	Defaults for every RDP host; quality and clipboard apply from the next connection. Resolution, security and sound are set on each host.
+Toucher	Tap
+Clic gauche	Left click
+Appui long	Long press
+Clic droit, ou glisser si le doigt bouge	Right click, or drag if the finger moves
+Deux doigts	Two fingers
+Molette · toucher = clic droit	Wheel · tap = right click
+Pincer	Pinch
+Zoom	Zoom
+Un doigt (zoomé)	One finger (zoomed)
+Déplacer la vue	Pan the view
+Glisser	Drag
+Déplacer la flèche	Move the arrow
+Clic gauche sous la flèche	Left click under the arrow
+Clic droit, ou glisser-déposer si le doigt bouge	Right click, or drag and drop if the finger moves
+Zoom (la vue suit la flèche)	Zoom (the view follows the arrow)
+Apparence	Appearance
+qualité %1\$s	%1\$s quality
+auto	auto
+rapide	fast
+haute	high
+À configurer	Not set up
+Sécurité & sauvegarde	Security & backup
+Verrouillage activé	Lock on
+Verrouillage désactivé	Lock off
+sauvegarde %1\$s	backup %1\$s
+jamais sauvegardé	never backed up
+Aucun journal	No logs
+%1\$s fichier(s)	%1\$s file(s)
+Rechercher : police, clé API, sauvegarde…	Search: font, API key, backup…
+Effacer la recherche	Clear search
+Personnalisation	Personalisation
+Services et données	Services and data
+Aucun réglage pour « %1\$s »	No setting for “%1\$s”
+Version %1\$s · client SSH et RDP libre (GPLv3)	Version %1\$s · free SSH and RDP client (GPLv3)
+Vos données restent sur l'appareil	Your data stays on the device
+Tout est en ordre	All good
+Une action recommandée	One recommended action
+%1\$s actions recommandées	%1\$s recommended actions
+✓ Base chiffrée	✓ Encrypted database
+✓ Verrouillage	✓ Lock
+Aucune sauvegarde	No backup
+Sauvegarde %1\$s	Backup %1\$s
+✓ Sauvegarde %1\$s	✓ Backup %1\$s
+Thème de l'app	App theme
+Le terminal garde ses propres couleurs : réglez-les dans Terminal.	The terminal keeps its own colours: set them in Terminal.
+Pour l'envoyer dans le cloud, choisissez Google Drive ou OneDrive dans le sélecteur de fichiers : le fichier part déjà chiffré.	To store it in the cloud, pick Google Drive or OneDrive in the file picker: the file leaves already encrypted.
+Dernière sauvegarde %1\$s	Last backup %1\$s
+Aucune sauvegarde exportée	No backup exported
+Exportez-en une pour ne rien perdre en changeant de téléphone.	Export one so nothing is lost when you change phones.
+À jour	Up to date
+Verrouillage	Lock
+La base de données est chiffrée (SQLCipher, clé dans l'Android Keystore). Les clés d'hôtes et certificats RDP de confiance sont dans Clés › Hôtes connus.	The database is encrypted (SQLCipher, key in the Android Keystore). Trusted host keys and RDP certificates are in Keys › Known hosts.
+Aspect	Look
+Barre de touches	Key bar
+Touches affichées au-dessus du clavier, dans cet ordre. Touchez-en une pour la déplacer ou la retirer.	Keys shown above the keyboard, in this order. Tap one to move or remove it.
++ Ajouter	+ Add
+Retirer	Remove
+Revenir à la barre par défaut	Restore the default bar
+Bouton mot de passe	Password button
+Tape le mot de passe sudo de l'hôte à une invite	Types the host's sudo password at a prompt
+Vibration des touches	Key vibration
+Retour tactile en touchant la barre	Haptic feedback when tapping the bar
+Ajouter une touche	Add a key
+Décrivez ce que vous voulez faire dans le terminal, l'assistant propose la commande. Rien n'est exécuté sans votre accord.	Describe what you want to do in the terminal and the assistant suggests the command. Nothing runs without your approval.
+Actif	Active
+Clé enregistrée	Key saved
+Sans clé	No key
+Connexion OK · %1\$s est le fournisseur actif. Réponse : %2\$s	Connection OK · %1\$s is the active provider. Reply: %2\$s
+Échec : %1\$s (réglages enregistrés, fournisseur actif inchangé)	Failed: %1\$s (settings saved, active provider unchanged)
+Tester et utiliser	Test and use
+Ce qui est envoyé	What is sent
+✓ Votre demande, l'adresse et le protocole de l'hôte	✓ Your request, the host's address and protocol
+✓ Les 40 dernières lignes du terminal, seulement si « Joindre l'écran » est coché	✓ The last 40 terminal lines, only if “Attach the screen” is ticked
+✕ Jamais vos mots de passe, vos clés ni votre historique	✕ Never your passwords, keys or history
+Les clés API restent chiffrées sur l'appareil (Android Keystore).	API keys stay encrypted on the device (Android Keystore).
+Oublier la clé %1\$s	Forget the %1\$s key
+sauvegarde automatique	automatic backup
+Sauvegarde envoyée	Backup sent
+Ce stockage ne permet pas d'y revenir plus tard : choisissez-en un autre	This storage does not allow coming back later: choose another one
+Destination inaccessible	Destination unreachable
+Dernière tentative automatique : %1\$s	Last automatic attempt: %1\$s
+Destination	Destination
+Fichier ou cloud	File or cloud
+Google Drive, OneDrive, téléphone…	Google Drive, OneDrive, phone…
+Nextcloud	Nextcloud
+WebDAV, auto-hébergé	WebDAV, self-hosted
+Choisissez Google Drive ou OneDrive dans le sélecteur d'Android (leur app doit être installée), ou un dossier WebDAV.	Pick Google Drive or OneDrive in Android's picker (their app must be installed), or a WebDAV folder.
+Sauvegarde automatique	Automatic backup
+Choisissez d'abord une destination	Choose a destination first
+Une fois par %1\$s, en Wi-Fi, batterie suffisante	Once a %1\$s, on Wi-Fi, with enough battery
+Seulement quand vous le demandez	Only when you ask
+Jour	Day
+Semaine	Week
+Mois	Month
+Sauvegarder	Back up
+Restaurer…	Restore…
+Exporter aussi une copie dans un fichier…	Also export a copy to a file…
+Chiffrée sur le téléphone avant l'envoi (Argon2id + AES-256-GCM) : le stockage ne voit qu'un fichier illisible. Contient hôtes, clés, identités, snippets, tunnels et hôtes connus.	Encrypted on the phone before it leaves (Argon2id + AES-256-GCM): the storage only sees an unreadable file. Holds hosts, keys, identities, snippets, tunnels and known hosts.
+Oublier le mot de passe de sauvegarde	Forget the backup password
+jour	day
+semaine	week
+mois	month
+Redemander après	Ask again after
+Immédiat	Immediately
+1 min	1 min
+5 min	5 min
+15 min	15 min
+Masquer dans les apps récentes	Hide in recent apps
+Aperçu vide dans le sélecteur d'apps ; bloque aussi les captures d'écran	Blank preview in the app switcher; also blocks screenshots
+Clés SSH et certificats RDP de confiance	Trusted SSH keys and RDP certificates
+Confirmer	Confirm
+Gardé chiffré sur l'appareil (Android Keystore) pour les sauvegardes automatiques.	Kept encrypted on the device (Android Keystore) for automatic backups.
+Mémoriser (chiffré dans l'Android Keystore)	Remember (encrypted in the Android Keystore)
+Nextcloud / WebDAV	Nextcloud / WebDAV
+Adresse du dossier	Folder address
+Mot de passe d'application	App password
+Nextcloud : Paramètres › Sécurité › mot de passe d'application. Une adresse finissant par / est un dossier ; le fichier s'appellera nautile.backup.	Nextcloud: Settings › Security › app password. An address ending with / is a folder; the file will be named nautile.backup.
+Connexion réussie : écriture possible	Connected: writing works
+Aucune destination choisie	No destination chosen
+Mot de passe de sauvegarde non enregistré	Backup password not saved
+Le fichier de sauvegarde n'est plus accessible : choisissez-le à nouveau	The backup file is no longer reachable: choose it again
+WebDAV : identifiants refusés	WebDAV: credentials rejected
+WebDAV : dossier introuvable	WebDAV: folder not found
+WebDAV : erreur %1\$s	WebDAV: error %1\$s
+Téléphone	Phone
+Téléchargements	Downloads
+Replier la barre	Fold the bar
+Ouvrir la barre d'outils	Open the toolbar
+Barre d'outils de %1\$s	%1\$s toolbar
+Connexions	Connections
+Ouvrir SFTP	Open SFTP
+Sessions actives · %1\$s	Active sessions · %1\$s
+Sessions actives	Active sessions
+Aucune session ouverte. Touchez un hôte ou une ligne de l'historique pour vous connecter.	No open session. Tap a host or a history line to connect.
+Vos connexions apparaîtront ici, y compris les connexions rapides tapées dans la recherche des hôtes.	Your connections will show here, including quick connections typed in the hosts search.
+Effacer l'historique des connexions ?	Clear the connection history?
+Les hôtes enregistrés ne sont pas touchés.	Saved hosts are not affected.
+connecté	connected
+déconnecté	disconnected
+Se reconnecter	Reconnect
+Plus d'actions	More actions
+ · non enregistré	 · not saved
+Enregistrer comme hôte	Save as host
+Retirer de l'historique	Remove from history
+Aujourd'hui	Today
+Hier	Yesterday
+Rechercher ou root@192.168.1.2	Search or root@192.168.1.2
+Trousseau de clés	Keychain
+Gérer les groupes	Manage groups
+Groupes	Groups
+Aucun hôte pour l'instant.	No hosts yet.
+Touchez + pour en ajouter un, importez votre ~/.ssh/config, ou tapez root@adresse dans la recherche pour vous connecter sans l'enregistrer.	Tap + to add one, import your ~/.ssh/config, or type root@address in the search to connect without saving it.
+Aucun hôte ne correspond à « %1\$s ».	No host matches “%1\$s”.
+Connexion rapide	Quick connection
+Pas enregistrée : retrouvez-la dans Connexions › Historique pour l'enregistrer.	Not saved: find it in Connections › History to save it.
+Déplacer vers un groupe…	Move to a group…
+Supprimer %1\$s ?	Delete %1\$s?
+L'hôte et ses tunnels sont supprimés. Les clés du trousseau sont gardées.	The host and its tunnels are deleted. Keychain keys are kept.
+Déplacer %1\$s	Move %1\$s
+Nouveau groupe	New group
+Créer	Create
+Aucun groupe. Créez-en un pour ranger vos hôtes.	No groups. Create one to sort your hosts.
+%1\$s hôte(s)	%1\$s host(s)
+Modifier le groupe	Edit group
+Supprimer le groupe	Delete group
+Ses hôtes passeront dans « Sans groupe ». Touchez à nouveau pour confirmer.	Its hosts will move to “No group”. Tap again to confirm.
+Terminal sur un serveur Linux, macOS, routeur… (Mosh en option)	Terminal on a Linux or macOS server, router… (Mosh optional)
+Bureau à distance (RDP)	Remote desktop (RDP)
+Bureau Windows ou serveur xrdp	Windows desktop or xrdp server
+Équipements réseau anciens, consoles	Older network gear, consoles
+Série USB	USB serial
+Câble console USB-OTG (FTDI, CP210x, CH34x…)	USB-OTG console cable (FTDI, CP210x, CH34x…)
+Terminal local	Local terminal
+Le shell de ce téléphone	This phone's shell
+~/.ssh/config ou CSV (hostname, alias, port, user, group, tags)	~/.ssh/config or CSV (hostname, alias, port, user, group, tags)
+Un groupe porte déjà ce nom	A group already has that name
+Nouvel hôte %1\$s	New %1\$s host
+Nom affiché	Display name
+Adresse ou nom	Address or name
+Port entre 1 et 65535	Port between 1 and 65535
+Utilisateur Windows	Windows user
+Nom affiché (facultatif)	Display name (optional)
+Astuce : collez « user@adresse:port » dans Adresse pour tout remplir.	Tip: paste “user@address:port” in Address to fill everything.
+Trousseau vide : générez une clé dans le Trousseau (icône clé des Hôtes) ou importez un fichier.	Empty keychain: generate a key in the Keychain (key icon on Hosts) or import a file.
+Mot de passe sudo (facultatif)	sudo password (optional)
+rebond via %1\$s	jump via %1\$s
+proxy %1\$s	%1\$s proxy
+transfert d'agent	agent forwarding
+port knocking	port knocking
+commande au démarrage	startup command
+Options avancées	Advanced options
+Masquer	Hide
+Afficher	Show
+Port knocking (facultatif)	Port knocking (optional)
+série	serial
+Type d'hôte : %1\$s	Host type: %1\$s
++ Nouveau	+ New
+Nom du nouveau groupe	New group name
+Espace disque	Disk space
+Mises à jour (Debian, Ubuntu)	Updates (Debian, Ubuntu)
+Conteneurs Docker	Docker containers
+Journal d'un service	Service log
+Redémarrer un service	Restart a service
+« %1\$s » copié	“%1\$s” copied
+Rechercher un snippet	Search snippets
+Tous · %1\$s	All · %1\$s
+Vos commandes fréquentes, en un geste	Your frequent commands, one tap away
+Enregistrez une commande, lancez-la sur une ou plusieurs sessions, ou ouvrez les hôtes choisis et exécutez-la. 	Save a command, run it on one or several sessions, or open chosen hosts and run it there. 
+Les variables comme \${SERVICE} sont demandées au lancement.	Variables like \${SERVICE} are asked when it runs.
+Ajouter quelques exemples	Add a few examples
+Aucun snippet ne correspond.	No snippet matches.
+Les plus utilisés d'abord	Most used first
+%1\$s (copie)	%1\$s (copy)
+jamais lancé	never run
+Copier %1\$s	Copy %1\$s
+Dupliquer	Duplicate
+Rechercher	Search
+Sécurité, sauvegarde et synchro	Security, backup and sync
+synchro %1\$s	synced %1\$s
+synchro activée	sync on
+✓ Synchro	✓ Sync
+Synchronisé : %1\$s modification(s) reçue(s)	Synced: %1\$s change(s) received
+Synchronisé	Synced
+Choisissez d'abord une destination (Google Drive, OneDrive ou Nextcloud).	Choose a destination first (Google Drive, OneDrive or Nextcloud).
+Ce fichier ne peut pas être modifié par Nautile : choisissez-en un autre	Nautile cannot modify this file: choose another one
+Fichier choisi : activez la synchronisation pour le rejoindre.	File chosen: turn sync on to join it.
+Synchronisation	Sync
+Synchroniser mes appareils	Sync my devices
+Hôtes, clés, identités, snippets, tunnels et hôtes connus partagés entre vos téléphones et tablettes	Hosts, keys, identities, snippets, tunnels and known hosts shared between your phones and tablets
+Synchronisation…	Syncing…
+Dernière synchro %1\$s · %2\$s appareil(s)	Last sync %1\$s · %2\$s device(s)
+Pas encore synchronisé	Not synced yet
+%1\$s (ce téléphone)	%1\$s (this phone)
+%1\$s · %2\$s	%1\$s · %2\$s
+Synchroniser maintenant	Sync now
+Sur chaque appareil : la même destination ci-dessous et le même mot de passe. Pour Google Drive ou OneDrive, choisissez « Fichier existant » sur le deuxième appareil. 	On each device: the same destination below and the same password. For Google Drive or OneDrive, pick “Existing file” on the second device. 
+La modification la plus récente l'emporte, suppressions comprises. Les clés API et les réglages d'affichage restent propres à chaque appareil.	The most recent change wins, deletions included. API keys and display settings stay specific to each device.
+Nouveau fichier	New file
+Fichier existant (autre appareil)	Existing file (other device)
+La synchronisation met le fichier à jour à chaque modification	Sync updates the file on every change
+Incluse	Included
+Ce mot de passe ne déchiffre pas le fichier existant : utilisez celui choisi sur l'autre appareil.	This password does not decrypt the existing file: use the one chosen on the other device.
+Conflit d'écriture répété avec un autre appareil	Repeated write conflict with another device
+Le mot de passe ne déchiffre pas le fichier de synchronisation	The password does not decrypt the sync file

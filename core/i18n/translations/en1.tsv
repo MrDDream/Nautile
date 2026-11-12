@@ -1,0 +1,170 @@
+  (recommandé)	  (recommended)
+ · clé %1\$s	 · key %1\$s
+ · connexion…	 · connecting…
+ · déconnecté	 · disconnected
+ · importé	 · imported
+ · mot de passe	 · password
+%1\$s (importée)	%1\$s (imported)
+%1\$s : aucune clé choisie	%1\$s: no key selected
+%1\$s : clé API refusée	%1\$s: API key rejected
+%1\$s : identité introuvable	%1\$s: identity not found
+%1\$s : la clé a été supprimée du trousseau	%1\$s: the key was deleted from the keychain
+%1\$s : modèle ou adresse introuvable (%2\$s)	%1\$s: model or URL not found (%2\$s)
+%1\$s : quota ou limite atteint (%2\$s)	%1\$s: quota or rate limit reached (%2\$s)
+%1\$s : réponse vide	%1\$s: empty response
+%1\$s actif%2\$s · redirections locales, distantes et SOCKS	%1\$s active · local, remote and SOCKS forwarding
+%1\$s devient une variable demandée à chaque exécution. Plusieurs lignes = plusieurs commandes.	%1\$s becomes a variable asked for at each run. Several lines = several commands.
+%1\$s exécution%2\$s	%1\$s run%2\$s
+%1\$s hôte(s) importé(s)	%1\$s host(s) imported
+%1\$s transferts en cours	%1\$s transfers running
+%1\$s tunnels actifs	%1\$s active tunnels
+, %1\$s déjà présent(s)	, %1\$s already present
+1 session SSH	1 SSH session
+1 session ouverte	1 open session
+1 transfert en cours	1 transfer running
+1 tunnel actif	1 active tunnel
+Accès à l'adaptateur USB refusé	USB adapter access denied
+Accédez à un service du serveur depuis le téléphone (locale), exposez un service local sur le serveur (distante) ou passez par le serveur comme proxy (SOCKS).	Reach a server service from the phone (local), expose a local service on the server (remote) or go through the server as a proxy (SOCKS).
+Actions	Actions
+Actualiser	Refresh
+Adaptateur USB-OTG (FTDI, CP210x, CH34x, PL2303, CDC) : 8 bits, sans parité, 1 bit de stop.	USB-OTG adapter (FTDI, CP210x, CH34x, PL2303, CDC): 8 data bits, no parity, 1 stop bit.
+Adresse	Address
+Adresse de l'API	API URL
+Affichage	Display
+Agrandir	Larger
+Alias	Alias
+Alt (une touche)	Alt (next key)
+Ancienne empreinte	Previous fingerprint
+Android n'autorise pas l'écoute sous le port 1024.	Android does not allow listening below port 1024.
+Annuler	Cancel
+Annulé	Cancelled
+Apparence du terminal	Terminal appearance
+Appui long sur un thème importé pour le supprimer.	Long-press an imported theme to delete it.
+Aucun	None
+Aucun adaptateur série USB détecté (câble OTG branché ?)	No USB serial adapter found (is the OTG cable plugged in?)
+Aucun autre hôte SSH disponible	No other SSH host available
+Aucun autre hôte enregistré.	No other saved host.
+Aucun hôte	No hosts
+Aucun hôte connu pour l'instant.	No known hosts yet.
+Aucun hôte pour l'instant.\nAjoutez-en un ou importez votre ~/.ssh/config.	No hosts yet.\nAdd one or import your ~/.ssh/config.
+Aucun hôte trouvé dans ce fichier	No hosts found in this file
+Aucun journal. Activez « Enregistrer les sessions » dans les réglages.	No logs. Turn on “Record sessions” in settings.
+Aucun modèle renvoyé	No models returned
+Aucun snippet : créez-en dans l'onglet Snippets.	No snippets: create some in the Snippets tab.
+Aucun — connexion directe	None — direct connection
+Aucune	None
+Aucune biométrie ni code configuré sur l'appareil	No biometrics or screen lock set up on this device
+Aucune clé. Générez-en une ou importez votre clé existante.	No keys. Generate one or import your existing key.
+Aucune identité.	No identities.
+Aucune invite de mot de passe	No password prompt
+Authentification	Authentication
+Authentification refusée	Authentication failed
+Autorisation USB demandée…	Requesting USB permission…
+Barre	Bar
+Barre oblique	Slash
+Barre oblique inverse	Backslash
+Barre verticale	Pipe
+Barre vide : touchez des touches ci-dessous pour les ajouter.	Empty bar: tap keys below to add them.
+Bas	Down
+Bloc	Block
+Boucle ou chaîne de rebond trop longue	Jump host loop or chain too long
+Catégorie	Category
+Ce fichier n'est pas une clé privée	This file is not a private key
+Ce fichier n'est pas une sauvegarde Nautile	This file is not a Nautile backup
+Ce téléphone	This phone
+Cela peut venir d'une réinstallation du serveur… ou d'une attaque de l'homme du milieu.	This can come from a server reinstall… or a man-in-the-middle attack.
+Cette action est définitive.	This cannot be undone.
+Cette clé est chiffrée : elle sera exportée telle quelle, avec sa phrase de passe d'origine.	This key is encrypted: it will be exported as is, with its original passphrase.
+Cette clé est déjà dans le trousseau (%1\$s)	This key is already in the keychain (%1\$s)
+Chiffrée	Encrypted
+Choisir le fichier	Choose file
+Choisir…	Choose…
+Choisissez un modèle	Choose a model
+Clair	Light
+Clavier du téléphone	Phone keyboard
+Clé	Key
+Clé API	API key
+Clé API (enregistrée — saisir pour remplacer)	API key (saved — type to replace)
+Clé API (facultative)	API key (optional)
+Clé API manquante	API key missing
+Clé API refusée par Anthropic	API key rejected by Anthropic
+Clé ajoutée au trousseau	Key added to the keychain
+Clé chiffrée : importez-la depuis le Trousseau pour saisir sa phrase de passe	Encrypted key: import it from the Keychain to enter its passphrase
+Clé d'hôte refusée	Host key rejected
+Clé illisible	Unreadable key
+Clé illisible : %1\$s	Unreadable key: %1\$s
+Clé importée	Key imported
+Clé privée (OpenSSH, PEM, PuTTY)	Private key (OpenSSH, PEM, PuTTY)
+Clé privée exportée	Private key exported
+Clé publique	Public key
+Clé supprimée	Key deleted
+Clé « %1\$s » générée	Key “%1\$s” generated
+Clé « %1\$s » importée	Key “%1\$s” imported
+Clés	Keys
+Clés privées stockées dans la base chiffrée, dont la clé est protégée par l'Android Keystore. Elles ne quittent l'appareil que si vous les exportez.	Private keys are stored in the encrypted database, whose key is protected by the Android Keystore. They only leave the device if you export them.
+Coller	Paste
+Coller le presse-papiers	Paste clipboard
+Coller le texte	Paste text
+Colonne « hostname » introuvable	Column “hostname” not found
+Commande au démarrage	Startup command
+Commandes affichées en écho, par hôte (%1\$s enregistrées). Jamais les mots de passe.	Echoed commands, per host (%1\$s saved). Never passwords.
+Configurez d'abord un fournisseur dans Réglages › Assistant IA.	First set up a provider in Settings › AI assistant.
+Configurez l'assistant dans Réglages › Assistant IA	Set up the assistant in Settings › AI assistant
+Connecter	Connect
+Connexion	Connection
+Connexion Telnet à %1\$s:%2\$s…	Telnet connection to %1\$s:%2\$s…
+Connexion annulée	Connection cancelled
+Connexion fermée	Connection closed
+Connexion impossible	Cannot connect
+Connexion perdue	Connection lost
+Connexion refusée	Connection refused
+Connexion à %1\$s…	Connecting to %1\$s…
+Connexion…	Connecting…
+Contour	Outline
+Contrôle (une touche)	Control (next key)
+Copie de la sortie de chaque nouvelle session, stockée sur l'appareil	Copy of each new session's output, stored on the device
+Copie vers %1\$s lancée	Copy to %1\$s started
+Copie vers %1\$s:%2\$s	Copy to %1\$s:%2\$s
+Copier	Copy
+Copier et fermer	Copy and close
+Copier la clé publique	Copy public key
+Copier vers un autre hôte	Copy to another host
+Copier vers un autre hôte…	Copy to another host…
+Couleur	Color
+Couleur %1\$s absente du thème	Color %1\$s missing from the theme
+Couleur des boutons	Button color
+Couleur · %1\$s	Color · %1\$s
+Créez-en une dans Clés › Identités	Create one in Keys › Identities
+Curseur	Cursor
+Demander	Ask
+Depuis un fichier	From a file
+Distante	Remote
+Dièse	Hash
+Docker	Docker
+Dossier	Folder
+Dossier créé	Folder created
+Dossier de destination	Destination folder
+Dossier vide	Empty folder
+Droite	Right
+Débit (bauds)	Baud rate
+Début	Home
+Décrivez ce que vous voulez faire, l'assistant propose la commande. Votre demande part chez le fournisseur choisi ; 	Describe what you want to do and the assistant suggests the command. Your request goes to the chosen provider; 
+Déjà dans le trousseau : « %1\$s » sélectionnée	Already in the keychain: “%1\$s” selected
+Délai de connexion dépassé	Connection timed out
+Démarrage de mosh-server…	Starting mosh-server…
+Démarrer avec chaque session sur cet hôte	Start with every session on this host
+Déplacer à droite	Move right
+Déplacer à gauche	Move left
+Déplacez ou retirez la touche sélectionnée.	Move or remove the selected key.
+Déverrouiller	Unlock
+Déverrouiller Nautile	Unlock Nautile
+Effacer l'historique des commandes	Clear command history
+Effacer terminés	Clear finished
+Elle est utilisée par %1\$s hôte(s), qui ne pourront plus s'y connecter avec. 	It is used by %1\$s host(s), which will no longer be able to connect with it. 
+Empreinte inconnue (clé chiffrée importée au jalon 2)	Unknown fingerprint (encrypted key imported earlier)
+Empreinte ou code de l'appareil à l'ouverture	Fingerprint or device PIN on launch
+Empreintes enregistrées à la première connexion. Supprimez-en une si un serveur a été réinstallé.	Fingerprints saved on first connection. Delete one if a server was reinstalled.
+En marche depuis	Up for
+Enregistrer	Save
+Enregistrer le fichier	Save file
+Enregistrer les sessions	Record sessions

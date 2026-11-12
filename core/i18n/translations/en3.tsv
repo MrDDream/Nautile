@@ -1,0 +1,153 @@
+Sans phrase de passe, le fichier sera en clair.	Without a passphrase the file will be in clear.
+Sauvegarde	Backup
+Sauvegarde exportée	Backup exported
+Se connecter	Connect
+Se connecter à %1\$s	Connect to %1\$s
+Session fermée	Session closed
+Session résistante aux coupures réseau (mosh-server requis sur le serveur)	Session that survives network drops (mosh-server required on the server)
+Sessions ouvertes	Open sessions
+Shell du téléphone (/system/bin/sh), sans connexion réseau.	The phone's shell (/system/bin/sh), no network connection.
+Shell terminé (code %1\$s)	Shell exited (code %1\$s)
+Solarized sombre	Solarized dark
+Sombre	Dark
+Souligné	Underline
+Style des boutons	Button style
+Suggestions depuis l'historique	Suggestions from history
+Supprimer	Delete
+Supprimer ce thème	Delete this theme
+Supprimer l'hôte	Delete host
+Supprimer l'identité	Delete identity
+Supprimer la clé %1\$s	Delete the %1\$s key
+Supprimer la règle	Delete rule
+Supprimer le snippet	Delete snippet
+Supprimer « %1\$s » ?	Delete “%1\$s”?
+Supprimé	Deleted
+Supérieur	Greater than
+Système	System
+Sécurité	Security
+Série	Serial
+Tabulation	Tab
+Tags (séparés par des virgules)	Tags (comma separated)
+Taille du texte	Text size
+Taille du texte · %1\$spx	Text size · %1\$spx
+Taper le mot de passe (sudo)	Type the password (sudo)
+Taper quand même	Type anyway
+Teinte et style des actions principales	Color and style of main actions
+Terminé	Done
+Terminé · %1\$s	Done · %1\$s
+Test de connexion	Connection test
+Tester	Test
+Thème	Theme
+Thème importé	Imported theme
+Thème « %1\$s » importé et appliqué	Theme “%1\$s” imported and applied
+Thème, curseur, taille, police	Theme, cursor, size, font
+Thèmes	Themes
+Touches	Keys
+Touchez une touche de la grille pour l'ajouter ou la retirer ; touchez-en une ici pour la déplacer.	Tap a key in the grid to add or remove it; tap one here to move it.
+Tous	All
+Toute personne qui obtient ce fichier peut se connecter à vos serveurs. Protégez-le par une phrase de passe.	Anyone who gets this file can log in to your servers. Protect it with a passphrase.
+Transfert annulé	Transfer cancelled
+Transfert d'agent	Agent forwarding
+Transferts	Transfers
+Trop de requêtes : réessayez dans un instant	Too many requests: try again shortly
+Trousseau	Keychain
+Trousseau vide : générez une clé dans l'onglet Clés ou importez un fichier.	Empty keychain: generate a key in the Keys tab or import a file.
+Trouver les 10 plus gros fichiers de /var	Find the 10 biggest files in /var
+Type de clé non pris en charge : %1\$s	Unsupported key type: %1\$s
+Téléchargement	Download
+Téléchargement de %1\$s lancé	Download of %1\$s started
+Télécharger	Download
+Une identité regroupe un utilisateur et ses identifiants, réutilisables sur plusieurs hôtes.	An identity groups a user name and its credentials, reusable across hosts.
+Utilisateur	User
+Utilisateur (optionnel)	User (optional)
+Valider	OK
+Verrouillage biométrique	Biometric lock
+Via l'hôte	Through host
+Voici le rapport de la dernière erreur. Copiez-le pour le transmettre ; il ne contient ni mot de passe ni clé.	Here is the report of the last error. Copy it to share it; it contains no password or key.
+actif sur le port %1\$s	active on port %1\$s
+arrêté	stopped
+clé(s)	key(s)
+clé(s) d'hôte	host key(s)
+connexion…	connecting…
+démarre avec la session	starts with the session
+détacher	detach
+et dans l'historique du shell. Lancez d'abord la commande (sudo…), puis touchez la clé à l'invite « Password ».	and in the shell history. Run the command first (sudo…), then tap the key at the “Password” prompt.
+fenêtre précédente	previous window
+fenêtre suivante	next window
+fermer le panneau	close pane
+fichier	file
+hôte(s)	host(s)
+identité(s)	identity(ies)
+l'écran du terminal seulement si vous cochez « Joindre l'écran ». Les clés restent chiffrées sur l'appareil.	the terminal screen only if you tick “Attach the screen”. Keys stay encrypted on the device.
+mode copie	copy mode
+mosh-server n'est pas installé sur le serveur	mosh-server is not installed on the server
+nouvelle fenêtre	new window
+rien de nouveau	nothing new
+serveur:%1\$s	server:%1\$s
+snippet(s)	snippet(s)
+série %1\$s bauds	serial %1\$s baud
+tunnel(s)	tunnel(s)
+« . » = dossier personnel. Le fichier transite par le téléphone.	“.” = home folder. The file goes through the phone.
+« Dynamique » reprend la couleur de votre fond d'écran (Material You, Android 12+). Le texte des boutons s'ajuste pour rester lisible.	“Dynamic” uses your wallpaper color (Material You, Android 12+). Button text adjusts to stay readable.
+Échap	Esc
+Échec	Failed
+Échec : %1\$s	Failed: %1\$s
+Échec de la requête	Request failed
+Écoute	Listen
+Écoute (serveur)	Listen (server)
+Écoute sur le serveur, se connecte à la destination depuis le téléphone.	Listens on the server, connects to the destination from the phone.
+Écoute sur le téléphone, se connecte à la destination depuis le serveur.	Listens on the phone, connects to the destination from the server.
+Écran partagé	Split screen
+Égal	Equals
+Étoile	Asterisk
+à l'instant	just now
+⚠ La clé de l'hôte a changé	⚠ The host key has changed
+Ambre	Amber
+Lagon	Lagoon
+Corail	Coral
+Algue	Seaweed
+Abysse	Abyss
+Nacre	Pearl
+Lavande	Lavender
+Dynamique	Dynamic
+Noir OLED	OLED black
+Nautile Nuit	Nautile Night
+Phosphore	Phosphor
+Papier	Paper
+Sans groupe	Ungrouped
+Assistant IA	AI assistant
+Autre (compatible OpenAI)	Other (OpenAI-compatible)
+Langue	Language
+L'app va redémarrer pour appliquer la langue. Les sessions ouvertes seront fermées.	The app will restart to apply the language. Open sessions will be closed.
+Redémarrer	Restart
+inutilisée	unused
+1 hôte	1 host
+%1\$s hôtes	%1\$s hosts
+, sélectionnée	, selected
+tmux : %1\$s	tmux: %1\$s
+IA	AI
+Tiret	Dash
+couper verticalement	split vertically
+couper horizontalement	split horizontally
+panneau suivant	next pane
+Maj+Tab	Shift+Tab
+Deux-points	Colon
+Point-virgule	Semicolon
+Point d'exclamation	Exclamation mark
+Arobase	At sign
+Accent circonflexe	Caret
+Pourcent	Percent
+Accent grave	Backtick
+Accolade ouvrante	Opening brace
+Accolade fermante	Closing brace
+Crochet ouvrant	Opening bracket
+Crochet fermant	Closing bracket
+Point d'interrogation	Question mark
+Guillemet	Double quote
+Esperluette	Ampersand
+il y a %1\$s min	%1\$s min ago
+il y a %1\$s h	%1\$s h ago
+hier	yesterday
+%1\$s j	%1\$s d
+%1\$s sem	%1\$s wk
+%1\$s mois	%1\$s mo

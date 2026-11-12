@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.Nautile" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bar</item>
+    </style>
+    <color name="bg">#0B0E12</color>
+    <color name="bar">#10141A</color>
+    <color name="accent">#FFB547</color>
+</resources>

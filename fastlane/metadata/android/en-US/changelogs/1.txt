@@ -1,0 +1,7 @@
+First public release.
+• SSH, Mosh, Telnet, USB serial and local terminal
+• Remote desktop (RDP) with FreeRDP 3
+• Quick connection from the search bar, connection history
+• SFTP, tunnels, snippets, keychain and identities
+• Encrypted backup and sync (Google Drive, OneDrive, Nextcloud)
+• Biometric lock, English and French

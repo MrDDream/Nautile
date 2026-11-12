@@ -1,0 +1,7 @@
+Première version publique.
+• Terminal SSH, Mosh, Telnet, série USB et local
+• Bureau à distance (RDP) avec FreeRDP 3
+• Connexion rapide depuis la recherche, historique des connexions
+• SFTP, tunnels, snippets, trousseau et identités
+• Sauvegarde et synchro chiffrées (Google Drive, OneDrive, Nextcloud)
+• Verrouillage biométrique, français et anglais

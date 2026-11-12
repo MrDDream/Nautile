@@ -1,0 +1,11 @@
+<p><b>Tes serveurs, dans ta poche.</b> Nautile est un client SSH et bureau à distance libre. Pas de cloud, pas de compte : tes hôtes, clés et mots de passe restent chiffrés sur le téléphone.</p>
+<ul>
+<li><b>Terminal</b> : xterm-256color, onglets et écran partagé, pincer pour zoomer, barre de touches personnalisable, 10 thèmes plus import, Nerd Fonts ou ta propre police.</li>
+<li><b>SSH</b> : mots de passe, clés (Ed25519, RSA, ECDSA ; OpenSSH, PEM, PuTTY) et identités, transfert d'agent, ProxyJump, proxys SOCKS5/HTTP, port knocking, épinglage des clés d'hôte.</li>
+<li><b>Mosh, Telnet, série USB et shell local.</b></li>
+<li><b>Bureau à distance (RDP)</b> avec FreeRDP 3 : NLA/TLS, H.264 matériel, son, presse-papier, tactile direct ou pavé tactile, tunnel SSH en option.</li>
+<li><b>Connexion rapide</b> : tape root@192.168.1.2 dans la recherche et connecte-toi sans enregistrer.</li>
+<li><b>SFTP</b>, <b>redirections de ports</b> (-L, -R, -D) et <b>snippets</b> avec variables.</li>
+<li><b>Sauvegarde et synchro chiffrées</b> (Argon2id + AES-256-GCM) via Google Drive, OneDrive ou Nextcloud/WebDAV.</li>
+<li>Verrouillage biométrique, base SQLCipher, moniteur serveur, assistant IA optionnel avec ta clé, widget, français et anglais.</li>
+</ul>
