@@ -534,3 +534,17 @@ Au redémarrage, un rapport anonymisé à relire, puis à publier sur GitHub si 
 Le rapport ne garde que le type d'erreur et les lignes de code concernées : adresses, noms d'hôtes, utilisateurs, chemins et mots de passe sont masqués. Rien n'est envoyé sans votre clic.	The report only keeps the error type and the code lines involved: addresses, host names, users, paths and passwords are masked. Nothing is sent without your tap.
 Et comment relancer la base ?	And how do I restart the database?
 Relance seulement le service **db** de la stack, sans toucher à l'API.	Restarts only the stack's **db** service, without touching the API.
+Touchez un groupe pour le modifier	Tap a group to edit it
+Vide	Empty
+Monter %1\$s	Move %1\$s up
+Descendre %1\$s	Move %1\$s down
+Aperçu	Preview
+Ses hôtes passeront dans « Sans groupe ».	Its hosts will move to “Ungrouped”.
+Confirmer la suppression	Confirm deletion
+Base	Database
+Activé	On
+Désactivé	Off
+Synchro	Sync
+Activée	On
+Désactivée	Off
+Jamais	Never

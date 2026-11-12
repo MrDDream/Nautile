@@ -9,6 +9,11 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -375,73 +380,125 @@ private fun MoveDialog(host: Host, groups: List<HostGroup>, onDismiss: () -> Uni
 }
 
 /** Rename, recolour, reorder and delete groups. */
+/** Groups: their order, and a tap to rename, recolour or delete one; « + Nouveau groupe » at the bottom. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GroupsDialog(
     groups: List<HostGroup>, counts: Map<Long, Int>, onDismiss: () -> Unit,
     onSave: (HostGroup) -> Unit, onDelete: (HostGroup) -> Unit, onMove: (HostGroup, Int) -> Unit,
 ) {
-    var editing by remember { mutableStateOf<HostGroup?>(null) }
-    AlertDialog(
-        onDismissRequest = onDismiss, containerColor = Nt.Surface,
-        title = { Text(tr("Groupes")) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                if (groups.isEmpty()) Text(tr("Aucun groupe. Créez-en un pour ranger vos hôtes."), color = Nt.Muted, fontSize = 13.sp)
-                groups.forEachIndexed { i, g ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Row(
-                            Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button) { editing = g }.padding(horizontal = 8.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Box(Modifier.size(12.dp).clip(CircleShape).background(Color(g.color)))
-                            Column {
-                                Text(g.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                Text(tr("%1\$s hôte(s)", counts[g.id] ?: 0), fontSize = 12.sp, color = Nt.Muted)
-                            }
-                        }
-                        IconButton(onClick = { onMove(g, -1) }, enabled = i > 0) { Text("↑", fontSize = 18.sp, color = if (i > 0) Nt.Text else Nt.Border) }
-                        IconButton(onClick = { onMove(g, 1) }, enabled = i < groups.lastIndex) { Text("↓", fontSize = 18.sp, color = if (i < groups.lastIndex) Nt.Text else Nt.Border) }
-                    }
-                }
-            }
-        },
-        dismissButton = { TextButton(onClick = { editing = HostGroup(name = "") }) { Text(tr("Nouveau groupe"), color = Nt.Accent) } },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Terminé"), color = Nt.Accent, fontWeight = FontWeight.SemiBold) } },
-    )
-    editing?.let { g ->
-        GroupEditDialog(g, onDismiss = { editing = null }, onSave = { onSave(it); editing = null }, onDelete = if (g.id != 0L) ({ onDelete(g); editing = null }) else null)
+    val state = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state, containerColor = Nt.Surface) {
+        GroupsSheetContent(groups, counts, onDismiss, onSave, onDelete, onMove)
     }
 }
 
 @Composable
-private fun GroupEditDialog(group: HostGroup, onDismiss: () -> Unit, onSave: (HostGroup) -> Unit, onDelete: (() -> Unit)?) {
-    var name by remember { mutableStateOf(group.name) }
-    var color by remember { mutableStateOf(group.color) }
-    var confirm by remember { mutableStateOf(false) }
-    AlertDialog(
-        onDismissRequest = onDismiss, containerColor = Nt.Surface,
-        title = { Text(if (group.id == 0L) tr("Nouveau groupe") else tr("Modifier le groupe")) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                NtTextField(name, { name = it }, tr("Nom"), placeholder = tr("Homelab"))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HOST_COLORS.forEach { c ->
-                        Box(
-                            Modifier.size(34.dp).clip(CircleShape).background(Color(c)).border(3.dp, if (c == color) Nt.Text else Nt.Surface, CircleShape)
-                                .clickable(role = Role.RadioButton) { color = c }.semantics { contentDescription = tr("Couleur") },
-                        )
+internal fun GroupsSheetContent(
+    groups: List<HostGroup>, counts: Map<Long, Int>, onDismiss: () -> Unit,
+    onSave: (HostGroup) -> Unit, onDelete: (HostGroup) -> Unit, onMove: (HostGroup, Int) -> Unit,
+    initialEditing: HostGroup? = null,
+) {
+    var editing by remember { mutableStateOf(initialEditing) }
+    run {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            val g = editing
+            if (g != null) GroupEditor(
+                g, count = counts[g.id] ?: 0,
+                onBack = { editing = null },
+                onSave = { onSave(it); editing = null },
+                onDelete = if (g.id != 0L) ({ onDelete(g); editing = null }) else null,
+            ) else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(tr("Groupes"), style = MaterialTheme.typography.titleLarge)
+                        Text(tr("Touchez un groupe pour le modifier"), color = Nt.Muted, fontSize = 13.sp)
+                    }
+                    IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, contentDescription = tr("Fermer"), tint = Nt.TextSoft) }
+                }
+                if (groups.isEmpty()) Text(tr("Aucun groupe. Créez-en un pour ranger vos hôtes."), color = Nt.Muted, fontSize = 14.sp)
+                else NtCard {
+                    groups.forEachIndexed { i, grp ->
+                        if (i > 0) HorizontalDivider(color = Nt.Border)
+                        Row(
+                            Modifier.fillMaxWidth().clickable(role = Role.Button) { editing = grp }.padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(Color(grp.color).copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
+                                Box(Modifier.size(12.dp).clip(CircleShape).background(Color(grp.color)))
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(grp.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                val n = counts[grp.id] ?: 0
+                                Text(if (n > 1) tr("%1\$s hôtes", n) else if (n == 1) tr("1 hôte") else tr("Vide"), fontSize = 12.sp, color = Nt.Muted)
+                            }
+                            // Order: one pill, two halves
+                            Row(Modifier.clip(RoundedCornerShape(10.dp)).background(Nt.Bg)) {
+                                IconButton(onClick = { onMove(grp, -1) }, enabled = i > 0, modifier = Modifier.size(40.dp)) {
+                                    Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = tr("Monter %1\$s", grp.name), tint = if (i > 0) Nt.Text else Nt.Border)
+                                }
+                                IconButton(onClick = { onMove(grp, 1) }, enabled = i < groups.lastIndex, modifier = Modifier.size(40.dp)) {
+                                    Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = tr("Descendre %1\$s", grp.name), tint = if (i < groups.lastIndex) Nt.Text else Nt.Border)
+                                }
+                            }
+                        }
                     }
                 }
-                if (onDelete != null) {
-                    if (!confirm) TextButton(onClick = { confirm = true }) { Text(tr("Supprimer le groupe"), color = Nt.Pink) }
-                    else Text(tr("Ses hôtes passeront dans « Sans groupe ». Touchez à nouveau pour confirmer."), color = Nt.Pink, fontSize = 13.sp,
-                        modifier = Modifier.clickable(role = Role.Button) { onDelete() })
+                Surface(
+                    onClick = { editing = HostGroup(name = "", color = HOST_COLORS[groups.size % HOST_COLORS.size]) },
+                    shape = RoundedCornerShape(14.dp), color = Nt.Accent.copy(alpha = 0.10f), border = BorderStroke(1.dp, Nt.Accent.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                ) {
+                    Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Add, contentDescription = null, tint = Nt.Accent)
+                        Text("  " + tr("Nouveau groupe"), color = Nt.Accent, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    }
                 }
             }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Annuler"), color = Nt.TextSoft) } },
-        confirmButton = { TextButton(onClick = { onSave(group.copy(name = name, color = color)) }, enabled = name.isNotBlank()) { Text(tr("Enregistrer"), color = Nt.Accent) } },
-    )
+        }
+    }
+}
+
+/** Name and colour of a group, with a preview of its chip. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun GroupEditor(group: HostGroup, count: Int, onBack: () -> Unit, onSave: (HostGroup) -> Unit, onDelete: (() -> Unit)?) {
+    var name by remember(group) { mutableStateOf(group.name) }
+    var color by remember(group) { mutableLongStateOf(group.color) }
+    var confirm by remember(group) { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Retour"), tint = Nt.Text) }
+        Text(if (group.id == 0L) tr("Nouveau groupe") else tr("Modifier le groupe"), style = MaterialTheme.typography.titleLarge)
+    }
+    NtTextField(name, { name = it }, tr("Nom"), placeholder = tr("Homelab"))
+    Text(tr("Couleur"), color = Nt.TextSoft, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        HOST_COLORS.forEach { c ->
+            val on = c == color
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).background(Color(c))
+                    .border(if (on) 3.dp else 0.dp, if (on) Nt.Text else Color.Transparent, CircleShape)
+                    .clickable(role = Role.RadioButton) { color = c }.semantics { contentDescription = tr("Couleur") },
+                contentAlignment = Alignment.Center,
+            ) { if (on) Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp)) }
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(tr("Aperçu"), color = Nt.Muted, fontSize = 13.sp)
+        com.nautile.app.ui.common.CountChip(name.ifBlank { tr("Groupe") }, count, selected = true, color = color) {}
+    }
+    androidx.compose.material3.Button(
+        onClick = { onSave(group.copy(name = name.trim(), color = color)) }, enabled = name.isNotBlank(),
+        modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp),
+        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Nt.Accent, contentColor = Nt.OnAccent),
+    ) { Text(tr("Enregistrer"), fontWeight = FontWeight.SemiBold) }
+    if (onDelete != null) Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        if (!confirm) TextButton(onClick = { confirm = true }) { Text(tr("Supprimer le groupe"), color = Nt.Pink) }
+        else {
+            Text(tr("Ses hôtes passeront dans « Sans groupe »."), color = Nt.Muted, fontSize = 13.sp)
+            TextButton(onClick = onDelete) { Text(tr("Confirmer la suppression"), color = Nt.Pink, fontWeight = FontWeight.SemiBold) }
+        }
+    }
 }
 
 /** Step one of « + »: what kind of host, before the form. */

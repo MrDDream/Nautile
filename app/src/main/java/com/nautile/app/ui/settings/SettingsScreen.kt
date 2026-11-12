@@ -27,6 +27,8 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Backup
+import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Search
@@ -168,10 +170,7 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         )
 
-        if (q.isEmpty()) ProtectionCard(lockOn, if (syncOn) lastSync ?: lastBackup else lastBackup, syncOn) {
-            // The card's suggestion: lock first, then backup.
-            onNavigate(if (!lockOn) SettingsRoutes.SECURITY else SettingsRoutes.BACKUP)
-        }
+        if (q.isEmpty()) ProtectionCard(lockOn, if (syncOn) lastSync ?: lastBackup else lastBackup, syncOn)
 
         if (visiblePersonal.isNotEmpty()) {
             SectionLabel(tr("Personnalisation"), Modifier.padding(top = 4.dp))
@@ -207,15 +206,16 @@ private fun EntryCard(entries: List<Entry>, onNavigate: (String) -> Unit) {
 
 /** What protects the user's data, and the one thing to do if any. */
 @OptIn(ExperimentalLayoutApi::class)
+/** Where the data stands: four statuses, read only (each one is set in its own settings page). */
 @Composable
-private fun ProtectionCard(lockOn: Boolean, lastBackup: Long?, syncOn: Boolean, onOpen: () -> Unit) {
+private fun ProtectionCard(lockOn: Boolean, lastBackup: Long?, syncOn: Boolean) {
     val stale = BackupPrefs.isStale(lastBackup)
     val todo = listOf(!lockOn, stale).count { it }
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Nt.Surface)
-            .border(1.dp, if (todo > 0) Nt.Accent.copy(alpha = 0.45f) else Nt.Border, RoundedCornerShape(18.dp))
-            .clickable(role = Role.Button, onClick = onOpen).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .border(1.dp, if (todo > 0) Nt.Accent.copy(alpha = 0.45f) else Nt.Green.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             IconTile(Icons.Outlined.VerifiedUser, if (todo > 0) Nt.Accent else Nt.Green)
@@ -227,30 +227,41 @@ private fun ProtectionCard(lockOn: Boolean, lastBackup: Long?, syncOn: Boolean, 
                         1 -> tr("Une action recommandée")
                         else -> tr("%1\$s actions recommandées", todo)
                     },
-                    color = Nt.Muted, fontSize = 12.sp,
+                    color = if (todo > 0) Nt.Accent else Nt.Green, fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                 )
             }
         }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip(tr("✓ Base chiffrée"), ok = true)
-            Chip(if (lockOn) tr("✓ Verrouillage") else tr("Verrouillage désactivé"), ok = lockOn)
-            if (syncOn) Chip(tr("✓ Synchro"), ok = true)
-            Chip(
-                when {
-                    lastBackup == null -> tr("Aucune sauvegarde")
-                    stale -> tr("Sauvegarde %1\$s", relativeTime(lastBackup))
-                    else -> tr("✓ Sauvegarde %1\$s", relativeTime(lastBackup))
-                },
-                ok = !stale,
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Status(Icons.Outlined.Lock, tr("Base"), tr("Chiffrée"), State.OK, Modifier.weight(1f))
+            Status(Icons.Outlined.Fingerprint, tr("Verrouillage"), if (lockOn) tr("Activé") else tr("Désactivé"), if (lockOn) State.OK else State.TODO, Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Status(Icons.Outlined.CloudSync, tr("Synchro"), if (syncOn) tr("Activée") else tr("Désactivée"), if (syncOn) State.OK else State.OFF, Modifier.weight(1f))
+            Status(
+                Icons.Outlined.Backup, tr("Sauvegarde"),
+                lastBackup?.let { relativeTime(it).replaceFirstChar { c -> c.uppercase() } } ?: tr("Jamais"),
+                if (stale) State.TODO else State.OK, Modifier.weight(1f),
             )
         }
     }
 }
 
+private enum class State { OK, TODO, OFF }
+
 @Composable
-private fun Chip(text: String, ok: Boolean) {
-    val c = if (ok) Nt.Green else Nt.Accent
-    Box(Modifier.height(26.dp).clip(RoundedCornerShape(13.dp)).background(c.copy(alpha = 0.13f)).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
-        Text(text, color = c, fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+private fun Status(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, value: String, state: State, modifier: Modifier) {
+    val c = when (state) { State.OK -> Nt.Green; State.TODO -> Nt.Accent; State.OFF -> Nt.Muted }
+    Row(
+        modifier.clip(RoundedCornerShape(12.dp)).background(Nt.Bg).padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(Modifier.size(30.dp).clip(RoundedCornerShape(9.dp)).background(c.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = c, modifier = Modifier.size(17.dp))
+        }
+        Column {
+            Text(title, fontSize = 12.sp, color = Nt.Muted, maxLines = 1)
+            Text(value, fontSize = 13.sp, color = if (state == State.OFF) Nt.TextSoft else c, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
     }
 }

@@ -305,6 +305,26 @@ class ScreenshotTest {
         shoot("assistant-conversation")
     }
 
+    private val demoGroups get() = listOf(
+        HostGroup(id = 1, name = "Homelab", color = 0xFFFFB547), HostGroup(id = 2, name = "VPS", color = 0xFF7AA2F7),
+        HostGroup(id = 3, name = tr("Bureau"), color = 0xFF5FD38D),
+    )
+    private val demoCounts = mapOf(1L to 4, 2L to 1, 3L to 1)
+
+    @Test fun groups() {
+        compose.setContent {
+            NautileTheme { PhoneFrame { SheetOver({ NautileRoot() }) { com.nautile.app.ui.hosts.GroupsSheetContent(demoGroups, demoCounts, {}, {}, {}, { _, _ -> }) } } }
+        }
+        shoot("groups")
+    }
+
+    @Test fun groupEdit() {
+        compose.setContent {
+            NautileTheme { PhoneFrame { SheetOver({ NautileRoot() }) { com.nautile.app.ui.hosts.GroupsSheetContent(demoGroups, demoCounts, {}, {}, {}, { _, _ -> }, initialEditing = demoGroups[0]) } } }
+        }
+        shoot("group-edit")
+    }
+
     @Test fun aiProvider() {
         compose.setContent {
             NautileTheme {

@@ -335,7 +335,8 @@ private fun HistoryRow(e: ConnectionLog, saved: Boolean, osId: String?, color: L
         Row(
             Modifier.fillMaxWidth()
                 .combinedClickable(onClick = onOpen, onLongClick = { menu = true }, onClickLabel = tr("Se reconnecter"), onLongClickLabel = tr("Plus d'actions"))
-                .padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+                // Without the save button, the time keeps the same margin as the left edge.
+                .padding(start = 14.dp, end = if (saved) 16.dp else 4.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Avatar(osId, e.alias, color.takeIf { saved }, protocolIcon(e.protocol))

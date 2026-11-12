@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.selected
@@ -123,15 +125,28 @@ fun CountChip(label: String, count: Int, selected: Boolean, color: Long? = null,
         shape = RoundedCornerShape(12.dp),
         color = if (selected) tint.copy(alpha = 0.16f) else Nt.Surface,
         border = BorderStroke(1.dp, if (selected) tint else Nt.Border),
-        modifier = Modifier.height(40.dp).semantics { this.selected = selected },
+        modifier = Modifier.heightIn(min = 40.dp).semantics { this.selected = selected },
     ) {
-        Row(Modifier.padding(start = 12.dp, end = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             if (color != null) Box(Modifier.size(10.dp).clip(androidx.compose.foundation.shape.CircleShape).background(tint))
-            Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (selected) Nt.Text else Nt.TextSoft)
+            Text(label, style = Centered.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold), color = if (selected) Nt.Text else Nt.TextSoft)
             Box(
-                Modifier.height(20.dp).clip(RoundedCornerShape(10.dp)).background(if (selected) tint.copy(alpha = 0.25f) else Nt.Bg).padding(horizontal = 7.dp),
+                Modifier.defaultMinSize(minWidth = 22.dp).clip(RoundedCornerShape(11.dp))
+                    .background(if (selected) tint.copy(alpha = 0.28f) else Nt.Bg).padding(horizontal = 7.dp, vertical = 3.dp),
                 contentAlignment = Alignment.Center,
-            ) { Text("$count", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (selected) Nt.Text else Nt.Muted) }
+            ) { Text("$count", style = Centered.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold), color = if (selected) Nt.Text else Nt.Muted) }
         }
     }
 }
+
+/** Text without Android's extra font padding, centred in its line: for badges and chips. */
+val Centered = TextStyle(
+    platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
+    lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+        alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+        trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+    ),
+)
