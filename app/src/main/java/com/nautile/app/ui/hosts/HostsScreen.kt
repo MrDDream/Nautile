@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -136,7 +137,7 @@ fun HostsScreen(
                                 Icon(Icons.Outlined.Close, contentDescription = tr("Effacer la recherche"), tint = Nt.Muted)
                             }
                         },
-                        placeholder = { Text(tr("Rechercher ou root@192.168.1.2"), color = Nt.Placeholder, fontFamily = Nt.Mono, fontSize = 13.sp, maxLines = 1) },
+                        placeholder = { Text(tr("Rechercher ou user@ip"), color = Nt.Placeholder, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         singleLine = true,
                         textStyle = TextStyle(fontFamily = Nt.Mono, fontSize = 13.sp, color = Nt.Text),
                         shape = RoundedCornerShape(14.dp),
@@ -452,15 +453,20 @@ private fun GroupEditDialog(group: HostGroup, onDismiss: () -> Unit, onSave: (Ho
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NewHostSheet(onDismiss: () -> Unit, onPick: (Protocol) -> Unit, onImport: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Nt.Surface) {
-        Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(tr("Nouvel hôte"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
+    // Fully open at once: the six choices fit on a phone screen, no need to drag the sheet up.
+    val state = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state, containerColor = Nt.Surface) {
+        Column(
+            Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(tr("Nouvel hôte"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 6.dp))
             TypeRow(Icons.Outlined.Terminal, Nt.Blue, "SSH", tr("Terminal sur un serveur Linux, macOS, routeur… (Mosh en option)")) { onPick(Protocol.SSH) }
             TypeRow(Icons.Outlined.DesktopWindows, Nt.Green, tr("Bureau à distance (RDP)"), tr("Bureau Windows ou serveur xrdp")) { onPick(Protocol.RDP) }
             TypeRow(Icons.Outlined.Lan, Nt.Accent, "Telnet", tr("Équipements réseau anciens, consoles")) { onPick(Protocol.TELNET) }
             TypeRow(Icons.Outlined.Usb, Nt.Pink, tr("Série USB"), tr("Câble console USB-OTG (FTDI, CP210x, CH34x…)")) { onPick(Protocol.SERIAL) }
             TypeRow(Icons.Outlined.PhoneAndroid, Nt.TextSoft, tr("Terminal local"), tr("Le shell de ce téléphone")) { onPick(Protocol.LOCAL) }
-            HorizontalDivider(color = Nt.Border, modifier = Modifier.padding(vertical = 6.dp))
+            HorizontalDivider(color = Nt.Border, modifier = Modifier.padding(vertical = 4.dp))
             TypeRow(Icons.Outlined.FileOpen, Nt.TextSoft, tr("Importer"), tr("~/.ssh/config ou CSV (hostname, alias, port, user, group, tags)"), onClick = onImport)
         }
     }
@@ -469,7 +475,7 @@ private fun NewHostSheet(onDismiss: () -> Unit, onPick: (Protocol) -> Unit, onIm
 @Composable
 private fun TypeRow(icon: ImageVector, tint: Color, title: String, detail: String, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 8.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(tint.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
@@ -477,7 +483,7 @@ private fun TypeRow(icon: ImageVector, tint: Color, title: String, detail: Strin
         }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(detail, fontSize = 12.sp, color = Nt.Muted)
+            Text(detail, fontSize = 12.sp, lineHeight = 16.sp, color = Nt.Muted)
         }
     }
 }

@@ -588,6 +588,7 @@ internal object EnStrings {
         "Rechercher" to "Search",
         "Rechercher : police, clé API, sauvegarde…" to "Search: font, API key, backup…",
         "Rechercher ou root@192.168.1.2" to "Search or root@192.168.1.2",
+        "Rechercher ou user@ip" to "Search or user@ip",
         "Rechercher un hôte" to "Search hosts",
         "Rechercher un snippet" to "Search snippets",
         "Reconnecter" to "Reconnect",
