@@ -37,6 +37,7 @@ open class NautileApp : Application() {
                 override fun put(name: String, value: String?) = secrets.put(name, value)
             },
             getSharedPreferences("nautile_ai", MODE_PRIVATE),
+            java.io.File(filesDir, "ai-conversations"),
         )
     }
     /** Synchronisation between devices through the backup destination. */

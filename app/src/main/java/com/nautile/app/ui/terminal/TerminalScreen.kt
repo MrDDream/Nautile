@@ -8,6 +8,8 @@ import com.nautile.i18n.tr
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.outlined.AutoAwesome
+import com.nautile.app.session.aiKey
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.horizontalScroll
@@ -97,6 +99,8 @@ fun TerminalScreen(initialSessionId: Long, onBack: () -> Unit, onNewSession: () 
 
     var askPassword by remember { mutableStateOf(false) }
     var showAssistant by remember { mutableStateOf(false) }
+    /** Session whose assistant conversation is shown in place of its terminal (its « IA » tab). */
+    var aiTabFor by remember { mutableStateOf<Long?>(null) }
     if (showAssistant) AssistantDialog(
         current,
         screen = {
@@ -107,13 +111,20 @@ fun TerminalScreen(initialSessionId: Long, onBack: () -> Unit, onNewSession: () 
             }
         },
         onDismiss = { showAssistant = false },
-        // Files of a saved host are read over SFTP (quick connections have no host to reopen).
-        readRemote = if (current.isSaved) { path ->
-            manager.sftp.with(current.hostId) { sftp ->
-                val full = if (path.startsWith("~")) sftp.home().trimEnd('/') + path.drop(1) else path
-                sftp.openRead(full).use { com.nautile.app.ai.AiFiles.read(full, it) }
-            }
-        } else null,
+        onOpenConversation = { showAssistant = false; aiTabFor = current.id },
+        // Files of a saved host are browsed over SFTP, from the terminal's directory (quick connections have no host to reopen).
+        remote = if (current.isSaved) com.nautile.app.ui.terminal.RemoteFiles(
+            host = current.alias,
+            start = {
+                manager.sftp.with(current.hostId) { sftp ->
+                    val home = sftp.home()
+                    com.nautile.app.session.TerminalCwd.of(current.terminal.emulator)?.let { com.nautile.app.session.TerminalCwd.expand(it, home) } ?: home
+                }
+            },
+            home = { manager.sftp.with(current.hostId) { it.home() } },
+            list = { path -> manager.sftp.with(current.hostId) { it.list(path) } },
+            read = { path -> manager.sftp.with(current.hostId) { sftp -> sftp.openRead(path).use { com.nautile.app.ai.AiFiles.read(path, it) } } },
+        ) else null,
         onInsert = { cmd, run ->
             showAssistant = false
             if (run) manager.run(current, cmd) else { val b = cmd.toByteArray(); current.terminal.write(b, 0, b.size) }
@@ -233,11 +244,23 @@ fun TerminalScreen(initialSessionId: Long, onBack: () -> Unit, onNewSession: () 
             onPassword = ::typePassword,
         )
         Tabs(sessions, current.id, osOf = { id -> hostList.firstOrNull { it.id == id }?.osId }, onPick = { id ->
+            aiTabFor = null
             val target = sessions.firstOrNull { it.id == id }
             if (target != null && other != null && id == other.id) focus(target) else currentId = id
-        }, onClose = ::requestClose, onNew = onNewSession)
+        }, onClose = ::requestClose, onNew = onNewSession,
+            aiShown = aiTabFor, onPickAi = { id -> currentId = id; aiTabFor = id })
 
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        val showingAi = aiTabFor == current.id
+        if (showingAi) Box(Modifier.weight(1f).fillMaxWidth()) {
+            ConversationContent(
+                current, embedded = true,
+                onClose = { aiTabFor = null },
+                onInsert = { cmd, run ->
+                    aiTabFor = null
+                    if (run) manager.run(current, cmd) else { val b = cmd.toByteArray(); current.terminal.write(b, 0, b.size) }
+                },
+            )
+        } else Box(Modifier.weight(1f).fillMaxWidth()) {
             Row(Modifier.fillMaxSize()) {
                 TerminalPane(leftSession, leftClient, manager, fontSize, typeface, focused = rightSession == null || leftSession === current,
                     split = rightSession != null, modifier = Modifier.weight(1f))
@@ -258,7 +281,7 @@ fun TerminalScreen(initialSessionId: Long, onBack: () -> Unit, onNewSession: () 
                 }, onClose = { manager.close(current) })
             }
         }
-        if (suggestions.isNotEmpty()) SuggestionBar(
+        if (!showingAi && suggestions.isNotEmpty()) SuggestionBar(
             typed.orEmpty(), suggestions,
             onPick = { full ->
                 val bytes = full.removePrefix(typed.orEmpty()).toByteArray()
@@ -269,7 +292,7 @@ fun TerminalScreen(initialSessionId: Long, onBack: () -> Unit, onNewSession: () 
                 current.terminal.write(bytes, 0, bytes.size)
             },
         )
-        KeyboardArea(
+        if (!showingAi) KeyboardArea(
             target = keyTarget,
             prefs = manager.prefs,
             expanded = panelOpen,
@@ -371,30 +394,57 @@ private fun stateColor(state: SessionState) = when (state) {
 }
 
 @Composable
-private fun Tabs(sessions: List<ActiveSession>, currentId: Long, osOf: (Long) -> String?, onPick: (Long) -> Unit, onClose: (ActiveSession) -> Unit, onNew: () -> Unit) {
+private fun Tabs(
+    sessions: List<ActiveSession>, currentId: Long, osOf: (Long) -> String?, onPick: (Long) -> Unit, onClose: (ActiveSession) -> Unit, onNew: () -> Unit,
+    aiShown: Long?, onPickAi: (Long) -> Unit,
+) {
+    val ai = (androidx.compose.ui.platform.LocalContext.current.applicationContext as com.nautile.app.NautileApp).ai
     Column(Modifier.background(Nt.Bg)) {
         LazyRow(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            items(sessions, key = { it.id }) { s ->
-                val on = s.id == currentId
-                val st by s.state.collectAsState()
-                Surface(
-                    onClick = { onPick(s.id) },
-                    shape = RoundedCornerShape(9.dp),
-                    color = if (on) Nt.Accent.copy(alpha = 0.12f) else Nt.Surface,
-                    border = BorderStroke(1.dp, if (on) Nt.Accent else Nt.Border),
-                    modifier = Modifier.height(32.dp),
-                ) {
-                    Row(Modifier.padding(start = 10.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Box(Modifier.size(6.dp).clip(CircleShape).background(stateColor(st)))
-                        com.nautile.app.ui.common.OsBrands.of(osOf(s.hostId))?.takeIf { it.isGlyph }?.let { b ->
-                            Text(b.glyph, color = b.color, fontFamily = Nt.Mono, fontSize = 14.sp)
+            sessions.forEach { s ->
+                item(key = s.id) {
+                    val on = s.id == currentId && aiShown != s.id
+                    val st by s.state.collectAsState()
+                    Surface(
+                        onClick = { onPick(s.id) },
+                        shape = RoundedCornerShape(9.dp),
+                        color = if (on) Nt.Accent.copy(alpha = 0.12f) else Nt.Surface,
+                        border = BorderStroke(1.dp, if (on) Nt.Accent else Nt.Border),
+                        modifier = Modifier.height(32.dp),
+                    ) {
+                        Row(Modifier.padding(start = 10.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(Modifier.size(6.dp).clip(CircleShape).background(stateColor(st)))
+                            com.nautile.app.ui.common.OsBrands.of(osOf(s.hostId))?.takeIf { it.isGlyph }?.let { b ->
+                                Text(b.glyph, color = b.color, fontFamily = Nt.Mono, fontSize = 14.sp)
+                            }
+                            Text(s.alias, fontFamily = Nt.Mono, fontSize = 12.sp, color = if (on) Nt.Accent else Nt.TextSoft)
+                            IconButton(onClick = { onClose(s) }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Filled.Close, contentDescription = tr("Fermer %1\$s", s.alias), tint = Nt.Muted, modifier = Modifier.size(14.dp))
+                            }
                         }
-                        Text(s.alias, fontFamily = Nt.Mono, fontSize = 12.sp, color = if (on) Nt.Accent else Nt.TextSoft)
-                        IconButton(onClick = { onClose(s) }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Filled.Close, contentDescription = tr("Fermer %1\$s", s.alias), tint = Nt.Muted, modifier = Modifier.size(14.dp))
+                    }
+                }
+                // The server's assistant conversation, as a tab right after its session.
+                if (aiShown == s.id || ai.conversation(s.aiKey).value.isNotEmpty()) item(key = "ai-${s.id}") {
+                    val on = aiShown == s.id
+                    val turns by ai.conversation(s.aiKey).collectAsState()
+                    Surface(
+                        onClick = { onPickAi(s.id) },
+                        shape = RoundedCornerShape(9.dp),
+                        color = if (on) Nt.Accent.copy(alpha = 0.12f) else Nt.Surface,
+                        border = BorderStroke(1.dp, if (on) Nt.Accent else Nt.Border),
+                        modifier = Modifier.height(32.dp).semantics { contentDescription = tr("Conversation avec l'assistant sur %1\$s", s.alias) },
+                    ) {
+                        Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = if (on) Nt.Accent else Nt.TextSoft, modifier = Modifier.size(14.dp))
+                            Text(
+                                if (sessions.count { x -> ai.conversation(x.aiKey).value.isNotEmpty() || aiShown == x.id } > 1) tr("IA · %1\$s", s.alias) else tr("IA"),
+                                fontSize = 12.sp, color = if (on) Nt.Accent else Nt.TextSoft, fontWeight = FontWeight.SemiBold,
+                            )
+                            if (turns.isNotEmpty()) Text("${turns.size}", style = com.nautile.app.ui.common.Centered.copy(fontSize = 11.sp), color = Nt.Muted)
                         }
                     }
                 }

@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.nautile.app.session.ActiveSession
+import com.nautile.app.session.aiKey
 import com.nautile.app.session.SessionManager
 import com.nautile.app.session.SessionState
 import com.nautile.app.ui.NautileRoot
@@ -290,15 +291,16 @@ class ScreenshotTest {
         fun turn(q: String, raw: String, at: Long, files: List<String> = emptyList(), screen: Boolean = false) = com.nautile.app.ai.AiTurn(
             q, q, files, screen, com.nautile.app.ai.AiProviderKind.OPENAI, "gpt-5-mini", raw, com.nautile.app.ai.AiAssistant.parse(raw), at,
         )
-        app.ai.clearConversation(session.id)
-        app.ai.record(session.id, turn(
+        app.ai.clearConversation(session.aiKey)
+        app.ai.record(session.aiKey, turn(
             tr("Pourquoi papote-api redémarre en boucle ?"),
             "```bash\ndocker logs --tail 50 papote-api\n```\n" + tr("L'API n'arrive pas à joindre **PostgreSQL** sur `10.0.0.31:5432` (ECONNREFUSED) : la base est arrêtée ou n'écoute pas sur cette adresse. Vérifiez le conteneur de la base, puis relancez l'API."),
             now - 120_000, files = listOf("compose.yml"), screen = true,
         ))
-        app.ai.record(session.id, turn(
+        app.ai.record(session.aiKey, turn(
             tr("Et comment relancer la base ?"),
-            "```bash\ndocker compose -f /srv/stacks/papote/compose.yml up -d db\n```\n" + tr("Relance seulement le service **db** de la stack, sans toucher à l'API."),
+            "```bash\ndocker compose -f /srv/stacks/papote/compose.yml up -d db\n```\n" + tr("Relance seulement le service **db** de la stack, sans toucher à l'API.") +
+                "\n\n### " + tr("Ensuite") + "\n- " + tr("Vérifiez qu'elle écoute : `docker compose ps db`") + "\n- " + tr("L'API se reconnecte seule dans les **5 s**"),
             now - 30_000,
         ))
         compose.setContent { NautileTheme { PhoneFrame { com.nautile.app.ui.terminal.ConversationContent(session, onClose = {}, onInsert = { _, _ -> }) } } }
@@ -323,6 +325,20 @@ class ScreenshotTest {
             NautileTheme { PhoneFrame { SheetOver({ NautileRoot() }) { com.nautile.app.ui.hosts.GroupsSheetContent(demoGroups, demoCounts, {}, {}, {}, { _, _ -> }, initialEditing = demoGroups[0]) } } }
         }
         shoot("group-edit")
+    }
+
+    @Test fun terminalAiTab() {
+        val session = fakeSession()
+        val raw = "```bash\ndocker compose -f /srv/stacks/papote/compose.yml up -d db\n```\n" + tr("Relance seulement le service **db** de la stack, sans toucher à l'API.") +
+            "\n\n### " + tr("Ensuite") + "\n- " + tr("Vérifiez qu'elle écoute : `docker compose ps db`") + "\n- " + tr("L'API se reconnecte seule dans les **5 s**")
+        app.ai.record(session.aiKey, com.nautile.app.ai.AiTurn(
+            tr("Et comment relancer la base ?"), "", emptyList(), false, com.nautile.app.ai.AiProviderKind.OPENAI, "gpt-5-mini",
+            raw, com.nautile.app.ai.AiAssistant.parse(raw),
+        ))
+        compose.setContent { NautileTheme { PhoneFrame { TerminalScreen(1, onBack = {}, onNewSession = {}, onSftp = {}, onMonitor = {}) } } }
+        idle()
+        compose.onNodeWithContentDescription(tr("Conversation avec l'assistant sur %1\$s", "docker-01")).performClick()
+        shoot("terminal-ai")
     }
 
     @Test fun aiProvider() {

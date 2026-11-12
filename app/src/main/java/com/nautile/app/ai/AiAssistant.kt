@@ -32,7 +32,7 @@ data class AiPrompt(val id: String, val name: String, val text: String)
  * Turns a request in plain language into a shell command, with the provider the user chose.
  * [secrets] holds the API keys (encrypted); [prefs] holds the system prompts, which are not secret.
  */
-class AiAssistant(private val secrets: Secrets, private val prefs: SharedPreferences) {
+class AiAssistant(private val secrets: Secrets, private val prefs: SharedPreferences, private val conversationsDir: java.io.File? = null) {
 
     /** Where API keys and provider settings live (the Keystore-backed store in the app). */
     interface Secrets {
@@ -147,20 +147,60 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
     /**
      * [screen] is sent only when the user chose to include it (last lines of the terminal).
      */
-    private val conversations = java.util.concurrent.ConcurrentHashMap<Long, MutableStateFlow<List<AiTurn>>>()
+    private val conversations = java.util.concurrent.ConcurrentHashMap<String, MutableStateFlow<List<AiTurn>>>()
 
-    /** The exchanges of terminal session [sessionId], kept while the app runs. */
-    fun conversation(sessionId: Long): StateFlow<List<AiTurn>> = conversations.getOrPut(sessionId) { MutableStateFlow(emptyList()) }
+    /** The conversation with server [key] (see [conversationKey]): one per server, kept on the phone until cleared. */
+    fun conversation(key: String): StateFlow<List<AiTurn>> = flow(key)
 
-    fun clearConversation(sessionId: Long) { conversations[sessionId]?.value = emptyList() }
+    private fun flow(key: String) = conversations.getOrPut(key) { MutableStateFlow(load(key)) }
 
-    internal fun record(sessionId: Long, turn: AiTurn) {
-        val flow = conversations.getOrPut(sessionId) { MutableStateFlow(emptyList()) }
-        flow.value = flow.value + turn
+    fun clearConversation(key: String) {
+        flow(key).value = emptyList()
+        file(key)?.delete()
+    }
+
+    internal fun record(key: String, turn: AiTurn) {
+        val f = flow(key)
+        f.value = (f.value + turn).takeLast(MAX_KEPT_TURNS)
+        store(key, f.value)
+    }
+
+    private fun file(key: String): java.io.File? = conversationsDir?.let { dir ->
+        val name = java.security.MessageDigest.getInstance("SHA-256").digest(key.toByteArray()).joinToString("") { "%02x".format(it) }.take(24)
+        java.io.File(dir.apply { mkdirs() }, "$name.json")
+    }
+
+    private fun load(key: String): List<AiTurn> = runCatching {
+        val f = file(key)?.takeIf { it.exists() } ?: return@runCatching emptyList()
+        val a = JSONArray(f.readText())
+        (0 until a.length()).map { i ->
+            val o = a.getJSONObject(i)
+            val raw = o.getString("raw")
+            AiTurn(
+                request = o.getString("request"), sent = o.optString("sent", o.getString("request")),
+                files = o.optJSONArray("files")?.let { fa -> (0 until fa.length()).map { fa.getString(it) } }.orEmpty(),
+                screen = o.optBoolean("screen"),
+                provider = runCatching { AiProviderKind.valueOf(o.getString("provider")) }.getOrDefault(AiProviderKind.CUSTOM),
+                model = o.optString("model"), raw = raw, answer = parse(raw), at = o.optLong("at"),
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    private fun store(key: String, turns: List<AiTurn>) {
+        val f = file(key) ?: return
+        val a = JSONArray()
+        turns.forEach { t ->
+            a.put(
+                JSONObject().put("request", t.request).put("sent", t.sent.take(MAX_SENT_CHARS))
+                    .put("files", JSONArray(t.files)).put("screen", t.screen).put("provider", t.provider.name)
+                    .put("model", t.model).put("raw", t.raw).put("at", t.at),
+            )
+        }
+        runCatching { f.writeText(a.toString()) }
     }
 
     /**
-     * Asks within the conversation of [sessionId] (null: a one-off question): the earlier exchanges
+     * Asks within [conversation] (null: a one-off question): the earlier exchanges
      * go along as context, the last two in full, older ones as their questions only.
      */
     suspend fun ask(
@@ -170,7 +210,7 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
         kind: AiProviderKind = provider,
         system: String = promptText(promptId.value),
         files: List<AiFile> = emptyList(),
-        sessionId: Long? = null,
+        conversation: String? = null,
     ): Suggestion = withContext(Dispatchers.IO) {
         val c = config(kind)
         if (!isReady(c)) throw AiException(tr("Configurez l'assistant dans Réglages › Assistant IA"))
@@ -185,14 +225,14 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
             }
             append(if (com.nautile.i18n.I18n.english) "Request: " else "Demande : ").append(request)
         }
-        val history = sessionId?.let { conversation(it).value }.orEmpty().takeLast(MAX_CONTEXT_TURNS)
+        val history = conversation?.let { conversation(it).value }.orEmpty().takeLast(MAX_CONTEXT_TURNS)
         val messages = history.flatMapIndexed { i, t ->
             val recent = i >= history.size - 2
             listOf(AiMessage(true, if (recent) t.sent else t.request), AiMessage(false, t.raw))
         } + AiMessage(true, user)
         val raw = AiProviders.create(c).chat(system, messages).trim()
         val answer = parse(raw)
-        sessionId?.let { id -> record(id, AiTurn(request, user, files.map { it.name.substringAfterLast('/') }, screen != null, kind, c.model, raw, answer)) }
+        conversation?.let { key -> record(key, AiTurn(request, user, files.map { it.name.substringAfterLast('/') }, screen != null, kind, c.model, raw, answer)) }
         answer
     }
 
@@ -214,6 +254,13 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
     companion object {
         /** Earlier exchanges sent along with a new question. */
         private const val MAX_CONTEXT_TURNS = 8
+        /** Exchanges kept per server. */
+        private const val MAX_KEPT_TURNS = 40
+        /** What is kept of a sent message (its attached files may be large). */
+        private const val MAX_SENT_CHARS = 80_000
+
+        /** The conversation of a server: a saved host by its id, a quick connection by its address. */
+        fun conversationKey(hostId: Long, address: String) = if (hostId != 0L) "host:$hostId" else "quick:$address"
         private const val KEY_PROVIDER = "ai_provider"
         private const val KEY_PROMPTS = "prompts"
         private const val KEY_PROMPT = "prompt"
@@ -229,7 +276,10 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
             Réponds en français, brièvement :
             - d'abord UNE commande shell prête à coller, dans un seul bloc ```bash``` (plusieurs commandes enchaînées
               avec && si nécessaire) ; omets le bloc si aucune commande ne convient ;
-            - puis 1 à 3 phrases d'explication, en signalant clairement tout effet destructeur ou irréversible.
+            - puis une explication structurée et lisible sur un téléphone : une phrase de synthèse, puis si utile des
+              puces courtes (une idée par puce, **gras** pour les éléments clés, `code` pour les noms et valeurs),
+              et un court titre « ### » seulement pour séparer des parties distinctes ; pas de longs paragraphes ;
+            - signale clairement tout effet destructeur ou irréversible.
             N'invente pas de chemins ou de noms de services absents de la demande ou de l'écran : utilise des
             emplacements génériques explicites (<service>) quand une information manque.
         """.trimIndent()
@@ -241,7 +291,10 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
             Answer in English, briefly:
             - first ONE shell command ready to paste, in a single ```bash``` block (several commands chained with &&
               if needed); leave the block out if no command fits;
-            - then 1 to 3 sentences of explanation, clearly flagging anything destructive or irreversible.
+            - then a structured explanation that reads well on a phone: one summary sentence, then if useful short
+              bullets (one idea per bullet, **bold** for key items, `code` for names and values), and a short « ### »
+              heading only to separate distinct parts; no long paragraphs;
+            - clearly flag anything destructive or irreversible.
             Do not invent paths or service names absent from the request or the screen: use explicit generic
             placeholders (<service>) when information is missing.
         """.trimIndent()

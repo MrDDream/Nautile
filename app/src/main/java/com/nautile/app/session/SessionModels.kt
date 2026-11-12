@@ -53,3 +53,6 @@ sealed class PendingPrompt(val sessionAlias: String) {
         val answer = CompletableDeferred<com.nautile.rdp.RdpCredentials?>()
     }
 }
+
+/** The assistant's conversation of this server (one per saved host, or per address for a quick connection). */
+val ActiveSession.aiKey: String get() = com.nautile.app.ai.AiAssistant.conversationKey(hostId, address)

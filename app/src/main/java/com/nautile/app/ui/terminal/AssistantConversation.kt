@@ -68,6 +68,7 @@ import com.nautile.app.NautileApp
 import com.nautile.app.ai.AiTurn
 import com.nautile.app.ai.prettyModel
 import com.nautile.app.session.ActiveSession
+import com.nautile.app.session.aiKey
 import com.nautile.app.ui.common.ProviderLogo
 import com.nautile.app.ui.theme.Nt
 import kotlinx.coroutines.launch
@@ -83,11 +84,11 @@ fun AssistantConversation(session: ActiveSession, onClose: () -> Unit, onInsert:
 }
 
 @Composable
-internal fun ConversationContent(session: ActiveSession, onClose: () -> Unit, onInsert: (String, Boolean) -> Unit) {
+internal fun ConversationContent(session: ActiveSession, onClose: () -> Unit, onInsert: (String, Boolean) -> Unit, embedded: Boolean = false) {
     val app = LocalContext.current.applicationContext as NautileApp
     val context = LocalContext.current
     val ai = app.ai
-    val turns by ai.conversation(session.id).collectAsState()
+    val turns by ai.conversation(session.aiKey).collectAsState()
     val scope = rememberCoroutineScope()
     var draft by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -107,16 +108,16 @@ internal fun ConversationContent(session: ActiveSession, onClose: () -> Unit, on
         val kind = ai.readyProviders().firstOrNull() ?: run { error = tr("Aucun fournisseur prêt. Ajoutez une clé API dans Réglages › Assistant IA."); return }
         busy = true; error = null; draft = ""
         scope.launch {
-            runCatching { ai.ask(text, "${session.address} (${session.protocolLabel})", null, kind, sessionId = session.id) }
+            runCatching { ai.ask(text, "${session.address} (${session.protocolLabel})", null, kind, conversation = session.aiKey) }
                 .onFailure { if (it !is kotlinx.coroutines.CancellationException) { error = it.message ?: tr("Échec de la requête"); draft = text } }
             busy = false
         }
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
+    Column(if (embedded) Modifier.fillMaxSize() else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
         // Top bar
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Retour"), tint = Nt.Text) }
+            IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = if (embedded) tr("Retour au terminal") else tr("Retour"), tint = Nt.Text) }
             Column(Modifier.weight(1f)) {
                 Text(tr("Conversation"), style = MaterialTheme.typography.titleLarge)
                 Text(
@@ -158,7 +159,7 @@ internal fun ConversationContent(session: ActiveSession, onClose: () -> Unit, on
                     HorizontalDivider(color = Nt.Border)
                     DropdownMenuItem(
                         text = { Text(tr("Effacer la conversation"), color = Nt.Pink) }, leadingIcon = { Icon(Icons.Outlined.DeleteSweep, null, tint = Nt.Pink) },
-                        onClick = { menu = false; ai.clearConversation(session.id) },
+                        onClick = { menu = false; ai.clearConversation(session.aiKey) },
                     )
                 }
             }

@@ -9,6 +9,7 @@ Modifications for Nautile:
 - Gradle build rewritten (Kotlin DSL, AGP 8 namespaces).
 - `TerminalSession` gains a `Backend` mode so the emulator can be fed by a remote stream (SSH)
   instead of a local subprocess, and an `InputListener` hook on what the user types.
+- `TerminalEmulator` reads OSC 7 (`file://host/path`) to know the shell's current directory.
 
 ## Font
 

@@ -85,6 +85,7 @@ import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material3.TextButton
 import com.nautile.app.ai.prettyModel
 import com.nautile.app.session.ActiveSession
+import com.nautile.app.session.aiKey
 import com.nautile.app.ui.common.ProviderLogo
 import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.theme.Nt
@@ -103,11 +104,12 @@ fun AssistantDialog(
     screen: () -> String?,
     onDismiss: () -> Unit,
     onInsert: (String, Boolean) -> Unit,
-    readRemote: (suspend (String) -> AiFile)? = null,
+    remote: RemoteFiles? = null,
+    onOpenConversation: (() -> Unit)? = null,
 ) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = Nt.Surface) {
-        AssistantPanel(session, screen, onDismiss, onInsert, readRemote = readRemote)
+        AssistantPanel(session, screen, onDismiss, onInsert, remote = remote, onOpenConversation = onOpenConversation)
     }
 }
 
@@ -120,8 +122,9 @@ internal fun AssistantPanel(
     onInsert: (String, Boolean) -> Unit,
     initialRequest: String = "",
     initialResult: AiAssistant.Suggestion? = null,
-    readRemote: (suspend (String) -> AiFile)? = null,
+    remote: RemoteFiles? = null,
     initialFiles: List<AiFile> = emptyList(),
+    onOpenConversation: (() -> Unit)? = null,
 ) {
     val app = LocalContext.current.applicationContext as NautileApp
     val ai = app.ai
@@ -134,13 +137,13 @@ internal fun AssistantPanel(
     var request by remember { mutableStateOf(initialRequest) }
     var withScreen by remember { mutableStateOf(false) }
     var files by remember { mutableStateOf(initialFiles) }
-    val turns by ai.conversation(session.id).collectAsState()
+    val turns by ai.conversation(session.aiKey).collectAsState()
     var showConversation by remember { mutableStateOf(false) }
-    var fileMenu by remember { mutableStateOf(false) }
     var serverDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var job by remember { mutableStateOf<Job?>(null) }
-    var result by remember { mutableStateOf(initialResult) }
+    // Reopened: the conversation goes on, its last answer in view.
+    var result by remember { mutableStateOf(initialResult ?: ai.conversation(session.aiKey).value.lastOrNull()?.answer) }
     var error by remember { mutableStateOf<String?>(null) }
     val busy = job != null
 
@@ -149,7 +152,7 @@ internal fun AssistantPanel(
         if (text.isBlank() || busy) return
         error = null; result = null
         job = scope.launch {
-            runCatching { ai.ask(text.trim(), "${session.address} (${session.protocolLabel})", if (screenToo) screen() else null, k, files = files, sessionId = session.id) }
+            runCatching { ai.ask(text.trim(), "${session.address} (${session.protocolLabel})", if (screenToo) screen() else null, k, files = files, conversation = session.aiKey) }
                 .onSuccess { result = it }
                 .onFailure { if (it !is kotlinx.coroutines.CancellationException) error = it.message ?: tr("Échec de la requête") }
             job = null
@@ -207,7 +210,7 @@ internal fun AssistantPanel(
                 }
                 // The whole conversation, full screen, with its export.
                 Box {
-                    IconButton(onClick = { showConversation = true }) {
+                    IconButton(onClick = { onOpenConversation?.invoke() ?: run { showConversation = true } }) {
                         Icon(Icons.Outlined.Forum, contentDescription = tr("Ouvrir la conversation"), tint = Nt.TextSoft)
                     }
                     if (turns.isNotEmpty()) Box(
@@ -218,7 +221,7 @@ internal fun AssistantPanel(
                 IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, contentDescription = tr("Fermer"), tint = Nt.TextSoft) }
             }
 
-            if (turns.isNotEmpty() && result == null) Row(
+            if (turns.isNotEmpty()) Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Nt.Bg).padding(start = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -226,7 +229,7 @@ internal fun AssistantPanel(
                     if (turns.size == 1) tr("Suite d'une conversation (1 échange)") else tr("Suite d'une conversation (%1\$s échanges)", turns.size),
                     color = Nt.TextSoft, fontSize = 13.sp, modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { ai.clearConversation(session.id) }) { Text(tr("Nouvelle"), color = Nt.Accent, fontSize = 13.sp) }
+                TextButton(onClick = { ai.clearConversation(session.aiKey); result = null }) { Text(tr("Nouvelle"), color = Nt.Accent, fontSize = 13.sp) }
             }
 
             if (ready.isEmpty()) {
@@ -310,38 +313,14 @@ internal fun AssistantPanel(
                 files.forEach { f ->
                     FileChip(f) { files = files - f }
                 }
-                if (files.size < MAX_FILES) Box {
-                    Row(
-                        Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).border(1.dp, Nt.Border, RoundedCornerShape(18.dp))
-                            .clickable(role = Role.Button) { if (readRemote == null) pickFile.launch(arrayOf("*/*")) else fileMenu = true }
-                            .padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Icon(Icons.Outlined.AttachFile, contentDescription = null, tint = Nt.Accent, modifier = Modifier.size(18.dp))
-                        Text(tr("Joindre un fichier"), fontSize = 13.sp, color = Nt.Accent, fontWeight = FontWeight.Medium)
-                    }
-                    androidx.compose.material3.DropdownMenu(fileMenu, onDismissRequest = { fileMenu = false }) {
-                        androidx.compose.material3.DropdownMenuItem(
-                            text = { Text(tr("Depuis le serveur (%1\$s)", session.alias)) },
-                            leadingIcon = { Icon(Icons.Outlined.Dns, contentDescription = null) },
-                            onClick = { fileMenu = false; serverDialog = true },
-                        )
-                        androidx.compose.material3.DropdownMenuItem(
-                            text = { Text(tr("Depuis le téléphone")) },
-                            leadingIcon = { Icon(Icons.Outlined.PhoneAndroid, contentDescription = null) },
-                            onClick = { fileMenu = false; pickFile.launch(arrayOf("*/*")) },
-                        )
-                    }
-                }
-            }
-
-            // Ideas while nothing has been asked yet
-            if (result == null && error == null && !busy && request.isBlank() && files.isEmpty()) {
-                ChipRow {
-                    Idea(tr("Expliquer l'écran")) { withScreen = true; send(tr("Explique ce qui est affiché à l'écran et ce que je dois faire."), true) }
-                    Idea(tr("Espace disque")) { send(tr("Montre l'espace disque utilisé et les plus gros dossiers")) }
-                    Idea(tr("Ports en écoute")) { send(tr("Liste les ports en écoute et les programmes associés")) }
-                    Idea(tr("Services en échec")) { send(tr("Liste les services systemd en échec")) }
+                if (files.size < MAX_FILES) Row(
+                    Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).border(1.dp, Nt.Border, RoundedCornerShape(18.dp))
+                        .clickable(role = Role.Button) { if (remote == null) pickFile.launch(arrayOf("*/*")) else serverDialog = true }
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(Icons.Outlined.AttachFile, contentDescription = null, tint = Nt.Accent, modifier = Modifier.size(18.dp))
+                    Text(tr("Joindre un fichier"), fontSize = 13.sp, color = Nt.Accent, fontWeight = FontWeight.Medium)
                 }
             }
 
@@ -359,9 +338,9 @@ internal fun AssistantPanel(
     }
 
     if (showConversation) AssistantConversation(session, onClose = { showConversation = false }, onInsert = onInsert)
-    if (serverDialog && readRemote != null) ServerFileDialog(
-        host = session.alias,
-        read = readRemote,
+    if (serverDialog && remote != null) RemoteFilePicker(
+        remote,
+        onPhone = { serverDialog = false; pickFile.launch(arrayOf("*/*")) },
         onDismiss = { serverDialog = false },
         onRead = { f -> serverDialog = false; files = files.filterNot { it.name == f.name } + f },
     )
@@ -386,49 +365,6 @@ private fun FileChip(f: AiFile, onRemove: () -> Unit) {
             Icon(Icons.Outlined.Close, contentDescription = tr("Retirer %1\$s", f.name), tint = Nt.TextSoft, modifier = Modifier.size(16.dp))
         }
     }
-}
-
-/** A path on the connected server, read over SFTP. */
-@Composable
-private fun ServerFileDialog(host: String, read: suspend (String) -> AiFile, onDismiss: () -> Unit, onRead: (AiFile) -> Unit) {
-    val scope = rememberCoroutineScope()
-    var path by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var problem by remember { mutableStateOf<String?>(null) }
-    fun go(p: String = path) {
-        if (p.isBlank() || busy) return
-        busy = true; problem = null
-        scope.launch {
-            runCatching { read(p.trim()) }.onSuccess(onRead).onFailure { problem = it.message ?: tr("Lecture impossible") }
-            busy = false
-        }
-    }
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Nt.Surface,
-        title = { Text(tr("Fichier sur %1\$s", host)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                com.nautile.app.ui.common.NtTextField(
-                    path, { path = it }, tr("Chemin"), mono = true, placeholder = "/etc/nginx/nginx.conf",
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                )
-                ChipRow {
-                    listOf("/var/log/syslog", "/etc/hosts", "~/.bashrc", "~/docker-compose.yml").forEach { p -> Idea(p) { path = p; go(p) } }
-                }
-                if (busy) LinearProgressIndicator(color = Nt.Accent, trackColor = Nt.Border, modifier = Modifier.fillMaxWidth())
-                problem?.let { Text(it, color = Nt.Pink, fontSize = 13.sp) }
-                Text(tr("Texte seulement, %1\$s au plus : le début d'un fichier, la fin d'un journal.", AiFiles.sizeLabel(AiFiles.MAX_BYTES.toLong())),
-                    color = Nt.Muted, fontSize = 12.sp)
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Annuler"), color = Nt.TextSoft) } },
-        confirmButton = {
-            TextButton(onClick = { go() }, enabled = path.isNotBlank() && !busy) {
-                Text(tr("Joindre"), color = Nt.Accent, fontWeight = FontWeight.SemiBold)
-            }
-        },
-    )
 }
 
 @Composable
@@ -468,7 +404,7 @@ internal fun Answer(r: AiAssistant.Suggestion, onInsert: (String, Boolean) -> Un
                 }
             }
         }
-        if (r.explanation.isNotBlank()) Text(markdownLite(r.explanation), fontSize = 14.sp, lineHeight = 21.sp, color = Nt.TextSoft)
+        if (r.explanation.isNotBlank()) MarkdownView(r.explanation)
     }
 }
 
@@ -515,14 +451,6 @@ private fun Chip(label: String, detail: String?, selected: Boolean, logo: (@Comp
     }
 }
 
-@Composable
-private fun Idea(label: String, onClick: () -> Unit) {
-    Box(
-        Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).background(Nt.Bg).border(1.dp, Nt.Border, RoundedCornerShape(18.dp))
-            .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 14.dp),
-        contentAlignment = Alignment.Center,
-    ) { Text(label, fontSize = 13.sp, color = Nt.TextSoft) }
-}
 
 /** Just enough Markdown for chat answers: **bold**, `code`, headings and bullets. */
 internal fun markdownLite(text: String): AnnotatedString = buildAnnotatedString {

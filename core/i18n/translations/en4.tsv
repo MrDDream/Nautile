@@ -548,3 +548,19 @@ Synchro	Sync
 Activée	On
 Désactivée	Off
 Jamais	Never
+Dossier illisible	Cannot read the folder
+Sur %1\$s, en SFTP	On %1\$s, over SFTP
+Dossier parent	Parent folder
+Aller	Go
+Dossier personnel	Home folder
+Texte seulement, %1\$s au plus	Text only, %1\$s at most
+Du téléphone	From the phone
+Démarrer une conversation	Start a conversation
+Ensuite	Next
+Vérifiez qu'elle écoute : `docker compose ps db`	Check it is listening: `docker compose ps db`
+L'API se reconnecte seule dans les **5 s**	The API reconnects on its own within **5 s**
+Conversation avec l'assistant sur %1\$s	Assistant conversation on %1\$s
+IA · %1\$s	AI · %1\$s
+Retour au terminal	Back to the terminal
+Suggestions de l'historique	History suggestions
+Compléter : %1\$s	Complete: %1\$s

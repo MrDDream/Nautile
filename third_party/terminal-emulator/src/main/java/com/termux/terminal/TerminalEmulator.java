@@ -124,6 +124,8 @@ public final class TerminalEmulator {
 
 
     private String mTitle;
+    /** Directory announced by the shell with OSC 7, null if it never did. */
+    private String mCurrentDirectory;
     private final Stack<String> mTitleStack = new Stack<>();
 
     /** If processing first character of first parameter of {@link #ESC_CSI}. */
@@ -1918,6 +1920,18 @@ public final class TerminalEmulator {
             case 2: // Change window title to T.
                 setTitle(textParameter);
                 break;
+            case 7: // Current directory, as file://host/path (Nautile: where the shell is).
+                if (textParameter.startsWith("file://")) {
+                    int slash = textParameter.indexOf('/', 7);
+                    if (slash >= 0) {
+                        try {
+                            mCurrentDirectory = java.net.URLDecoder.decode(textParameter.substring(slash).replace("+", "%2B"), "UTF-8");
+                        } catch (Exception e) {
+                            mCurrentDirectory = textParameter.substring(slash);
+                        }
+                    }
+                }
+                break;
             case 4:
                 // P s = 4 ; c ; spec → Change Color Number c to the color specified by spec. This can be a name or RGB
                 // specification as per XParseColor. Any number of c name pairs may be given. The color numbers correspond
@@ -2450,6 +2464,10 @@ public final class TerminalEmulator {
     }
 
     /** Get the terminal session's title (null if not set). */
+    public String getCurrentDirectory() {
+        return mCurrentDirectory;
+    }
+
     public String getTitle() {
         return mTitle;
     }
