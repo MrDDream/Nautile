@@ -52,7 +52,7 @@
 
 ## 🐚 Why Nautile?
 
-Termius is great, until your hosts, keys and passwords have to live in someone else's cloud. Nautile does what you need from a phone (a real terminal, files, tunnels, a Windows desktop when you must) and keeps everything **encrypted on the device**. Backup and sync go where *you* choose: Google Drive, OneDrive or your own Nextcloud, encrypted before they leave.
+Termius is great, until your hosts, keys and passwords have to live in someone else's cloud. Nautile does what you need from a phone (a real terminal, files, tunnels, a Windows desktop when you must) and keeps everything **encrypted on the device**. Backup and sync go where *you* choose: Google Drive, OneDrive, your own Nextcloud, S3 storage, a Syncthing folder, or straight between your devices over Wi-Fi, encrypted before they leave.
 
 ## ✨ What it does
 
@@ -66,7 +66,7 @@ Termius is great, until your hosts, keys and passwords have to live in someone e
 | 📁 **SFTP** | Browse, upload and download in the background, edit remote files, change permissions, copy host to host. |
 | 🔀 **Tunnels** | Local (`-L`), remote (`-R`) and dynamic SOCKS (`-D`) forwards, started with the session if you like. |
 | 📌 **Snippets** | Saved commands with `${VARIABLES}` and categories, an editor with quick inserts (`|`, `&&`, `sudo`…), run on one or several sessions at once, or on hosts that open for the occasion. |
-| 🔄 **Sync & backup** | End-to-end encrypted file (Argon2id + AES-256-GCM) on Google Drive, OneDrive or Nextcloud/WebDAV. Scheduled backups (every 6 h to monthly, at the time and on the network you choose), the last 5 kept and restorable. Sync merges record by record, latest change wins, deletions included. |
+| 🔄 **Sync & backup** | End-to-end encrypted file (Argon2id + AES-256-GCM) on Google Drive, OneDrive, Nextcloud/WebDAV, S3 storage (Backblaze B2, Cloudflare R2, MinIO…) or a folder synced by Syncthing; or straight between your devices over Wi-Fi, paired with a 6-digit code. Scheduled backups (every 6 h to monthly, at the time and on the network you choose), the last 5 kept and restorable. Sync merges record by record, latest change wins, deletions included. |
 | 🛡️ **Private by design** | SQLCipher database with its key in the Android Keystore, biometric lock with re-lock delay, hidden from recent apps if you want. No analytics, no account. |
 | 🤖 **AI assistant (optional)** | Your own key for Claude, OpenAI, Gemini, Grok, Mistral, DeepSeek or a local model (Ollama, LM Studio). Pick the provider and your own system prompts in the terminal, type or dictate, attach the screen or files (from the phone or the server), follow up in a conversation and export it as Markdown. Nothing runs without your tap. |
 | ✨ **And more** | Server monitor (CPU, memory, disks, processes), active-session previews, home-screen widget and shortcuts, session logs, anonymised crash reports you can post on GitHub, English and French. |
@@ -101,7 +101,7 @@ The FreeRDP, OpenSSL, cJSON and uriparser libraries are prebuilt in `core/rdp/sr
 scripts/build-freerdp.sh
 ```
 
-SSH integration tests run against `sshd`, `mosh-server` and proxies in Docker: `scripts/ssh-it.sh`; VNC ones against x11vnc: `scripts/vnc-it.sh`.
+SSH integration tests run against `sshd`, `mosh-server` and proxies in Docker: `scripts/ssh-it.sh`; VNC ones against x11vnc: `scripts/vnc-it.sh`; S3 against RustFS: `scripts/s3-it.sh`.
 
 Modules: `app` (Compose UI), `core:data` (Room + SQLCipher, import, backup, sync), `core:security` (Keystore, lock), `core:ssh` (sshj, Mosh, Telnet; pure JVM), `core:rdp` (FreeRDP over JNI), `core:vnc` (VNC client; pure JVM), `core:i18n`, and the Termux `terminal-emulator` / `terminal-view` under `third_party/`.
 

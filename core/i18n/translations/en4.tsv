@@ -629,3 +629,39 @@ Clé d'accès (ID)	Access key (ID)
 Clé secrète (enregistrée — saisir pour remplacer)	Secret key (saved — type to replace)
 Clé secrète	Secret key
 Créez une clé limitée à ce bucket. Le fichier est chiffré avant l'envoi ; activez les versions du bucket pour un historique côté serveur.	Create a key limited to this bucket. The file is encrypted before upload; turn on bucket versioning for a server-side history.
+Code ou appairage refusé par l'autre appareil	Code or pairing refused by the other device
+Message réseau invalide	Invalid network message
+Ce n'est pas un appareil Nautile	This is not a Nautile device
+Version de Nautile incompatible sur l'autre appareil	Incompatible Nautile version on the other device
+Clé réseau invalide	Invalid network key
+Annonce sur le réseau impossible (%1\$s)	Cannot announce on the network (%1\$s)
+Trop d'essais : nouveau code nécessaire	Too many attempts: a new code is needed
+%1\$s associé	%1\$s paired
+Synchronisé avec %1\$s	Synced with %1\$s
+Aucun appareil associé à portée	No paired device in range
+Synchronisé avec %1\$s appareil(s)	Synced with %1\$s device(s)
+Appareils associés injoignables	Paired devices unreachable
+Sur le Wi-Fi, sans cloud	Over Wi-Fi, no cloud
+Comment fonctionne la synchro sur le Wi-Fi	How Wi-Fi sync works
+Directement entre vos appareils, sur le même réseau	Straight between your devices, on the same network
+Aucun appareil associé	No paired device
+%1\$s appareil(s) associé(s)	%1\$s paired device(s)
+Oublier %1\$s	Forget %1\$s
+Associer	Pair
+La synchro sur le Wi-Fi	Wi-Fi sync
+Vos appareils échangent directement quand ils sont sur le même réseau : rien ne passe par Internet ni par un cloud.	Your devices exchange directly when on the same network: nothing goes through the Internet or a cloud.
+Associez-les une fois avec un code à 6 chiffres ; ensuite ils se retrouvent tout seuls, à l'ouverture de l'app et après chaque modification.	Pair them once with a 6-digit code; then they find each other on their own, when the app opens and after each change.
+La liaison est chiffrée (X25519, AES-256-GCM) et seuls les appareils associés sont acceptés.	The link is encrypted (X25519, AES-256-GCM) and only paired devices are accepted.
+Elle se combine avec la synchro par fichier : la modification la plus récente l'emporte partout.	It works alongside file sync: the latest change wins everywhere.
+Associer un appareil	Pair a device
+Sur l'un des deux appareils, affichez un code ; sur l'autre, choisissez cet appareil et saisissez le code.	On one of the two devices, show a code; on the other, choose that device and type the code.
+Afficher un code	Show a code
+Cet appareil attend l'autre	This device waits for the other
+Saisir un code	Enter a code
+Rejoindre un appareil qui affiche un code	Join a device showing a code
+Sur l'autre appareil : Sauvegarde et synchro › Sur le Wi-Fi › Associer › Saisir un code.	On the other device: Backup and sync › Over Wi-Fi › Pair › Enter a code.
+En attente… Les deux appareils doivent être sur le même Wi-Fi.	Waiting… Both devices must be on the same Wi-Fi.
+Recherche des appareils Nautile sur le réseau… Sur l'autre, affichez un code.	Looking for Nautile devices on the network… On the other one, show a code.
+Code affiché sur %1\$s :	Code shown on %1\$s:
+Code à 6 chiffres	6-digit code
+Association impossible	Pairing failed

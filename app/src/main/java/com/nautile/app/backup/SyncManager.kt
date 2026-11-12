@@ -124,6 +124,7 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
             override fun onInvalidated(tables: Set<String>) {
                 // Writes made by the merge itself do not ask for another round.
                 if (!_running.value) requestSoon()
+                app.lanSync.requestSoon()
             }
         })
     }

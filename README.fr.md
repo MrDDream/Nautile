@@ -52,7 +52,7 @@
 
 ## 🐚 Pourquoi Nautile ?
 
-Termius est très bien, jusqu'au moment où tes hôtes, tes clés et tes mots de passe doivent vivre dans le cloud de quelqu'un d'autre. Nautile fait ce qu'on attend d'un téléphone (un vrai terminal, des fichiers, des tunnels, un bureau Windows quand il le faut) et garde tout **chiffré sur l'appareil**. La sauvegarde et la synchro vont où *tu* le décides : Google Drive, OneDrive ou ton propre Nextcloud, chiffrées avant de partir.
+Termius est très bien, jusqu'au moment où tes hôtes, tes clés et tes mots de passe doivent vivre dans le cloud de quelqu'un d'autre. Nautile fait ce qu'on attend d'un téléphone (un vrai terminal, des fichiers, des tunnels, un bureau Windows quand il le faut) et garde tout **chiffré sur l'appareil**. La sauvegarde et la synchro vont où *tu* le décides : Google Drive, OneDrive, ton propre Nextcloud, un stockage S3, un dossier Syncthing, ou directement entre tes appareils sur le Wi-Fi, chiffrées avant de partir.
 
 ## ✨ Ce qu'il fait
 
@@ -66,7 +66,7 @@ Termius est très bien, jusqu'au moment où tes hôtes, tes clés et tes mots de
 | 📁 **SFTP** | Navigation, envoi et téléchargement en arrière-plan, édition de fichiers distants, permissions, copie d'hôte à hôte. |
 | 🔀 **Tunnels** | Redirections locales (`-L`), distantes (`-R`) et SOCKS dynamiques (`-D`), lancées avec la session si tu veux. |
 | 📌 **Snippets** | Commandes enregistrées avec `${VARIABLES}` et catégories, un éditeur avec insertions rapides (`|`, `&&`, `sudo`…), lancées sur une ou plusieurs sessions à la fois, ou sur des hôtes ouverts pour l'occasion. |
-| 🔄 **Synchro et sauvegarde** | Fichier chiffré de bout en bout (Argon2id + AES-256-GCM) sur Google Drive, OneDrive ou Nextcloud/WebDAV. Sauvegardes planifiées (de toutes les 6 h à chaque mois, à l'heure et sur le réseau choisis), les 5 dernières gardées et restaurables. La synchro fusionne élément par élément : la modification la plus récente gagne, suppressions comprises. |
+| 🔄 **Synchro et sauvegarde** | Fichier chiffré de bout en bout (Argon2id + AES-256-GCM) sur Google Drive, OneDrive, Nextcloud/WebDAV, un stockage S3 (Backblaze B2, Cloudflare R2, MinIO…) ou un dossier synchronisé par Syncthing ; ou directement entre tes appareils sur le Wi-Fi, associés par un code à 6 chiffres. Sauvegardes planifiées (de toutes les 6 h à chaque mois, à l'heure et sur le réseau choisis), les 5 dernières gardées et restaurables. La synchro fusionne élément par élément : la modification la plus récente gagne, suppressions comprises. |
 | 🛡️ **Privé par conception** | Base SQLCipher dont la clé reste dans l'Android Keystore, verrouillage biométrique avec délai, masquage dans les apps récentes. Aucune statistique, aucun compte. |
 | 🤖 **Assistant IA (optionnel)** | Ta propre clé pour Claude, OpenAI, Gemini, Grok, Mistral, DeepSeek ou un modèle local (Ollama, LM Studio). Choix du fournisseur et de tes prompts système dans le terminal, saisie ou dictée, écran ou fichiers joints (du téléphone ou du serveur), suite de la conversation et export en Markdown. Rien n'est exécuté sans ton accord. |
 | ✨ **Et aussi** | Moniteur serveur (CPU, mémoire, disques, processus), aperçu des sessions actives, widget et raccourcis d'écran d'accueil, journaux de session, rapports de plantage anonymisés à publier sur GitHub, français et anglais. |
@@ -101,7 +101,7 @@ Les bibliothèques FreeRDP, OpenSSL, cJSON et uriparser sont précompilées dans
 scripts/build-freerdp.sh
 ```
 
-Les tests d'intégration SSH tournent contre `sshd`, `mosh-server` et des proxys dans Docker : `scripts/ssh-it.sh` ; ceux du VNC contre x11vnc : `scripts/vnc-it.sh`.
+Les tests d'intégration SSH tournent contre `sshd`, `mosh-server` et des proxys dans Docker : `scripts/ssh-it.sh` ; ceux du VNC contre x11vnc : `scripts/vnc-it.sh` ; le S3 contre RustFS : `scripts/s3-it.sh`.
 
 Modules : `app` (interface Compose), `core:data` (Room + SQLCipher, import, sauvegarde, synchro), `core:security` (Keystore, verrou), `core:ssh` (sshj, Mosh, Telnet ; JVM pur), `core:rdp` (FreeRDP via JNI), `core:vnc` (client VNC ; JVM pur), `core:i18n`, et les `terminal-emulator` / `terminal-view` de Termux dans `third_party/`.
 

@@ -42,6 +42,8 @@ open class NautileApp : Application() {
     }
     /** Synchronisation between devices through the backup destination. */
     val sync by lazy { com.nautile.app.backup.SyncManager(this, appScope) }
+    /** Synchronisation straight between paired devices on the local network. */
+    val lanSync by lazy { com.nautile.app.backup.lan.LanSync(this, appScope) }
     /** Host to connect to, set by a widget or launcher shortcut. */
     val pendingConnect = kotlinx.coroutines.flow.MutableStateFlow<Long?>(null)
     /** Opens the Keys tab on « Hôtes connus » (from Settings › Sécurité). */
@@ -69,6 +71,7 @@ open class NautileApp : Application() {
             runCatching { sync.watchLocalChanges() }
             if (backupPrefs.syncEnabled.value) sync.requestSoon(3_000)
         }
+        appScope.launch { runCatching { lanSync.start() } }
         // Keep launcher shortcuts and the widget in sync with recent connections.
         appScope.launch {
             hostRepository.hosts.collect { hosts ->

@@ -288,6 +288,8 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
             confirmButton = { TextButton(onClick = { syncInfo = false }) { Text(tr("Compris"), color = Nt.Accent) } },
         )
 
+        LanSyncSection()
+
         SectionLabel(tr("Sauvegarde"), Modifier.padding(top = 8.dp))
         run {
             Column(
