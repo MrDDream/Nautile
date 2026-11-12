@@ -46,6 +46,8 @@ described in its header. The MPL 2.0 allows combining these files with this GPLv
 
 ## AI provider logos
 
-`app/src/main/java/com/nautile/app/ui/common/ProviderLogo.kt` holds path data from
-[Lobe Icons](https://github.com/lobehub/lobe-icons) 1.102.0 (MIT). The logos are trademarks of their
-owners and are only used to name the service the user configured.
+`app/src/main/java/com/nautile/app/ui/common/ProviderLogo.kt` holds the path data of the providers'
+official logo files as published on Wikimedia Commons ("OpenAI logo 2025 (symbol).svg",
+"Claude AI symbol.svg", "Google Gemini icon 2025.svg", "Mistral AI logo (2025–).svg", "Grok-icon.svg",
+"Ollama-logo.svg"), converted to absolute coordinates. Gemini's blurs are drawn as radial gradients.
+The logos are trademarks of their owners and are only used to name the service the user configured.

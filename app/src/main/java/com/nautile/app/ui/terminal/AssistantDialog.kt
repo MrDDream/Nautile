@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -132,6 +133,23 @@ internal fun AssistantPanel(
         }
     }
 
+    // Voice: Android's own speech recognition screen (no microphone permission needed here).
+    val speech = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { r ->
+        val heard = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
+        if (!heard.isNullOrEmpty()) request = if (request.isBlank()) heard.replaceFirstChar { it.uppercase() } else request.trimEnd() + " " + heard
+    }
+    fun dictate() {
+        val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, if (com.nautile.i18n.I18n.english) "en-US" else "fr-FR")
+            .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, tr("Que voulez-vous faire ?"))
+        try { speech.launch(intent) } catch (e: android.content.ActivityNotFoundException) {
+            error = tr("Aucune reconnaissance vocale sur cet appareil (installez Google ou une app de dictée).")
+        }
+    }
+
     run {
         Column(
             Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 20.dp),
@@ -195,12 +213,17 @@ internal fun AssistantPanel(
                 keyboardActions = KeyboardActions(onSend = { send() }),
                 trailingIcon = {
                     val can = request.isNotBlank() && !busy
-                    Box(
-                        Modifier.padding(end = 6.dp).size(40.dp).clip(CircleShape)
-                            .background(if (can) Nt.Accent else Nt.Border)
-                            .clickable(enabled = can, role = Role.Button) { send() },
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = tr("Demander"), tint = if (can) Nt.OnAccent else Nt.Muted, modifier = Modifier.size(18.dp)) }
+                    Row(Modifier.padding(end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = ::dictate, enabled = !busy) {
+                            Icon(Icons.Outlined.Mic, contentDescription = tr("Dicter"), tint = if (request.isBlank()) Nt.Accent else Nt.TextSoft)
+                        }
+                        Box(
+                            Modifier.size(40.dp).clip(CircleShape)
+                                .background(if (can) Nt.Accent else Nt.Border)
+                                .clickable(enabled = can, role = Role.Button) { send() },
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = tr("Demander"), tint = if (can) Nt.OnAccent else Nt.Muted, modifier = Modifier.size(18.dp)) }
+                    }
                 },
                 colors = OutlinedTextFieldDefaults.colors(
                     unfocusedContainerColor = Nt.Bg, focusedContainerColor = Nt.Bg,

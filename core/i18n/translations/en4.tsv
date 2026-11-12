@@ -411,3 +411,5 @@ Pourquoi papote-api redémarre en boucle ?	Why does papote-api keep restarting?
 L'API n'arrive pas à joindre **PostgreSQL** sur `10.0.0.31:5432` (ECONNREFUSED) : la base est arrêtée ou n'écoute pas sur cette adresse. Vérifiez le conteneur de la base, puis relancez l'API.	The API cannot reach **PostgreSQL** at `10.0.0.31:5432` (ECONNREFUSED): the database is down or not listening on that address. Check the database container, then restart the API.
 Pédagogue	Teacher
 Explique chaque option de la commande, pour quelqu'un qui débute.	Explain every option of the command, for a beginner.
+Dicter	Dictate
+Aucune reconnaissance vocale sur cet appareil (installez Google ou une app de dictée).	No speech recognition on this device (install Google or a dictation app).
