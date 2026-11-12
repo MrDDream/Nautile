@@ -46,6 +46,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nautile.app.NautileApp
 import com.nautile.app.ai.AiConfig
+import com.nautile.app.ai.AiPrompt
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Edit
 import com.nautile.app.ai.AiProviderKind
 import com.nautile.app.ui.common.NtCard
 import com.nautile.app.ui.common.NtTextField
@@ -164,6 +169,8 @@ fun AiSettingsScreen(onBack: () -> Unit) {
             }
         }
 
+        PromptsSection(ai)
+
         SectionLabel(tr("Ce qui est envoyé"), Modifier.padding(top = 4.dp))
         NtCard {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -183,5 +190,109 @@ fun AiSettingsScreen(onBack: () -> Unit) {
             onClick = { ai.forgetKey(kind); revision++ }, modifier = Modifier.fillMaxWidth(),
             border = BorderStroke(1.dp, Nt.Pink.copy(alpha = 0.5f)),
         ) { Text(tr("Oublier la clé %1\$s", kind.label), color = Nt.Pink) }
+    }
+}
+
+/** The system prompts: the built-in one (read-only, can be copied) and the user's own. */
+@Composable
+private fun PromptsSection(ai: com.nautile.app.ai.AiAssistant) {
+    val prompts by ai.prompts.collectAsState()
+    val selected by ai.promptId.collectAsState()
+    val used = if (prompts.any { it.id == selected }) selected else com.nautile.app.ai.AiAssistant.DEFAULT_ID
+    var editing by remember { mutableStateOf<AiPrompt?>(null) }
+    var showDefault by remember { mutableStateOf(false) }
+
+    SectionLabel(tr("Prompts système"), Modifier.padding(top = 4.dp))
+    NtCard {
+        PromptRow(tr("Par défaut"), tr("Une commande prête à coller, puis une courte explication"), used == com.nautile.app.ai.AiAssistant.DEFAULT_ID,
+            onSelect = { ai.selectPrompt(com.nautile.app.ai.AiAssistant.DEFAULT_ID) }, onOpen = { showDefault = true })
+        prompts.forEach { p ->
+            HorizontalDivider(color = Nt.Border)
+            PromptRow(p.name, p.text.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty(), used == p.id,
+                onSelect = { ai.selectPrompt(p.id) }, onOpen = { editing = p })
+        }
+        HorizontalDivider(color = Nt.Border)
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(role = Role.Button) {
+                editing = AiPrompt(java.util.UUID.randomUUID().toString(), "", com.nautile.app.ai.AiAssistant.defaultPrompt)
+            }.padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.Add, contentDescription = null, tint = Nt.Accent)
+            Text(tr("Nouveau prompt"), color = Nt.Accent, fontWeight = FontWeight.SemiBold)
+        }
+    }
+    Hint(tr("Le prompt système donne ses consignes à l'IA (ton, langue, niveau de détail, règles de sécurité…). Vous le choisissez dans le terminal, au-dessus de la demande. Pour garder les boutons Insérer et Exécuter, demandez la commande dans un bloc ```bash```."))
+
+    if (showDefault) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { showDefault = false },
+        containerColor = Nt.Surface,
+        title = { Text(tr("Prompt par défaut")) },
+        text = {
+            Text(com.nautile.app.ai.AiAssistant.defaultPrompt, fontFamily = Nt.Mono, fontSize = 12.sp, lineHeight = 17.sp, color = Nt.TextSoft,
+                modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()).clip(RoundedCornerShape(10.dp)).background(Nt.Bg).padding(12.dp))
+        },
+        dismissButton = { TextButton(onClick = { showDefault = false }) { Text(tr("Fermer"), color = Nt.TextSoft) } },
+        confirmButton = {
+            TextButton(onClick = {
+                showDefault = false
+                editing = AiPrompt(java.util.UUID.randomUUID().toString(), tr("Mon prompt"), com.nautile.app.ai.AiAssistant.defaultPrompt)
+            }) { Text(tr("Dupliquer et modifier"), color = Nt.Accent, fontWeight = FontWeight.SemiBold) }
+        },
+    )
+
+    editing?.let { p ->
+        val exists = prompts.any { it.id == p.id }
+        var name by remember(p.id) { mutableStateOf(p.name) }
+        var text by remember(p.id) { mutableStateOf(p.text) }
+        var confirmDelete by remember(p.id) { mutableStateOf(false) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { editing = null },
+            containerColor = Nt.Surface,
+            title = { Text(if (exists) tr("Modifier le prompt") else tr("Nouveau prompt")) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    NtTextField(name, { name = it }, tr("Nom"), placeholder = tr("Pédagogue, Sécurité, Docker…"))
+                    androidx.compose.material3.OutlinedTextField(
+                        value = text, onValueChange = { text = it }, label = { Text(tr("Consignes")) },
+                        modifier = Modifier.fillMaxWidth(), minLines = 6, maxLines = 14,
+                        textStyle = androidx.compose.ui.text.TextStyle(fontFamily = Nt.Mono, fontSize = 12.sp, lineHeight = 17.sp, color = Nt.Text),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            unfocusedContainerColor = Nt.Surface, focusedContainerColor = Nt.Surface,
+                            unfocusedBorderColor = Nt.Border, focusedBorderColor = Nt.Accent, focusedLabelColor = Nt.Accent, cursorColor = Nt.Accent,
+                        ),
+                    )
+                    TextButton(onClick = { text = com.nautile.app.ai.AiAssistant.defaultPrompt }) { Text(tr("Repartir du prompt par défaut"), color = Nt.TextSoft) }
+                    if (exists) {
+                        if (!confirmDelete) TextButton(onClick = { confirmDelete = true }) { Text(tr("Supprimer"), color = Nt.Pink) }
+                        else TextButton(onClick = { ai.deletePrompt(p.id); editing = null }) { Text(tr("Supprimer « %1\$s » ?", p.name), color = Nt.Pink, fontWeight = FontWeight.SemiBold) }
+                    }
+                }
+            },
+            dismissButton = { TextButton(onClick = { editing = null }) { Text(tr("Annuler"), color = Nt.TextSoft) } },
+            confirmButton = {
+                TextButton(
+                    enabled = name.isNotBlank() && text.isNotBlank(),
+                    onClick = {
+                        ai.savePrompt(p.copy(name = name.trim(), text = text.trim()))
+                        if (!exists) ai.selectPrompt(p.id)
+                        editing = null
+                    },
+                ) { Text(tr("Enregistrer"), color = Nt.Accent, fontWeight = FontWeight.SemiBold) }
+            },
+        )
+    }
+}
+
+@Composable
+private fun PromptRow(name: String, detail: String, selected: Boolean, onSelect: () -> Unit, onOpen: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onOpen).padding(end = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(selected, onClick = onSelect, modifier = Modifier.padding(horizontal = 4.dp), colors = RadioButtonDefaults.colors(selectedColor = Nt.Accent))
+        Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
+            Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(detail, fontSize = 12.sp, color = Nt.Muted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
+        androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.Edit, contentDescription = tr("Modifier"), tint = Nt.Muted, modifier = Modifier.padding(start = 8.dp))
     }
 }

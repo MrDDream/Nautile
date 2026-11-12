@@ -264,6 +264,39 @@ class ScreenshotTest {
         shoot("terminal-display")
     }
 
+    @Test fun assistant() {
+        val session = fakeSession()
+        compose.setContent {
+            NautileTheme {
+                PhoneFrame {
+                    Box(Modifier.fillMaxSize()) {
+                        TerminalScreen(1, onBack = {}, onNewSession = {}, onSftp = {}, onMonitor = {})
+                        // The sheet as Android draws it, inside the phone frame (a real sheet is a separate window).
+                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)))
+                        Column(
+                            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Nt.Surface).padding(top = 22.dp),
+                        ) {
+                            com.nautile.app.ui.terminal.AssistantPanel(
+                                session, screen = { null }, onDismiss = {}, onInsert = { _, _ -> },
+                                initialRequest = tr("Pourquoi papote-api redémarre en boucle ?"),
+                                initialResult = com.nautile.app.ai.AiAssistant.Suggestion(
+                                    "docker logs --tail 50 papote-api && docker inspect -f '{{.State.ExitCode}}' papote-api",
+                                    tr("L'API n'arrive pas à joindre **PostgreSQL** sur `10.0.0.31:5432` (ECONNREFUSED) : la base est arrêtée ou n'écoute pas sur cette adresse. Vérifiez le conteneur de la base, puis relancez l'API."),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        idle()
+        repeat(20) { if (session.terminal.emulator == null) idle() }
+        val bytes = SCREEN.replace("\n", "\r\n").toByteArray()
+        session.terminal.feed(bytes, 0, bytes.size)
+        shoot("assistant")
+    }
+
     companion object {
         private const val E = "\u001b["
         private val PROMPT = "${E}38;5;16;48;5;214m  docker-01 ${E}38;5;214;48;5;67m${E}38;5;255;48;5;67m  ~/stacks ${E}0;38;5;67m${E}0m "

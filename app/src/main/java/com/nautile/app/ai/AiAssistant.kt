@@ -2,18 +2,87 @@ package com.nautile.app.ai
 
 import com.nautile.i18n.tr
 
-import com.nautile.security.SecretStore
+import android.content.SharedPreferences
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
-/** Turns a request in plain language into a shell command, with the provider the user chose. */
-class AiAssistant(private val secrets: SecretStore) {
+/** A system prompt the user wrote, chosen in the terminal before asking. */
+data class AiPrompt(val id: String, val name: String, val text: String)
+
+/**
+ * Turns a request in plain language into a shell command, with the provider the user chose.
+ * [secrets] holds the API keys (encrypted); [prefs] holds the system prompts, which are not secret.
+ */
+class AiAssistant(private val secrets: Secrets, private val prefs: SharedPreferences) {
+
+    /** Where API keys and provider settings live (the Keystore-backed store in the app). */
+    interface Secrets {
+        fun get(name: String): String?
+        fun put(name: String, value: String?)
+    }
 
     data class Suggestion(val command: String?, val explanation: String)
 
     var provider: AiProviderKind
         get() = secrets.get(KEY_PROVIDER)?.let { runCatching { AiProviderKind.valueOf(it) }.getOrNull() } ?: AiProviderKind.CLAUDE
         set(v) = secrets.put(KEY_PROVIDER, v.name)
+
+    /** Providers set up and able to answer, the active one first (a keyless one counts once its address was saved). */
+    fun readyProviders(): List<AiProviderKind> = AiProviderKind.entries
+        .filter { isReady(config(it)) && (it.needsKey || it == provider || secrets.get("url_${it.name}") != null) }
+        .sortedBy { if (it == provider) 0 else 1 }
+
+    private val _prompts = MutableStateFlow(loadPrompts())
+    /** The user's own system prompts; the built-in one is [defaultPrompt]. */
+    val prompts: StateFlow<List<AiPrompt>> = _prompts.asStateFlow()
+
+    private val _promptId = MutableStateFlow(prefs.getString(KEY_PROMPT, DEFAULT_ID) ?: DEFAULT_ID)
+    /** The prompt used last ([DEFAULT_ID] for the built-in one). */
+    val promptId: StateFlow<String> = _promptId.asStateFlow()
+
+    fun selectPrompt(id: String) {
+        _promptId.value = id
+        prefs.edit().putString(KEY_PROMPT, id).apply()
+    }
+
+    fun savePrompt(prompt: AiPrompt) {
+        val list = _prompts.value
+        _prompts.value = if (list.any { it.id == prompt.id }) list.map { if (it.id == prompt.id) prompt else it } else list + prompt
+        storePrompts()
+    }
+
+    fun deletePrompt(id: String) {
+        _prompts.value = _prompts.value.filterNot { it.id == id }
+        storePrompts()
+        if (_promptId.value == id) selectPrompt(DEFAULT_ID)
+    }
+
+    fun movePrompt(from: Int, to: Int) {
+        val list = _prompts.value.toMutableList()
+        if (from !in list.indices || to !in list.indices) return
+        list.add(to, list.removeAt(from))
+        _prompts.value = list
+        storePrompts()
+    }
+
+    /** Text of the prompt [id], the built-in one when it no longer exists. */
+    fun promptText(id: String): String = _prompts.value.firstOrNull { it.id == id }?.text ?: defaultPrompt
+
+    private fun loadPrompts(): List<AiPrompt> = runCatching {
+        val a = JSONArray(prefs.getString(KEY_PROMPTS, "[]"))
+        (0 until a.length()).map { i -> a.getJSONObject(i).let { AiPrompt(it.getString("id"), it.getString("name"), it.getString("text")) } }
+    }.getOrDefault(emptyList())
+
+    private fun storePrompts() {
+        val a = JSONArray()
+        _prompts.value.forEach { a.put(JSONObject().put("id", it.id).put("name", it.name).put("text", it.text)) }
+        prefs.edit().putString(KEY_PROMPTS, a.toString()).apply()
+    }
 
     fun config(kind: AiProviderKind = provider) = AiConfig(
         kind = kind,
@@ -45,19 +114,31 @@ class AiAssistant(private val secrets: SecretStore) {
     /**
      * [screen] is sent only when the user chose to include it (last lines of the terminal).
      */
-    suspend fun ask(request: String, hostDescription: String, screen: String?): Suggestion = withContext(Dispatchers.IO) {
-        val c = config()
+    suspend fun ask(
+        request: String,
+        hostDescription: String,
+        screen: String?,
+        kind: AiProviderKind = provider,
+        system: String = promptText(promptId.value),
+    ): Suggestion = withContext(Dispatchers.IO) {
+        val c = config(kind)
         if (!isReady(c)) throw AiException(tr("Configurez l'assistant dans Réglages › Assistant IA"))
         val user = buildString {
             append(if (com.nautile.i18n.I18n.english) "Machine: " else "Machine : ").append(hostDescription).append("\n\n")
             if (screen != null) append(tr("Fin de l'écran du terminal :\n```\n")).append(screen).append("\n```\n\n")
             append(if (com.nautile.i18n.I18n.english) "Request: " else "Demande : ").append(request)
         }
-        parse(AiProviders.create(c).complete(if (com.nautile.i18n.I18n.english) SYSTEM_EN else SYSTEM, user).trim())
+        parse(AiProviders.create(c).complete(system, user).trim())
     }
 
     companion object {
         private const val KEY_PROVIDER = "ai_provider"
+        private const val KEY_PROMPTS = "prompts"
+        private const val KEY_PROMPT = "prompt"
+        const val DEFAULT_ID = "default"
+
+        /** The built-in system prompt, in the app's language. */
+        val defaultPrompt: String get() = if (com.nautile.i18n.I18n.english) SYSTEM_EN else SYSTEM
 
         private val SYSTEM = """
             Tu es l'assistant d'un client SSH sur téléphone. L'utilisateur décrit ce qu'il veut faire sur le serveur

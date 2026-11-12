@@ -30,7 +30,15 @@ open class NautileApp : Application() {
     /** API keys and passwords, encrypted with a key of the Android Keystore. */
     val secrets by lazy { com.nautile.security.SecretStore(this) }
     val backupPrefs by lazy { com.nautile.app.backup.BackupPrefs(this, secrets) }
-    val ai by lazy { com.nautile.app.ai.AiAssistant(secrets) }
+    open val ai: com.nautile.app.ai.AiAssistant by lazy {
+        com.nautile.app.ai.AiAssistant(
+            object : com.nautile.app.ai.AiAssistant.Secrets {
+                override fun get(name: String) = secrets.get(name)
+                override fun put(name: String, value: String?) = secrets.put(name, value)
+            },
+            getSharedPreferences("nautile_ai", MODE_PRIVATE),
+        )
+    }
     /** Synchronisation between devices through the backup destination. */
     val sync by lazy { com.nautile.app.backup.SyncManager(this, appScope) }
     /** Host to connect to, set by a widget or launcher shortcut. */

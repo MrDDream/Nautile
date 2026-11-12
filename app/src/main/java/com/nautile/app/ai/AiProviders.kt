@@ -33,6 +33,7 @@ enum class AiProviderKind(
     val editableUrl: Boolean = false,
     val keyHint: String = "",
 ) {
+
     CLAUDE("Claude (Anthropic)", "claude-opus-5-5", keyHint = "sk-ant-…"),
     OPENAI("OpenAI", "gpt-5", "https://api.openai.com/v1", keyHint = "sk-…"),
     GEMINI("Google Gemini", "gemini-2.5-flash", "https://generativelanguage.googleapis.com/v1beta", keyHint = "AIza…"),
@@ -40,6 +41,17 @@ enum class AiProviderKind(
     MISTRAL("Mistral", "mistral-large-latest", "https://api.mistral.ai/v1"),
     LOCAL(tr("Local (Ollama, LM Studio…)"), "llama3.1", "http://192.168.1.10:11434/v1", needsKey = false, editableUrl = true),
     CUSTOM(tr("Autre (compatible OpenAI)"), "", "https://openrouter.ai/api/v1", editableUrl = true),
+    ;
+
+    /** Name short enough for a chip in the terminal. */
+    val shortLabel: String get() = when (this) {
+        CLAUDE -> "Claude"
+        GEMINI -> "Gemini"
+        GROK -> "Grok"
+        LOCAL -> tr("Local")
+        CUSTOM -> tr("Autre")
+        else -> label
+    }
 }
 
 data class AiConfig(val kind: AiProviderKind, val apiKey: String?, val model: String, val baseUrl: String?)

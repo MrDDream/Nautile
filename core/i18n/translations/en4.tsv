@@ -380,3 +380,34 @@ Sessions	Sessions
 Fermeture	Closing
 Confirmer la fermeture	Confirm closing
 Demande avant de fermer une session connectée (terminal ou bureau à distance)	Asks before closing a connected session (terminal or remote desktop)
+Assistant	Assistant
+Aucun fournisseur prêt. Ajoutez une clé API dans Réglages › Assistant IA.	No provider ready. Add an API key in Settings › AI assistant.
+Via %1\$s · %2\$s	Via %1\$s · %2\$s
+Prompt système	System prompt
+Joindre l'écran	Attach the screen
+%1\$s dernières lignes, pour expliquer une erreur	Last %1\$s lines, to explain an error
+Expliquer l'écran	Explain the screen
+Explique ce qui est affiché à l'écran et ce que je dois faire.	Explain what the screen shows and what I should do.
+Montre l'espace disque utilisé et les plus gros dossiers	Show disk usage and the biggest folders
+Ports en écoute	Listening ports
+Liste les ports en écoute et les programmes associés	List listening ports and the programs behind them
+Services en échec	Failed services
+Liste les services systemd en échec	List failed systemd services
+%1\$s réfléchit…	%1\$s is thinking…
+Commande	Command
+Prompts système	System prompts
+Une commande prête à coller, puis une courte explication	A command ready to paste, then a short explanation
+Nouveau prompt	New prompt
+Le prompt système donne ses consignes à l'IA (ton, langue, niveau de détail, règles de sécurité…). Vous le choisissez dans le terminal, au-dessus de la demande. Pour garder les boutons Insérer et Exécuter, demandez la commande dans un bloc ```bash```.	The system prompt gives the AI its instructions (tone, language, level of detail, safety rules…). You pick it in the terminal, above the request. To keep the Insert and Run buttons, ask for the command in a ```bash``` block.
+Prompt par défaut	Default prompt
+Mon prompt	My prompt
+Dupliquer et modifier	Duplicate and edit
+Modifier le prompt	Edit prompt
+Pédagogue, Sécurité, Docker…	Teacher, Security, Docker…
+Consignes	Instructions
+Repartir du prompt par défaut	Start from the default prompt
+Autre	Other
+Pourquoi papote-api redémarre en boucle ?	Why does papote-api keep restarting?
+L'API n'arrive pas à joindre **PostgreSQL** sur `10.0.0.31:5432` (ECONNREFUSED) : la base est arrêtée ou n'écoute pas sur cette adresse. Vérifiez le conteneur de la base, puis relancez l'API.	The API cannot reach **PostgreSQL** at `10.0.0.31:5432` (ECONNREFUSED): the database is down or not listening on that address. Check the database container, then restart the API.
+Pédagogue	Teacher
+Explique chaque option de la commande, pour quelqu'un qui débute.	Explain every option of the command, for a beginner.
