@@ -337,7 +337,7 @@ class ScreenshotTest {
         ))
         compose.setContent { NautileTheme { PhoneFrame { TerminalScreen(1, onBack = {}, onNewSession = {}, onSftp = {}, onMonitor = {}) } } }
         idle()
-        compose.onNodeWithContentDescription(tr("Conversation avec l'assistant sur %1\$s", "docker-01")).performClick()
+        compose.onNodeWithText(tr("Assistant IA")).performClick()
         shoot("terminal-ai")
     }
 

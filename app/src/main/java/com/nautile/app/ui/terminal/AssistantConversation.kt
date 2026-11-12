@@ -117,9 +117,9 @@ internal fun ConversationContent(session: ActiveSession, onClose: () -> Unit, on
     Column(if (embedded) Modifier.fillMaxSize() else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
         // Top bar
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = if (embedded) tr("Retour au terminal") else tr("Retour"), tint = Nt.Text) }
-            Column(Modifier.weight(1f)) {
-                Text(tr("Conversation"), style = MaterialTheme.typography.titleLarge)
+            if (!embedded) IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Retour"), tint = Nt.Text) }
+            Column(Modifier.weight(1f).padding(start = if (embedded) 12.dp else 0.dp)) {
+                Text(tr("Conversation"), style = if (embedded) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge)
                 Text(
                     "${session.alias} · " + if (turns.size == 1) tr("1 échange") else tr("%1\$s échanges", turns.size),
                     color = Nt.Muted, fontSize = 12.sp,

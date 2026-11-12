@@ -8,6 +8,9 @@ import com.nautile.i18n.tr
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.selected
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.AutoAwesome
 import com.nautile.app.session.aiKey
 import androidx.compose.foundation.layout.width
@@ -406,7 +409,7 @@ private fun Tabs(
         ) {
             sessions.forEach { s ->
                 item(key = s.id) {
-                    val on = s.id == currentId && aiShown != s.id
+                    val on = s.id == currentId
                     val st by s.state.collectAsState()
                     Surface(
                         onClick = { onPick(s.id) },
@@ -427,27 +430,6 @@ private fun Tabs(
                         }
                     }
                 }
-                // The server's assistant conversation, as a tab right after its session.
-                if (aiShown == s.id || ai.conversation(s.aiKey).value.isNotEmpty()) item(key = "ai-${s.id}") {
-                    val on = aiShown == s.id
-                    val turns by ai.conversation(s.aiKey).collectAsState()
-                    Surface(
-                        onClick = { onPickAi(s.id) },
-                        shape = RoundedCornerShape(9.dp),
-                        color = if (on) Nt.Accent.copy(alpha = 0.12f) else Nt.Surface,
-                        border = BorderStroke(1.dp, if (on) Nt.Accent else Nt.Border),
-                        modifier = Modifier.height(32.dp).semantics { contentDescription = tr("Conversation avec l'assistant sur %1\$s", s.alias) },
-                    ) {
-                        Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = if (on) Nt.Accent else Nt.TextSoft, modifier = Modifier.size(14.dp))
-                            Text(
-                                if (sessions.count { x -> ai.conversation(x.aiKey).value.isNotEmpty() || aiShown == x.id } > 1) tr("IA · %1\$s", s.alias) else tr("IA"),
-                                fontSize = 12.sp, color = if (on) Nt.Accent else Nt.TextSoft, fontWeight = FontWeight.SemiBold,
-                            )
-                            if (turns.isNotEmpty()) Text("${turns.size}", style = com.nautile.app.ui.common.Centered.copy(fontSize = 11.sp), color = Nt.Muted)
-                        }
-                    }
-                }
             }
             item {
                 Box(
@@ -458,7 +440,49 @@ private fun Tabs(
                 }
             }
         }
+        // Sub-tabs of the selected session: its terminal and its assistant conversation.
+        sessions.firstOrNull { it.id == currentId }?.let { cur ->
+            val turns by ai.conversation(cur.aiKey).collectAsState()
+            if (turns.isNotEmpty() || aiShown == cur.id) Row(
+                Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                // A small corner, so the row reads as belonging to the tab above.
+                val line = Nt.Border
+                androidx.compose.foundation.Canvas(Modifier.size(width = 12.dp, height = 28.dp)) {
+                    val w = 1.5.dp.toPx(); val r = 6.dp.toPx(); val mid = size.height / 2
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(w / 2, 0f); lineTo(w / 2, mid - r)
+                        quadraticTo(w / 2, mid, w / 2 + r, mid); lineTo(size.width, mid)
+                    }
+                    drawPath(path, line, style = androidx.compose.ui.graphics.drawscope.Stroke(width = w))
+                }
+                SubTab(Icons.Outlined.Terminal, tr("Terminal"), null, selected = aiShown != cur.id) { onPick(cur.id) }
+                SubTab(Icons.Outlined.AutoAwesome, tr("Assistant IA"), turns.size.takeIf { it > 0 }, selected = aiShown == cur.id) { onPickAi(cur.id) }
+            }
+        }
         HorizontalDivider(color = Nt.Border)
+    }
+}
+
+@Composable
+private fun SubTab(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, count: Int?, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick, shape = RoundedCornerShape(8.dp),
+        color = if (selected) Nt.Accent.copy(alpha = 0.12f) else Color.Transparent,
+        border = BorderStroke(1.dp, if (selected) Nt.Accent.copy(alpha = 0.6f) else Nt.Border),
+        modifier = Modifier.height(28.dp).semantics { this.selected = selected },
+    ) {
+        Row(Modifier.padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Icon(icon, contentDescription = null, tint = if (selected) Nt.Accent else Nt.TextSoft, modifier = Modifier.size(13.dp))
+            Text(label, fontSize = 12.sp, color = if (selected) Nt.Accent else Nt.TextSoft, fontWeight = FontWeight.SemiBold)
+            count?.let {
+                Box(
+                    Modifier.clip(RoundedCornerShape(7.dp)).background(if (selected) Nt.Accent.copy(alpha = 0.25f) else Nt.Surface).padding(horizontal = 5.dp, vertical = 1.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text("$it", style = com.nautile.app.ui.common.Centered.copy(fontSize = 10.sp), color = if (selected) Nt.Text else Nt.Muted) }
+            }
+        }
     }
 }
 
