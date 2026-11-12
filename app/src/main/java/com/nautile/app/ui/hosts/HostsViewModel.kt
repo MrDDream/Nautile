@@ -29,6 +29,9 @@ data class HostsUiState(
     val counts: Map<Long, Int> = emptyMap(),
     val sections: List<HostSection> = emptyList(),
     val isEmpty: Boolean = true,
+    /** Number of hosts per group name (« Sans groupe » included), and in all. */
+    val nameCounts: Map<String, Int> = emptyMap(),
+    val total: Int = 0,
 )
 
 class HostsViewModel(private val app: NautileApp, private val repo: HostRepository) : ViewModel() {
@@ -96,7 +99,8 @@ class HostsViewModel(private val app: NautileApp, private val repo: HostReposito
                 .mapNotNull { name -> byGroup[name]?.let { HostSection(name, it, groups.firstOrNull { g -> g.name == name }?.color) } }
             val names = groups.map { it.name } + if (hosts.any { it.groupId == null }) listOf(UNGROUPED) else emptyList()
             val counts = hosts.mapNotNull { it.groupId }.groupingBy { it }.eachCount()
-            return HostsUiState(needle, sel, names, groups, counts, sections, hosts.isEmpty())
+            val nameCounts = hosts.groupingBy { h -> h.groupId?.let(groupName::get) ?: UNGROUPED }.eachCount()
+            return HostsUiState(needle, sel, names, groups, counts, sections, hosts.isEmpty(), nameCounts, hosts.size)
         }
     }
 }

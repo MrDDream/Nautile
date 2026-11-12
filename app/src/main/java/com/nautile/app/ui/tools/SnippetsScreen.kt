@@ -7,6 +7,11 @@ import android.content.ClipboardManager
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.border
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -120,7 +126,7 @@ fun SnippetsScreen(onOpenSession: (Long) -> Unit) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { PageHeader(tr("Snippets")) }
             if (snippets.isNotEmpty()) item {
                 OutlinedTextField(
@@ -139,8 +145,8 @@ fun SnippetsScreen(onOpenSession: (Long) -> Unit) {
             }
             if (tags.isNotEmpty()) item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Chip(tr("Tous · %1\$s", snippets.size), tag == null) { tag = null }
-                    tags.forEach { t -> Chip("$t · ${snippets.count { it.tag == t }}", tag == t) { tag = if (tag == t) null else t } }
+                    com.nautile.app.ui.common.CountChip(tr("Tous"), snippets.size, tag == null) { tag = null }
+                    tags.forEach { t -> com.nautile.app.ui.common.CountChip(t, snippets.count { it.tag == t }, tag == t) { tag = if (tag == t) null else t } }
                 }
             }
             if (snippets.isEmpty()) item {
@@ -177,9 +183,9 @@ fun SnippetsScreen(onOpenSession: (Long) -> Unit) {
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp))
     }
 
-    if (creating) SnippetEditDialog(null, { creating = false }, { scope.launch { dao.upsertSnippet(it) }; creating = false }, null)
+    if (creating) SnippetEditDialog(null, tags, { creating = false }, { scope.launch { dao.upsertSnippet(it) }; creating = false }, null)
     editing?.let { s ->
-        SnippetEditDialog(s, { editing = null }, { scope.launch { dao.upsertSnippet(it) }; editing = null }) {
+        SnippetEditDialog(s, tags, { editing = null }, { scope.launch { dao.upsertSnippet(it) }; editing = null }) {
             scope.launch { dao.deleteSnippet(s) }; editing = null
         }
     }
@@ -197,59 +203,58 @@ fun SnippetsScreen(onOpenSession: (Long) -> Unit) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/** One snippet: tap to edit, ▶ to run, long press for copy, duplicate and delete. */
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun SnippetCard(s: Snippet, onRun: () -> Unit, onCopy: () -> Unit, onEdit: () -> Unit, onDuplicate: () -> Unit, onDelete: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
-    Surface(
-        shape = RoundedCornerShape(16.dp), color = Nt.Surface, border = BorderStroke(1.dp, Nt.Border),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(s.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    val meta = listOfNotNull(
-                        s.tag.ifBlank { null },
-                        if (s.runCount > 0) tr("%1\$s exécution%2\$s", s.runCount, if (s.runCount > 1) "s" else "") else tr("jamais lancé"),
-                    ).joinToString(" · ")
-                    Text(meta, fontSize = 12.sp, color = Nt.Muted)
-                }
-                IconButton(onClick = onCopy) { Icon(Icons.Outlined.ContentCopy, contentDescription = tr("Copier %1\$s", s.name), tint = Nt.TextSoft) }
-                Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = tr("Plus d'actions"), tint = Nt.TextSoft) }
-                    DropdownMenu(menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text(tr("Modifier")) }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = { menu = false; onEdit() })
-                        DropdownMenuItem(text = { Text(tr("Dupliquer")) }, leadingIcon = { Icon(Icons.Outlined.FileCopy, null) }, onClick = { menu = false; onDuplicate() })
-                        DropdownMenuItem(text = { Text(tr("Supprimer"), color = Nt.Pink) }, leadingIcon = { Icon(Icons.Outlined.Delete, null, tint = Nt.Pink) }, onClick = { menu = false; onDelete() })
-                    }
-                }
-            }
-            Text(
-                s.command, fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.TextSoft, maxLines = 3, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth().padding(end = 8.dp).clip(RoundedCornerShape(10.dp)).background(Nt.Bg)
-                    .clickable(role = Role.Button, onClickLabel = tr("Modifier"), onClick = onEdit).padding(horizontal = 12.dp, vertical = 10.dp),
-            )
-            Row(Modifier.padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    var confirmDelete by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Nt.Surface).border(1.dp, Nt.Border, RoundedCornerShape(16.dp))
+                .combinedClickable(onClick = onEdit, onLongClick = { menu = true }, onClickLabel = tr("Modifier"), onLongClickLabel = tr("Plus d'actions"))
+                .padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(s.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    s.command.lineSequence().joinToString(" ⏎ "), fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.TextSoft, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Nt.Bg).padding(horizontal = 10.dp, vertical = 7.dp),
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        listOfNotNull(
+                            s.tag.ifBlank { null },
+                            if (s.runCount > 0) tr("%1\$s exécution%2\$s", s.runCount, if (s.runCount > 1) "s" else "") else tr("jamais lancé"),
+                        ).joinToString(" · "),
+                        fontSize = 12.sp, color = Nt.Muted, modifier = Modifier.height(20.dp).wrapContentHeight(),
+                    )
                     s.variables.forEach { v ->
-                        Box(Modifier.height(24.dp).clip(RoundedCornerShape(8.dp)).background(Nt.Accent.copy(alpha = 0.12f)).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
-                            Text("\${$v}", fontFamily = Nt.Mono, fontSize = 11.sp, color = Nt.Accent)
+                        Box(Modifier.height(20.dp).clip(RoundedCornerShape(6.dp)).background(Nt.Accent.copy(alpha = 0.12f)).padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
+                            Text("\${$v}", fontFamily = Nt.Mono, fontSize = 10.5.sp, color = Nt.Accent)
                         }
                     }
                 }
-                Surface(
-                    onClick = onRun, shape = RoundedCornerShape(12.dp),
-                    color = Nt.PrimaryContainer, contentColor = Nt.OnPrimaryContainer, modifier = Modifier.height(40.dp),
-                ) {
-                    Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Text(tr("Exécuter"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    }
-                }
             }
+            Surface(
+                onClick = onRun, shape = CircleShape, color = Nt.PrimaryContainer, contentColor = Nt.OnPrimaryContainer,
+                modifier = Modifier.size(48.dp).semantics { contentDescription = tr("Exécuter %1\$s", s.name) },
+            ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(26.dp)) } }
+        }
+        DropdownMenu(menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(text = { Text(tr("Modifier")) }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = { menu = false; onEdit() })
+            DropdownMenuItem(text = { Text(tr("Copier la commande")) }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) }, onClick = { menu = false; onCopy() })
+            DropdownMenuItem(text = { Text(tr("Dupliquer")) }, leadingIcon = { Icon(Icons.Outlined.FileCopy, null) }, onClick = { menu = false; onDuplicate() })
+            DropdownMenuItem(text = { Text(tr("Supprimer"), color = Nt.Pink) }, leadingIcon = { Icon(Icons.Outlined.Delete, null, tint = Nt.Pink) }, onClick = { menu = false; confirmDelete = true })
         }
     }
+    if (confirmDelete) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { confirmDelete = false }, containerColor = Nt.Surface,
+        title = { Text(tr("Supprimer « %1\$s » ?", s.name)) },
+        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr("Annuler"), color = Nt.TextSoft) } },
+        confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text(tr("Supprimer"), color = Nt.Pink, fontWeight = FontWeight.SemiBold) } },
+    )
 }
 
 @Composable

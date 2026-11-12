@@ -255,10 +255,24 @@ class ScreenshotTest {
         app.backupPrefs.setAuto(true)
         app.backupPrefs.setFrequency(com.nautile.app.backup.BackupFrequency.WEEK)
         app.backupPrefs.markExported(System.currentTimeMillis() - 3 * 24 * 3_600_000L)
-        compose.setContent { NautileTheme { PhoneFrame { com.nautile.app.ui.settings.SecuritySettingsScreen(onBack = {}, onOpenKnownHosts = {}) } } }
+        compose.setContent { NautileTheme { PhoneFrame { com.nautile.app.ui.settings.BackupSettingsScreen(onBack = {}) } } }
         idle()
-        compose.onNodeWithText(tr("Pas si la batterie est faible")).performScrollTo()
+        compose.onNodeWithText(tr("Seulement en charge")).performScrollTo()
         shoot("settings-backup")
+    }
+
+    @Test fun snippetEditor() {
+        val sn = Snippet(id = 9, name = tr("Journal d'un service"), command = "journalctl -u \${SERVICE} -n 100 --no-pager", tag = tr("Système"))
+        compose.setContent {
+            NautileTheme {
+                PhoneFrame {
+                    SheetOver({ com.nautile.app.ui.tools.SnippetsScreen(onOpenSession = {}) }) {
+                        com.nautile.app.ui.tools.SnippetEditorContent(sn, listOf("Docker", tr("Système")), onDismiss = {}, onSave = {}, onDelete = {})
+                    }
+                }
+            }
+        }
+        shoot("snippet-editor")
     }
 
     @Test fun aiProvider() {

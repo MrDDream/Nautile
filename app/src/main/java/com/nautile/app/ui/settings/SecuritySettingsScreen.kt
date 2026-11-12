@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -23,6 +26,7 @@ import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
@@ -78,10 +82,16 @@ import kotlinx.coroutines.withContext
 /** What a backup password is asked for. */
 private enum class Ask { EXPORT_FILE, BACKUP_NOW, ENABLE_AUTO, IMPORT, START_SYNC, JOIN_SYNC }
 
-/** « Sécurité & sauvegarde »: backup destination and schedule, export/import, app lock. */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+/** « Sécurité »: app lock, recent-apps privacy, trusted hosts. */
 @Composable
 fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
+    SettingsPage(tr("Sécurité"), onBack) { LockSection(onOpenKnownHosts) }
+}
+
+/** « Sauvegarde et synchro »: synchronisation, backup destination and schedule, export/import. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun BackupSettingsScreen(onBack: () -> Unit) {
     val app = LocalContext.current.applicationContext as NautileApp
     val prefs = app.backupPrefs
     val scope = rememberCoroutineScope()
@@ -186,7 +196,7 @@ fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
         }
     }
 
-    SettingsPage(tr("Sécurité, sauvegarde et synchro"), onBack) {
+    SettingsPage(tr("Sauvegarde et synchro"), onBack) {
         SectionLabel(tr("Synchronisation"))
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Nt.Surface)
@@ -224,6 +234,7 @@ fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
                         }
                     }
                 }
+                destination?.let { d -> if (!AutoBackup.isLocal(d)) SyncNetworkRow(prefs, onChange = ::reschedule) }
                 OutlinedButton(onClick = { syncNow() }, enabled = !syncing, modifier = Modifier.fillMaxWidth()) {
                     Text(if (syncing) tr("Synchronisation…") else tr("Synchroniser maintenant"), color = Nt.Text)
                 }
@@ -261,11 +272,12 @@ fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
                 }
 
                 Text(tr("Destination"), color = Nt.Muted, fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.weight(1f)) {
+                // Same height for both cards, whatever their text wraps to.
+                Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
                         DestinationCard(
                             tr("Fichier ou cloud"), tr("Google Drive, OneDrive, téléphone…"), Icons.Outlined.Cloud,
-                            destination is BackupDestination.Document, Modifier.fillMaxWidth(),
+                            destination is BackupDestination.Document, Modifier.fillMaxSize(),
                         ) { documentMenu = true }
                         androidx.compose.material3.DropdownMenu(documentMenu, onDismissRequest = { documentMenu = false }) {
                             androidx.compose.material3.DropdownMenuItem(
@@ -280,7 +292,7 @@ fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
                     }
                     DestinationCard(
                         tr("Nextcloud"), tr("WebDAV, auto-hébergé"), Icons.Outlined.Dns,
-                        destination is BackupDestination.WebDav, Modifier.weight(1f),
+                        destination is BackupDestination.WebDav, Modifier.weight(1f).fillMaxHeight(),
                     ) { webDavDialog = true }
                 }
                 destination?.let { d ->
@@ -323,8 +335,9 @@ fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
                         colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Nt.Accent, uncheckedTrackColor = Nt.Toggle),
                     )
                 }
-                if ((auto || syncOn) && destination != null)
-                    BackupSchedule(prefs, scheduleShown = auto && !syncOn, needsNetwork = !AutoBackup.isLocal(destination!!), onChange = ::reschedule)
+                if (auto && !syncOn && destination != null) {
+                    BackupOptions(prefs, needsNetwork = !AutoBackup.isLocal(destination!!), onChange = ::reschedule)
+                }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
@@ -348,6 +361,35 @@ fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
                 }
                 if (busy) LinearProgressIndicator(color = Nt.Accent, trackColor = Nt.Border, modifier = Modifier.fillMaxWidth())
                 status?.let { Text(it, color = Nt.TextSoft, fontSize = 13.sp) }
+                // The last backups kept on the phone (and on the server for WebDAV).
+                val versions = remember(last) { com.nautile.app.backup.BackupVersions.list(app) }
+                if (versions.isNotEmpty()) {
+                    Text(tr("Versions précédentes"), color = Nt.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Nt.Bg)) {
+                        versions.forEachIndexed { i, v ->
+                            if (i > 0) androidx.compose.material3.HorizontalDivider(color = Nt.Border)
+                            Row(Modifier.fillMaxWidth().padding(start = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Outlined.History, contentDescription = null, tint = Nt.Muted, modifier = Modifier.size(18.dp))
+                                Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                    Text(pastText(v.at),
+                                        fontSize = 14.sp, color = Nt.Text)
+                                    Text(com.nautile.app.ai.AiFiles.sizeLabel(v.size) + if (i == 0) " · " + tr("la plus récente") else "", fontSize = 12.sp, color = Nt.Muted)
+                                }
+                                TextButton(onClick = {
+                                    importText = runCatching { v.file.readText() }.getOrNull()
+                                    if (importText == null) status = tr("Fichier illisible") else ask = Ask.IMPORT
+                                }) { Text(tr("Restaurer"), color = Nt.Accent, fontSize = 13.sp) }
+                            }
+                        }
+                    }
+                    Hint(
+                        tr("Les %1\$s dernières sauvegardes restent aussi sur ce téléphone.", com.nautile.app.backup.BackupVersions.KEEP) + " " +
+                            when (destination) {
+                                is BackupDestination.WebDav -> tr("Sur Nextcloud, les précédentes sont gardées à côté (nautile.backup.1 à .4).")
+                                else -> tr("Google Drive et OneDrive gardent en plus l'historique des versions du fichier.")
+                            },
+                    )
+                }
                 Hint(tr("Chiffrée sur le téléphone avant l'envoi (Argon2id + AES-256-GCM) : le stockage ne voit qu'un fichier illisible. Contient hôtes, clés, identités, snippets, tunnels et hôtes connus."))
                 if (hasPassword) TextButton(onClick = { prefs.setPassword(null); reschedule() }) {
                     Text(tr("Oublier le mot de passe de sauvegarde"), color = Nt.Pink, fontSize = 13.sp)
@@ -355,7 +397,6 @@ fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
             }
         }
 
-        LockSection(onOpenKnownHosts)
     }
 
     ask?.let { mode ->
@@ -403,13 +444,6 @@ fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
     }
 }
 
-private fun frequencyLabel(f: BackupFrequency) = when (f) {
-    BackupFrequency.HOURS_6 -> tr("toutes les 6 heures")
-    BackupFrequency.HOURS_12 -> tr("toutes les 12 heures")
-    BackupFrequency.DAY -> tr("chaque jour")
-    BackupFrequency.WEEK -> tr("chaque semaine")
-    BackupFrequency.MONTH -> tr("chaque mois")
-}
 
 @Composable
 private fun DestinationCard(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, on: Boolean, modifier: Modifier, onClick: () -> Unit) {

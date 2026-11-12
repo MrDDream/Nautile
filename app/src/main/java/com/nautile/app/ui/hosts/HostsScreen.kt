@@ -79,6 +79,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -155,21 +156,21 @@ fun HostsScreen(
             }
             quick?.let { target -> item(key = "quick") { QuickConnectCard(target, onQuickConnect) } }
             if (state.groups.isNotEmpty() || state.groupNames.isNotEmpty()) item {
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Chip(tr("Tous"), state.selectedGroup == null) { vm.selectGroup(null) }
-                    state.groupNames.forEach { name ->
-                        val color = state.groups.firstOrNull { it.name == name }?.color
-                        Chip(tr(name), state.selectedGroup == name, color) { vm.selectGroup(name) }
-                    }
-                    Surface(
-                        onClick = { manageGroups = true }, shape = RoundedCornerShape(18.dp), color = Nt.Surface,
-                        border = BorderStroke(1.dp, Nt.Border), modifier = Modifier.height(36.dp).semantics { contentDescription = tr("Gérer les groupes") },
-                    ) {
-                        Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(Icons.Outlined.Tune, contentDescription = null, tint = Nt.TextSoft, modifier = Modifier.size(16.dp))
-                            Text(tr("Groupes"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Nt.TextSoft)
+                // Groups scroll; « Gérer » stays at hand on the right.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        com.nautile.app.ui.common.CountChip(tr("Tous"), state.total, state.selectedGroup == null, null) { vm.selectGroup(null) }
+                        state.groupNames.forEach { name ->
+                            val color = state.groups.firstOrNull { it.name == name }?.color
+                            com.nautile.app.ui.common.CountChip(tr(name), state.nameCounts[name] ?: 0, state.selectedGroup == name, color) {
+                                vm.selectGroup(if (state.selectedGroup == name) null else name)
+                            }
                         }
                     }
+                    Surface(
+                        onClick = { manageGroups = true }, shape = RoundedCornerShape(12.dp), color = Nt.Surface,
+                        border = BorderStroke(1.dp, Nt.Border), modifier = Modifier.size(40.dp).semantics { contentDescription = tr("Gérer les groupes") },
+                    ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Tune, contentDescription = null, tint = Nt.TextSoft, modifier = Modifier.size(20.dp)) } }
                 }
             }
             if (state.isEmpty) item {
@@ -302,16 +303,11 @@ private fun HostRow(host: Host, groups: List<HostGroup>, onClick: () -> Unit, on
         Row(
             Modifier.fillMaxWidth()
                 .combinedClickable(onClick = onClick, onLongClick = { menu = true }, onClickLabel = tr("Se connecter"), onLongClickLabel = tr("Plus d'actions"))
-                .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 2.dp),
+                .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(Modifier.size(40.dp)) {
-                com.nautile.app.ui.common.HostAvatar(host.osId, host.alias.take(1).uppercase(), tint)
-                if (host.lastConnectedAt != null) Box(
-                    Modifier.align(Alignment.BottomEnd).offset(2.dp, 2.dp).size(11.dp).clip(CircleShape).background(Nt.Surface).padding(2.dp).clip(CircleShape).background(Nt.Green),
-                )
-            }
+            com.nautile.app.ui.common.HostAvatar(host.osId, host.alias.take(1).uppercase(), tint)
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(host.alias, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
@@ -322,7 +318,6 @@ private fun HostRow(host: Host, groups: List<HostGroup>, onClick: () -> Unit, on
             host.lastConnectedAt?.let { Text(relativeTime(it), fontSize = 11.sp, color = Nt.Muted) }
             if (host.protocol == Protocol.SSH || host.protocol == Protocol.MOSH)
                 IconButton(onClick = onSftp) { Icon(Icons.Outlined.Folder, contentDescription = tr("Fichiers de %1\$s", host.alias), tint = Nt.Muted) }
-            IconButton(onClick = onEdit) { Icon(Icons.Outlined.Edit, contentDescription = tr("Modifier %1\$s", host.alias), tint = Nt.Muted) }
         }
         DropdownMenu(menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(text = { Text(tr("Modifier")) }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = { menu = false; onEdit() })

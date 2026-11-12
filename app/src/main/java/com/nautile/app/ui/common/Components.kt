@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.selected
@@ -112,3 +113,25 @@ fun <T> Segmented(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> 
 /** Border of main buttons when the « Contour » style is chosen. */
 fun Modifier.primaryBorder(shape: androidx.compose.ui.graphics.Shape): Modifier =
     Nt.PrimaryBorder?.let { this.border(2.dp, it, shape) } ?: this
+
+/** A filter chip with its number of items; the selected one takes [color] (a group's) or the accent. */
+@Composable
+fun CountChip(label: String, count: Int, selected: Boolean, color: Long? = null, onClick: () -> Unit) {
+    val tint = color?.let { Color(it) } ?: Nt.Accent
+    androidx.compose.material3.Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) tint.copy(alpha = 0.16f) else Nt.Surface,
+        border = BorderStroke(1.dp, if (selected) tint else Nt.Border),
+        modifier = Modifier.height(40.dp).semantics { this.selected = selected },
+    ) {
+        Row(Modifier.padding(start = 12.dp, end = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (color != null) Box(Modifier.size(10.dp).clip(androidx.compose.foundation.shape.CircleShape).background(tint))
+            Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (selected) Nt.Text else Nt.TextSoft)
+            Box(
+                Modifier.height(20.dp).clip(RoundedCornerShape(10.dp)).background(if (selected) tint.copy(alpha = 0.25f) else Nt.Bg).padding(horizontal = 7.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text("$count", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (selected) Nt.Text else Nt.Muted) }
+        }
+    }
+}

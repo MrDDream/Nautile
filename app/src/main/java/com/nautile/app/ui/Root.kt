@@ -253,6 +253,9 @@ fun NautileRoot() {
                     },
                 )
             }
+            composable(com.nautile.app.ui.settings.SettingsRoutes.BACKUP) {
+                com.nautile.app.ui.settings.BackupSettingsScreen(onBack = { nav.popBackStack() })
+            }
             composable(com.nautile.app.ui.settings.SettingsRoutes.TERMINAL) {
                 com.nautile.app.ui.appearance.TerminalAppearanceScreen(onBack = { nav.popBackStack() }, onOpenLogs = { nav.navigate(com.nautile.app.ui.settings.SettingsRoutes.LOGS) })
             }

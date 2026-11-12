@@ -141,14 +141,9 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
     fun setNetwork(n: BackupNetwork) { _network.value = n; prefs.edit().putString(KEY_NETWORK, n.name).apply() }
 
     private val _charging = MutableStateFlow(prefs.getBoolean(KEY_CHARGING, false))
-    /** Only while the phone is charging. */
+    /** Automatic backups only while the phone is charging (they never run on a low battery). */
     val charging: StateFlow<Boolean> = _charging.asStateFlow()
     fun setCharging(v: Boolean) { _charging.value = v; prefs.edit().putBoolean(KEY_CHARGING, v).apply() }
-
-    private val _batteryOk = MutableStateFlow(prefs.getBoolean(KEY_BATTERY, true))
-    /** Not when the battery is low. */
-    val batteryOk: StateFlow<Boolean> = _batteryOk.asStateFlow()
-    fun setBatteryOk(v: Boolean) { _batteryOk.value = v; prefs.edit().putBoolean(KEY_BATTERY, v).apply() }
 
     fun password(): String? = secrets.get(SECRET_PASSWORD)
     fun setPassword(p: String?) {
@@ -178,7 +173,6 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
         private const val KEY_WEEKDAY = "weekday"
         private const val KEY_NETWORK = "network"
         private const val KEY_CHARGING = "charging"
-        private const val KEY_BATTERY = "battery_ok"
         private const val KEY_DOC_URI = "doc_uri"
         private const val KEY_DOC_LABEL = "doc_label"
         private const val KEY_DAV_URL = "dav_url"

@@ -40,8 +40,12 @@ object AutoBackup {
         withContext(Dispatchers.IO) {
             when (dest) {
                 is BackupDestination.Document -> writeDocument(app, Uri.parse(dest.uri), bytes)
-                is BackupDestination.WebDav -> put(dest, prefs.webDavPassword(), bytes)
+                is BackupDestination.WebDav -> {
+                    rotate(dest, prefs.webDavPassword())
+                    put(dest, prefs.webDavPassword(), bytes)
+                }
             }
+            BackupVersions.add(app, bytes)
         }
         prefs.markExported()
     }.onFailure { e -> app.backupPrefs.markFailed(e.message ?: e.javaClass.simpleName) }
@@ -71,6 +75,22 @@ object AutoBackup {
                 },
             )
         }
+    }
+
+    /**
+     * Keeps the previous backups on the server: nautile.backup → nautile.backup.1 → … → .4, so five
+     * copies exist before the oldest is overwritten. Missing files are skipped.
+     */
+    private fun rotate(dest: BackupDestination.WebDav, password: String?) {
+        val base = webDavFileUrl(dest.url)
+        fun move(from: String, to: String) = runCatching {
+            http.newCall(
+                Request.Builder().url(from).method("MOVE", null).header("Destination", to).header("Overwrite", "T")
+                    .apply { if (dest.username.isNotEmpty()) header("Authorization", Credentials.basic(dest.username, password.orEmpty())) }.build(),
+            ).execute().close()
+        }
+        for (i in BackupVersions.KEEP - 2 downTo 1) move("$base.$i", "$base.${i + 1}")
+        move(base, "$base.1")
     }
 
     /** Checks a WebDAV destination by writing a small file next to the backup, then deleting it. */
@@ -119,8 +139,9 @@ object AutoBackup {
                     else -> NetworkType.UNMETERED
                 },
             )
-            .setRequiresBatteryNotLow(prefs.batteryOk.value)
-            .setRequiresCharging(prefs.charging.value)
+            // Synchronisation is light and must stay timely: no battery condition for it.
+            .setRequiresBatteryNotLow(!sync)
+            .setRequiresCharging(!sync && prefs.charging.value)
             .build()
         val now = System.currentTimeMillis()
         val request = if (sync) PeriodicWorkRequestBuilder<Worker>(1, TimeUnit.HOURS).setConstraints(constraints).build()

@@ -477,3 +477,28 @@ Chemin	Path
 Texte seulement, %1\$s au plus : le début d'un fichier, la fin d'un journal.	Text only, %1\$s at most: the start of a file, the end of a log.
 Joindre	Attach
 ✓ Les fichiers que vous joignez (texte, %1\$s au plus chacun)	✓ The files you attach (text, %1\$s at most each)
+Prochaine sauvegarde	Next backup
+Fréquence	Frequency
+Réseau	Network
+Attend un Wi-Fi : aucune donnée mobile consommée	Waits for Wi-Fi: no mobile data used
+Wi-Fi ou 4G/5G, dès qu'une connexion est disponible	Wi-Fi or 4G/5G, as soon as a connection is available
+Jour et heure	Day and time
+Quand	When
+Sauvegarde et synchro	Backup and sync
+Versions précédentes	Previous versions
+la plus récente	latest
+Restaurer	Restore
+Les %1\$s dernières sauvegardes restent aussi sur ce téléphone.	The last %1\$s backups also stay on this phone.
+Sur Nextcloud, les précédentes sont gardées à côté (nautile.backup.1 à .4).	On Nextcloud, the previous ones are kept next to it (nautile.backup.1 to .4).
+Google Drive et OneDrive gardent en plus l'historique des versions du fichier.	Google Drive and OneDrive also keep the file's version history.
+Synchro %1\$s	Synced %1\$s
+Synchro activée	Sync on
+Jamais sauvegardé	Never backed up
+hôtes connus	known hosts
+Aujourd'hui à %1\$s	Today at %1\$s
+Hier à %1\$s	Yesterday at %1\$s
+Copier la commande	Copy the command
++ Variable	+ Variable
+Demandées à chaque exécution	Asked at each run
+Astuce : %1\$s devient une valeur demandée à chaque exécution. Plusieurs lignes = plusieurs commandes.	Tip: %1\$s becomes a value asked at each run. Several lines = several commands.
+Touchez à nouveau pour supprimer	Tap again to delete

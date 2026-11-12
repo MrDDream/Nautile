@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Terminal
@@ -130,11 +131,14 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
             if (aiReady) "${aiFirst?.label} · ${com.nautile.app.ai.prettyModel(app.ai.config(aiFirst ?: app.ai.provider).model)}" else tr("À configurer"),
             "ia ai intelligence claude anthropic openai gemini mistral deepseek grok ollama cle key api modele model", SettingsRoutes.AI,
             dot = if (aiReady) Nt.Green else Nt.Accent),
-        Entry(Icons.Outlined.Lock, Nt.Green, tr("Sécurité, sauvegarde et synchro"),
-            (if (lockOn) tr("Verrouillage activé") else tr("Verrouillage désactivé")) + " · " +
-                if (syncOn) lastSync?.let { tr("synchro %1\$s", relativeTime(it)) } ?: tr("synchro activée") else
-                (if (autoBackup) tr("sauvegarde automatique") else lastBackup?.let { tr("sauvegarde %1\$s", relativeTime(it)) } ?: tr("jamais sauvegardé")),
-            "securite security biometrie empreinte fingerprint verrou lock sauvegarde backup export import drive onedrive cloud mot de passe synchronisation sync appareils devices",
+        Entry(Icons.Outlined.CloudSync, Nt.Blue, tr("Sauvegarde et synchro"),
+            if (syncOn) lastSync?.let { tr("Synchro %1\$s", relativeTime(it)) } ?: tr("Synchro activée") else
+                (if (autoBackup) tr("Sauvegarde automatique") else lastBackup?.let { tr("Sauvegarde %1\$s", relativeTime(it)) } ?: tr("Jamais sauvegardé")),
+            "sauvegarde backup export import drive onedrive nextcloud webdav cloud restaurer restore synchronisation sync appareils devices",
+            SettingsRoutes.BACKUP),
+        Entry(Icons.Outlined.Lock, Nt.Green, tr("Sécurité"),
+            if (lockOn) tr("Verrouillage activé") else tr("Verrouillage désactivé"),
+            "securite security biometrie empreinte fingerprint verrou lock recents captures screenshots hotes connus known hosts",
             SettingsRoutes.SECURITY),
         Entry(Icons.AutoMirrored.Outlined.Article, Nt.TextSoft, tr("Journaux de session"),
             if (logCount == 0) tr("Aucun journal") else tr("%1\$s fichier(s)", logCount),
@@ -164,7 +168,10 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         )
 
-        if (q.isEmpty()) ProtectionCard(lockOn, if (syncOn) lastSync ?: lastBackup else lastBackup, syncOn) { onNavigate(SettingsRoutes.SECURITY) }
+        if (q.isEmpty()) ProtectionCard(lockOn, if (syncOn) lastSync ?: lastBackup else lastBackup, syncOn) {
+            // The card's suggestion: lock first, then backup.
+            onNavigate(if (!lockOn) SettingsRoutes.SECURITY else SettingsRoutes.BACKUP)
+        }
 
         if (visiblePersonal.isNotEmpty()) {
             SectionLabel(tr("Personnalisation"), Modifier.padding(top = 4.dp))

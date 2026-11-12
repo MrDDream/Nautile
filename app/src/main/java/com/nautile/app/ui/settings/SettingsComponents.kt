@@ -44,6 +44,7 @@ object SettingsRoutes {
     const val RDP = "settings/rdp"
     const val AI = "settings/ai"
     const val SECURITY = "settings/security"
+    const val BACKUP = "settings/backup"
     const val LOGS = "logs"
 }
 
