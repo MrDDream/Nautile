@@ -491,6 +491,17 @@ private fun LockSection(onOpenKnownHosts: () -> Unit) {
         LinkRow(tr("Hôtes connus"), tr("Clés SSH et certificats RDP de confiance"), "", onOpenKnownHosts)
     }
     Hint(tr("La base de données est chiffrée (SQLCipher, clé dans l'Android Keystore)."))
+
+    SectionLabel(tr("Rapports de plantage"), Modifier.padding(top = 8.dp))
+    var crashPrompt by remember { mutableStateOf(com.nautile.app.CrashReporter.promptEnabled(app)) }
+    NtCard {
+        ToggleRow(
+            tr("Proposer de signaler les plantages"),
+            tr("Au redémarrage, un rapport anonymisé à relire, puis à publier sur GitHub si vous le voulez"),
+            crashPrompt,
+        ) { crashPrompt = it; com.nautile.app.CrashReporter.setPromptEnabled(app, it) }
+    }
+    Hint(tr("Le rapport ne garde que le type d'erreur et les lignes de code concernées : adresses, noms d'hôtes, utilisateurs, chemins et mots de passe sont masqués. Rien n'est envoyé sans votre clic."))
 }
 
 @Composable

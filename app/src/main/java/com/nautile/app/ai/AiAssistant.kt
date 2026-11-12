@@ -11,6 +11,20 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** One exchange with the assistant: what was asked (and sent), what came back. */
+data class AiTurn(
+    val request: String,
+    /** The full message sent (host, screen, files), replayed as context for the next questions. */
+    val sent: String,
+    val files: List<String>,
+    val screen: Boolean,
+    val provider: AiProviderKind,
+    val model: String,
+    val raw: String,
+    val answer: AiAssistant.Suggestion,
+    val at: Long = System.currentTimeMillis(),
+)
+
 /** A system prompt the user wrote, chosen in the terminal before asking. */
 data class AiPrompt(val id: String, val name: String, val text: String)
 
@@ -133,6 +147,22 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
     /**
      * [screen] is sent only when the user chose to include it (last lines of the terminal).
      */
+    private val conversations = java.util.concurrent.ConcurrentHashMap<Long, MutableStateFlow<List<AiTurn>>>()
+
+    /** The exchanges of terminal session [sessionId], kept while the app runs. */
+    fun conversation(sessionId: Long): StateFlow<List<AiTurn>> = conversations.getOrPut(sessionId) { MutableStateFlow(emptyList()) }
+
+    fun clearConversation(sessionId: Long) { conversations[sessionId]?.value = emptyList() }
+
+    internal fun record(sessionId: Long, turn: AiTurn) {
+        val flow = conversations.getOrPut(sessionId) { MutableStateFlow(emptyList()) }
+        flow.value = flow.value + turn
+    }
+
+    /**
+     * Asks within the conversation of [sessionId] (null: a one-off question): the earlier exchanges
+     * go along as context, the last two in full, older ones as their questions only.
+     */
     suspend fun ask(
         request: String,
         hostDescription: String,
@@ -140,6 +170,7 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
         kind: AiProviderKind = provider,
         system: String = promptText(promptId.value),
         files: List<AiFile> = emptyList(),
+        sessionId: Long? = null,
     ): Suggestion = withContext(Dispatchers.IO) {
         val c = config(kind)
         if (!isReady(c)) throw AiException(tr("Configurez l'assistant dans Réglages › Assistant IA"))
@@ -154,10 +185,35 @@ class AiAssistant(private val secrets: Secrets, private val prefs: SharedPrefere
             }
             append(if (com.nautile.i18n.I18n.english) "Request: " else "Demande : ").append(request)
         }
-        parse(AiProviders.create(c).complete(system, user).trim())
+        val history = sessionId?.let { conversation(it).value }.orEmpty().takeLast(MAX_CONTEXT_TURNS)
+        val messages = history.flatMapIndexed { i, t ->
+            val recent = i >= history.size - 2
+            listOf(AiMessage(true, if (recent) t.sent else t.request), AiMessage(false, t.raw))
+        } + AiMessage(true, user)
+        val raw = AiProviders.create(c).chat(system, messages).trim()
+        val answer = parse(raw)
+        sessionId?.let { id -> record(id, AiTurn(request, user, files.map { it.name.substringAfterLast('/') }, screen != null, kind, c.model, raw, answer)) }
+        answer
+    }
+
+    /** The conversation as Markdown, for copying, sharing or saving. */
+    fun markdown(turns: List<AiTurn>, host: String): String = buildString {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.ROOT)
+        append("# ").append(tr("Assistant Nautile")).append(" — ").append(host)
+        turns.firstOrNull()?.let { append(" (").append(fmt.format(java.util.Date(it.at))).append(")") }
+        append("\n\n")
+        turns.forEach { t ->
+            append("## ").append(tr("Vous")).append("\n\n").append(t.request.trim()).append("\n")
+            if (t.files.isNotEmpty()) append("\n_").append(tr("Fichiers joints : %1\$s", t.files.joinToString(", "))).append("_\n")
+            if (t.screen) append("\n_").append(tr("Écran du terminal joint")).append("_\n")
+            append("\n## ").append(t.provider.shortLabel).append(" · ").append(prettyModel(t.model)).append("\n\n")
+            append(t.raw.trim()).append("\n\n")
+        }
     }
 
     companion object {
+        /** Earlier exchanges sent along with a new question. */
+        private const val MAX_CONTEXT_TURNS = 8
         private const val KEY_PROVIDER = "ai_provider"
         private const val KEY_PROMPTS = "prompts"
         private const val KEY_PROMPT = "prompt"

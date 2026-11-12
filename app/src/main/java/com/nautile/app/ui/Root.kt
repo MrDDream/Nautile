@@ -1,6 +1,8 @@
 package com.nautile.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import com.nautile.i18n.tr
 
 import androidx.compose.foundation.layout.Arrangement
@@ -278,7 +280,7 @@ fun LockedScreen(error: String?, onUnlock: () -> Unit) {
     }
 }
 
-/** Shows the stack trace saved by [com.nautile.app.CrashReporter] after a crash. */
+/** After a crash: the anonymised report, to read, copy or post on GitHub (nothing is sent otherwise). */
 @Composable
 private fun CrashReportDialog() {
     val context = LocalContext.current
@@ -288,24 +290,32 @@ private fun CrashReportDialog() {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = ::dismiss,
         containerColor = Nt.Surface,
-        title = { Text(tr("Nautile a planté")) },
+        title = { Text(tr("Nautile s'est arrêté")) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(tr("Voici le rapport de la dernière erreur. Copiez-le pour le transmettre ; il ne contient ni mot de passe ni clé."), color = Nt.TextSoft)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(tr("Désolé ! Vous pouvez signaler l'erreur sur GitHub : le rapport ci-dessous est anonymisé (ni adresse, ni nom d'hôte, ni utilisateur, ni mot de passe) et vous le relirez avant de le publier."),
+                    color = Nt.TextSoft, fontSize = 14.sp, lineHeight = 20.sp)
                 Text(
                     text.take(4000),
-                    fontFamily = Nt.Mono, fontSize = 10.sp, color = Nt.Muted,
-                    modifier = Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState()),
+                    fontFamily = Nt.Mono, fontSize = 10.sp, lineHeight = 14.sp, color = Nt.Muted,
+                    modifier = Modifier.heightIn(max = 220.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                        .background(Nt.Bg).verticalScroll(rememberScrollState()).padding(10.dp),
                 )
+                androidx.compose.material3.TextButton(onClick = {
+                    context.getSystemService(android.content.ClipboardManager::class.java)
+                        ?.setPrimaryClip(android.content.ClipData.newPlainText(tr("Rapport de crash"), text))
+                }) { Text(tr("Copier le rapport"), color = Nt.TextSoft) }
             }
         },
-        dismissButton = { androidx.compose.material3.TextButton(onClick = ::dismiss) { Text(tr("Fermer"), color = Nt.TextSoft) } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = ::dismiss) { Text(tr("Ignorer"), color = Nt.TextSoft) } },
         confirmButton = {
-            androidx.compose.material3.TextButton(onClick = {
-                context.getSystemService(android.content.ClipboardManager::class.java)
-                    ?.setPrimaryClip(android.content.ClipData.newPlainText(tr("Rapport de crash"), text))
-                dismiss()
-            }) { Text(tr("Copier et fermer"), color = Nt.Accent) }
+            androidx.compose.material3.Button(
+                onClick = {
+                    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, com.nautile.app.CrashReporter.issueUrl(text))) }
+                    dismiss()
+                },
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Nt.Accent, contentColor = Nt.OnAccent),
+            ) { Text(tr("Signaler sur GitHub"), fontWeight = FontWeight.SemiBold) }
         },
     )
 }

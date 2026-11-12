@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -133,6 +134,8 @@ internal fun AssistantPanel(
     var request by remember { mutableStateOf(initialRequest) }
     var withScreen by remember { mutableStateOf(false) }
     var files by remember { mutableStateOf(initialFiles) }
+    val turns by ai.conversation(session.id).collectAsState()
+    var showConversation by remember { mutableStateOf(false) }
     var fileMenu by remember { mutableStateOf(false) }
     var serverDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -146,7 +149,7 @@ internal fun AssistantPanel(
         if (text.isBlank() || busy) return
         error = null; result = null
         job = scope.launch {
-            runCatching { ai.ask(text.trim(), "${session.address} (${session.protocolLabel})", if (screenToo) screen() else null, k, files = files) }
+            runCatching { ai.ask(text.trim(), "${session.address} (${session.protocolLabel})", if (screenToo) screen() else null, k, files = files, sessionId = session.id) }
                 .onSuccess { result = it }
                 .onFailure { if (it !is kotlinx.coroutines.CancellationException) error = it.message ?: tr("Échec de la requête") }
             job = null
@@ -202,7 +205,28 @@ internal fun AssistantPanel(
                     Text("${session.alias} · ${session.protocolLabel}", color = Nt.Muted, fontSize = 12.sp, fontFamily = Nt.Mono,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+                // The whole conversation, full screen, with its export.
+                Box {
+                    IconButton(onClick = { showConversation = true }) {
+                        Icon(Icons.Outlined.Forum, contentDescription = tr("Ouvrir la conversation"), tint = Nt.TextSoft)
+                    }
+                    if (turns.isNotEmpty()) Box(
+                        Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 6.dp).size(16.dp).clip(CircleShape).background(Nt.Accent),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("${turns.size}", color = Nt.OnAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+                }
                 IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, contentDescription = tr("Fermer"), tint = Nt.TextSoft) }
+            }
+
+            if (turns.isNotEmpty() && result == null) Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Nt.Bg).padding(start = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (turns.size == 1) tr("Suite d'une conversation (1 échange)") else tr("Suite d'une conversation (%1\$s échanges)", turns.size),
+                    color = Nt.TextSoft, fontSize = 13.sp, modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { ai.clearConversation(session.id) }) { Text(tr("Nouvelle"), color = Nt.Accent, fontSize = 13.sp) }
             }
 
             if (ready.isEmpty()) {
@@ -334,6 +358,7 @@ internal fun AssistantPanel(
         }
     }
 
+    if (showConversation) AssistantConversation(session, onClose = { showConversation = false }, onInsert = onInsert)
     if (serverDialog && readRemote != null) ServerFileDialog(
         host = session.alias,
         read = readRemote,
@@ -407,7 +432,7 @@ private fun ServerFileDialog(host: String, read: suspend (String) -> AiFile, onD
 }
 
 @Composable
-private fun Answer(r: AiAssistant.Suggestion, onInsert: (String, Boolean) -> Unit) {
+internal fun Answer(r: AiAssistant.Suggestion, onInsert: (String, Boolean) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         r.command?.let { cmd ->
             val clipboard = LocalClipboardManager.current

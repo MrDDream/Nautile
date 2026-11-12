@@ -502,3 +502,35 @@ Copier la commande	Copy the command
 Demandées à chaque exécution	Asked at each run
 Astuce : %1\$s devient une valeur demandée à chaque exécution. Plusieurs lignes = plusieurs commandes.	Tip: %1\$s becomes a value asked at each run. Several lines = several commands.
 Touchez à nouveau pour supprimer	Tap again to delete
+Conversation	Conversation
+1 échange	1 exchange
+%1\$s échanges	%1\$s exchanges
+Copier en Markdown	Copy as Markdown
+Partager…	Share…
+Assistant Nautile — %1\$s	Nautile assistant — %1\$s
+Partager la conversation	Share the conversation
+Enregistrer en .md…	Save as .md…
+Effacer la conversation	Clear the conversation
+Pas encore d'échange	No exchange yet
+Posez une question : l'assistant garde le fil des réponses précédentes.	Ask a question: the assistant keeps track of its previous answers.
+Question de suivi…	Follow-up question…
+Écran joint	Screen attached
+Ouvrir la conversation	Open the conversation
+Suite d'une conversation (1 échange)	Continuing a conversation (1 exchange)
+Suite d'une conversation (%1\$s échanges)	Continuing a conversation (%1\$s exchanges)
+Nouvelle	New
+Assistant Nautile	Nautile assistant
+Vous	You
+Fichiers joints : %1\$s	Attached files: %1\$s
+Écran du terminal joint	Terminal screen attached
+Nautile s'est arrêté	Nautile stopped
+Désolé ! Vous pouvez signaler l'erreur sur GitHub : le rapport ci-dessous est anonymisé (ni adresse, ni nom d'hôte, ni utilisateur, ni mot de passe) et vous le relirez avant de le publier.	Sorry! You can report the error on GitHub: the report below is anonymised (no address, host name, user or password) and you will read it before posting it.
+Copier le rapport	Copy the report
+Ignorer	Ignore
+Signaler sur GitHub	Report on GitHub
+Rapports de plantage	Crash reports
+Proposer de signaler les plantages	Offer to report crashes
+Au redémarrage, un rapport anonymisé à relire, puis à publier sur GitHub si vous le voulez	On restart, an anonymised report to read, then to post on GitHub if you want
+Le rapport ne garde que le type d'erreur et les lignes de code concernées : adresses, noms d'hôtes, utilisateurs, chemins et mots de passe sont masqués. Rien n'est envoyé sans votre clic.	The report only keeps the error type and the code lines involved: addresses, host names, users, paths and passwords are masked. Nothing is sent without your tap.
+Et comment relancer la base ?	And how do I restart the database?
+Relance seulement le service **db** de la stack, sans toucher à l'API.	Restarts only the stack's **db** service, without touching the API.

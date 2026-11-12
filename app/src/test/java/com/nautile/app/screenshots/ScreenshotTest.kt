@@ -31,6 +31,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -210,7 +213,13 @@ class ScreenshotTest {
 
     @Test fun settings() { root(); compose.onNodeWithText(tr("Réglages")).performClick(); shoot("settings") }
 
-    @Test fun hostForm() { root(); compose.onNodeWithContentDescription(tr("Modifier %1\$s", "docker-01")).performClick(); shoot("form") }
+    @Test fun hostForm() {
+        root()
+        compose.onAllNodesWithText("docker-01").onFirst().performTouchInput { longClick() }
+        idle()
+        compose.onNodeWithText(tr("Modifier")).performClick()
+        shoot("form")
+    }
 
     @Test fun terminal() {
         val session = fakeSession()
@@ -273,6 +282,27 @@ class ScreenshotTest {
             }
         }
         shoot("snippet-editor")
+    }
+
+    @Test fun assistantConversation() {
+        val session = fakeSession()
+        val now = System.currentTimeMillis()
+        fun turn(q: String, raw: String, at: Long, files: List<String> = emptyList(), screen: Boolean = false) = com.nautile.app.ai.AiTurn(
+            q, q, files, screen, com.nautile.app.ai.AiProviderKind.OPENAI, "gpt-5-mini", raw, com.nautile.app.ai.AiAssistant.parse(raw), at,
+        )
+        app.ai.clearConversation(session.id)
+        app.ai.record(session.id, turn(
+            tr("Pourquoi papote-api redémarre en boucle ?"),
+            "```bash\ndocker logs --tail 50 papote-api\n```\n" + tr("L'API n'arrive pas à joindre **PostgreSQL** sur `10.0.0.31:5432` (ECONNREFUSED) : la base est arrêtée ou n'écoute pas sur cette adresse. Vérifiez le conteneur de la base, puis relancez l'API."),
+            now - 120_000, files = listOf("compose.yml"), screen = true,
+        ))
+        app.ai.record(session.id, turn(
+            tr("Et comment relancer la base ?"),
+            "```bash\ndocker compose -f /srv/stacks/papote/compose.yml up -d db\n```\n" + tr("Relance seulement le service **db** de la stack, sans toucher à l'API."),
+            now - 30_000,
+        ))
+        compose.setContent { NautileTheme { PhoneFrame { com.nautile.app.ui.terminal.ConversationContent(session, onClose = {}, onInsert = { _, _ -> }) } } }
+        shoot("assistant-conversation")
     }
 
     @Test fun aiProvider() {

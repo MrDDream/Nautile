@@ -80,8 +80,13 @@ fun prettyModel(id: String): String {
 
 data class AiConfig(val kind: AiProviderKind, val apiKey: String?, val model: String, val baseUrl: String?)
 
+/** One message of a conversation: the user's ([fromUser]) or the model's. */
+data class AiMessage(val fromUser: Boolean, val text: String)
+
 interface AiProvider {
-    fun complete(system: String, user: String): String
+    /** Answers the last user message of [messages], with the earlier ones as context. */
+    fun chat(system: String, messages: List<AiMessage>): String
+    fun complete(system: String, user: String): String = chat(system, listOf(AiMessage(true, user)))
     fun models(): List<String>
 }
 
@@ -112,7 +117,7 @@ private class ClaudeProvider(private val key: String, private val model: String)
         }
     }
 
-    override fun complete(system: String, user: String): String = call { client ->
+    override fun chat(system: String, messages: List<AiMessage>): String = call { client ->
         val params = MessageCreateParams.builder()
             .model(model)
             .maxTokens(16000L)
@@ -121,7 +126,7 @@ private class ClaudeProvider(private val key: String, private val model: String)
             // Server-side fallback when the model declines (routes by refusal category).
             .addBeta("server-side-fallback-2026-07-01")
             .putAdditionalBodyProperty("fallbacks", JsonValue.from("default"))
-            .addUserMessage(user)
+            .apply { messages.forEach { m -> if (m.fromUser) addUserMessage(m.text) else addAssistantMessage(m.text) } }
             .build()
         val response = client.beta().messages().create(params)
         if (response.stopReason().map { it.toString() }.orElse("") == "refusal") throw AiException(tr("La demande a été refusée par le modèle."))
@@ -169,13 +174,13 @@ private class OpenAiCompatibleProvider(baseUrl: String, private val key: String?
         if (!key.isNullOrBlank()) header("Authorization", "Bearer $key")
     }
 
-    override fun complete(system: String, user: String): String {
+    override fun chat(system: String, messages: List<AiMessage>): String {
         if (model.isBlank()) throw AiException(tr("Choisissez un modèle"))
         val body = buildJsonObject {
             put("model", model)
             put("messages", buildJsonArray {
                 add(buildJsonObject { put("role", "system"); put("content", system) })
-                add(buildJsonObject { put("role", "user"); put("content", user) })
+                messages.forEach { m -> add(buildJsonObject { put("role", if (m.fromUser) "user" else "assistant"); put("content", m.text) }) }
             })
         }.toString()
         val o = send(request("/chat/completions").post(body.toRequestBody(JSON_TYPE)).build(), name)
@@ -192,11 +197,13 @@ private class OpenAiCompatibleProvider(baseUrl: String, private val key: String?
 private class GeminiProvider(baseUrl: String, private val key: String, private val model: String) : AiProvider {
     private val base = baseUrl.trimEnd('/')
 
-    override fun complete(system: String, user: String): String {
+    override fun chat(system: String, messages: List<AiMessage>): String {
         val body = buildJsonObject {
             put("system_instruction", buildJsonObject { put("parts", buildJsonArray { add(buildJsonObject { put("text", system) }) }) })
             put("contents", buildJsonArray {
-                add(buildJsonObject { put("role", "user"); put("parts", buildJsonArray { add(buildJsonObject { put("text", user) }) }) })
+                messages.forEach { m ->
+                    add(buildJsonObject { put("role", if (m.fromUser) "user" else "model"); put("parts", buildJsonArray { add(buildJsonObject { put("text", m.text) }) }) })
+                }
             })
         }.toString()
         val name = model.removePrefix("models/")
