@@ -1,0 +1,2 @@
+• The « New host » sheet opens fully: every host type is visible without dragging
+• The hosts search hint is no longer cut off

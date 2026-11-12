@@ -1,0 +1,2 @@
+• La feuille « Nouvel hôte » s'ouvre en entier : tous les types d'hôte sont visibles sans glisser
+• L'indication de la recherche des hôtes n'est plus coupée
