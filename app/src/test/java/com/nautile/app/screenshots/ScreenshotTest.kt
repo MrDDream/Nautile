@@ -70,6 +70,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertEquals
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
@@ -339,6 +340,30 @@ class ScreenshotTest {
         idle()
         compose.onNodeWithText(tr("Assistant IA")).performClick()
         shoot("terminal-ai")
+    }
+
+    /** A real VNC desktop (scripts/vnc-it.sh's server), shown by the app's remote desktop screen. */
+    @Test fun vncDesktop() {
+        val port = System.getProperty("nautile.vncPort")?.toIntOrNull()
+        org.junit.Assume.assumeTrue(port != null)
+        val host = Host(alias = "raspberry", hostname = "127.0.0.1", port = port!!, protocol = Protocol.VNC, password = "secret12")
+        val session = app.sessions.rdp.open(host).getOrThrow()
+        compose.setContent { NautileTheme { PhoneFrame { com.nautile.app.rdp.RdpScreen(session.id, onBack = {}, onReplaced = {}) } } }
+        // The screen starts the connection once its size is stable (a delayed task): let the clock run.
+        val looper = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+        repeat(80) {
+            looper.idleFor(java.time.Duration.ofMillis(250)); idle()
+            if (session.state.value != com.nautile.app.session.SessionState.Connected || session.bitmap == null) Thread.sleep(250)
+        }
+        assertEquals(com.nautile.app.session.SessionState.Connected, session.state.value)
+        assertEquals(800, session.bitmap?.width)
+        // Typing goes through the same path as the screen's keyboard.
+        session.input!!.pointer(100, 100, com.nautile.rdp.RdpInput.PTR_DOWN or com.nautile.rdp.RdpInput.PTR_LEFT)
+        session.input!!.pointer(100, 100, com.nautile.rdp.RdpInput.PTR_LEFT)
+        session.input!!.text("echo saisie-ok\n")
+        repeat(12) { looper.idleFor(java.time.Duration.ofMillis(250)); idle(); Thread.sleep(250) }
+        compose.onRoot().captureRoboImage(File("build/check-vnc.png").path)
+        app.sessions.rdp.close(session)
     }
 
     @Test fun aiProvider() {

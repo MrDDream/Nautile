@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/MrDDream/Nautile/releases/latest"><img src="https://img.shields.io/github/v/release/MrDDream/Nautile?color=FFB547&label=version" alt="Dernière version"></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-FFB547" alt="Android 8.0+">
-  <img src="https://img.shields.io/badge/SSH%20·%20Mosh%20·%20RDP%20·%20SFTP-FFB547" alt="SSH, Mosh, RDP, SFTP">
+  <img src="https://img.shields.io/badge/SSH%20·%20Mosh%20·%20RDP%20·%20VNC%20·%20SFTP-FFB547" alt="SSH, Mosh, RDP, SFTP">
   <a href="https://mrddream.github.io/Nautile/"><img src="https://img.shields.io/badge/site-en%20ligne-FFB547" alt="Site web"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-GPL--3.0-FFB547" alt="GPL-3.0"></a>
 </p>
@@ -61,8 +61,8 @@ Termius est très bien, jusqu'au moment où tes hôtes, tes clés et tes mots de
 | 🖥️ **Un vrai terminal** | xterm-256color (moteur de Termux), onglets et écran partagé, pincer pour zoomer, barre de touches personnalisable (Ctrl, Échap, flèches, tmux…), 10 thèmes plus l'import `.itermcolors`/Xresources/Alacritty, 5 Nerd Fonts ou ta propre `.ttf`. |
 | 🔐 **SSH comme il faut** | Mot de passe, clés (Ed25519, RSA, ECDSA ; import OpenSSH, PEM et PuTTY) ou identités, transfert d'agent, rebonds ProxyJump, proxys SOCKS5/HTTP, port knocking, épinglage des clés d'hôte (TOFU) et touche « mot de passe sudo ». |
 | 📶 **Mosh, Telnet, série, local** | Mosh en Kotlin pur (sans binaire), Telnet pour le vieux matériel, consoles série USB-OTG et le shell du téléphone. |
-| 🪟 **Bureau à distance (RDP)** | FreeRDP 3 intégré : NLA/TLS, H.264 matériel, son, presse-papier, bureau redimensionné à l'écran, tactile direct ou pavé tactile, Ctrl+Alt+Suppr et touches F, via un tunnel SSH si besoin. |
-| ⚡ **Connexion rapide** | Tape `root@192.168.1.2`, `nas:2222` ou `rdp://admin@pc` dans la recherche et connecte-toi sans rien enregistrer. La connexion arrive dans l'historique, prête à être enregistrée. |
+| 🪟 **Bureau à distance (RDP, VNC)** | FreeRDP 3 intégré : NLA/TLS, H.264 matériel, son, presse-papier, bureau redimensionné à l'écran, tactile direct ou pavé tactile, Ctrl+Alt+Suppr et touches F, via un tunnel SSH si besoin. VNC pour les bureaux Linux, macOS et Raspberry Pi (client intégré, ZRLE/Hextile, mot de passe VNC). |
+| ⚡ **Connexion rapide** | Tape `root@192.168.1.2`, `nas:2222`, `rdp://admin@pc` ou `vnc://pi.lan` dans la recherche et connecte-toi sans rien enregistrer. La connexion arrive dans l'historique, prête à être enregistrée. |
 | 📁 **SFTP** | Navigation, envoi et téléchargement en arrière-plan, édition de fichiers distants, permissions, copie d'hôte à hôte. |
 | 🔀 **Tunnels** | Redirections locales (`-L`), distantes (`-R`) et SOCKS dynamiques (`-D`), lancées avec la session si tu veux. |
 | 📌 **Snippets** | Commandes enregistrées avec `${VARIABLES}` et catégories, un éditeur avec insertions rapides (`|`, `&&`, `sudo`…), lancées sur une ou plusieurs sessions à la fois, ou sur des hôtes ouverts pour l'occasion. |
@@ -101,9 +101,9 @@ Les bibliothèques FreeRDP, OpenSSL, cJSON et uriparser sont précompilées dans
 scripts/build-freerdp.sh
 ```
 
-Les tests d'intégration SSH tournent contre `sshd`, `mosh-server` et des proxys dans Docker : `scripts/ssh-it.sh`.
+Les tests d'intégration SSH tournent contre `sshd`, `mosh-server` et des proxys dans Docker : `scripts/ssh-it.sh` ; ceux du VNC contre x11vnc : `scripts/vnc-it.sh`.
 
-Modules : `app` (interface Compose), `core:data` (Room + SQLCipher, import, sauvegarde, synchro), `core:security` (Keystore, verrou), `core:ssh` (sshj, Mosh, Telnet ; JVM pur), `core:rdp` (FreeRDP via JNI), `core:i18n`, et les `terminal-emulator` / `terminal-view` de Termux dans `third_party/`.
+Modules : `app` (interface Compose), `core:data` (Room + SQLCipher, import, sauvegarde, synchro), `core:security` (Keystore, verrou), `core:ssh` (sshj, Mosh, Telnet ; JVM pur), `core:rdp` (FreeRDP via JNI), `core:vnc` (client VNC ; JVM pur), `core:i18n`, et les `terminal-emulator` / `terminal-view` de Termux dans `third_party/`.
 
 ## 🔒 Vie privée
 

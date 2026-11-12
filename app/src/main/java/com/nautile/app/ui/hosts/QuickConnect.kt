@@ -20,7 +20,7 @@ data class QuickTarget(val protocol: Protocol, val username: String, val hostnam
 
 /** Reads `root@192.168.1.2`, `host:2222`, `rdp://admin@pc`, `telnet://switch`, `ssh user@host -p 22`… */
 object QuickConnect {
-    private val SCHEMES = mapOf("ssh" to Protocol.SSH, "mosh" to Protocol.MOSH, "telnet" to Protocol.TELNET, "rdp" to Protocol.RDP)
+    private val SCHEMES = mapOf("ssh" to Protocol.SSH, "mosh" to Protocol.MOSH, "telnet" to Protocol.TELNET, "rdp" to Protocol.RDP, "vnc" to Protocol.VNC)
     private val HOST = Regex("""^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$""")
     private val USER = Regex("""^[A-Za-z0-9._\\-]+$""")
 

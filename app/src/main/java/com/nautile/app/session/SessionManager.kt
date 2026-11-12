@@ -127,7 +127,7 @@ class SessionManager(
 
     /** Opens a session to [host], saved or not (a quick connection has id 0). */
     suspend fun open(host: Host, extraCommand: String? = null): Result<ActiveSession> = runCatching {
-        if (host.protocol == Protocol.RDP) error(tr("%1\$s est un bureau à distance, pas un terminal", host.alias))
+        if (host.protocol == Protocol.RDP || host.protocol == Protocol.VNC) error(tr("%1\$s est un bureau à distance, pas un terminal", host.alias))
         val active = ActiveSession(ids.incrementAndGet(), host.id, host.alias, host.address, protocolLabel(host))
         if (host.id == 0L) active.quickHost = host
         val startup = listOfNotNull(host.startupCommand, extraCommand).joinToString("\n").ifEmpty { null }
@@ -333,6 +333,7 @@ class SessionManager(
         Protocol.SERIAL -> tr("série %1\$s bauds", h.serialBaud ?: 115_200)
         Protocol.LOCAL -> tr("local")
         Protocol.RDP -> "rdp"
+        Protocol.VNC -> "vnc"
         else -> h.protocol.name.lowercase()
     }
 

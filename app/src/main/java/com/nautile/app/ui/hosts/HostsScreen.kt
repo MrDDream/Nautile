@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DesktopWindows
+import androidx.compose.material.icons.outlined.ScreenShare
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Folder
@@ -248,7 +249,7 @@ private fun QuickConnectCard(parsed: QuickTarget, onConnect: (QuickTarget) -> Un
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(Protocol.SSH to "SSH", Protocol.MOSH to "Mosh", Protocol.TELNET to "Telnet", Protocol.RDP to "RDP").forEach { (p, label) ->
+            listOf(Protocol.SSH to "SSH", Protocol.MOSH to "Mosh", Protocol.TELNET to "Telnet", Protocol.RDP to "RDP", Protocol.VNC to "VNC").forEach { (p, label) ->
                 Chip(label, protocol == p) { protocol = p }
             }
         }
@@ -256,7 +257,7 @@ private fun QuickConnectCard(parsed: QuickTarget, onConnect: (QuickTarget) -> Un
     }
 }
 
-private fun Protocol.defaultPortOrSsh() = when (this) { Protocol.TELNET -> 23; Protocol.RDP -> 3389; else -> 22 }
+private fun Protocol.defaultPortOrSsh() = when (this) { Protocol.TELNET -> 23; Protocol.RDP -> 3389; Protocol.VNC -> 5900; else -> 22 }
 
 @Composable
 private fun Chip(label: String, selected: Boolean, dot: Long? = null, onClick: () -> Unit) {
@@ -343,7 +344,7 @@ private fun HostRow(host: Host, groups: List<HostGroup>, onClick: () -> Unit, on
 @Composable
 private fun ProtocolBadge(protocol: Protocol) {
     val label = when (protocol) {
-        Protocol.RDP -> "RDP"; Protocol.MOSH -> "Mosh"; Protocol.TELNET -> "Telnet"; Protocol.SERIAL -> tr("Série"); Protocol.LOCAL -> tr("Local"); Protocol.SSH -> "SSH"
+        Protocol.RDP -> "RDP"; Protocol.VNC -> "VNC"; Protocol.MOSH -> "Mosh"; Protocol.TELNET -> "Telnet"; Protocol.SERIAL -> tr("Série"); Protocol.LOCAL -> tr("Local"); Protocol.SSH -> "SSH"
     }
     Box(Modifier.height(18.dp).clip(RoundedCornerShape(5.dp)).background(Nt.KeyBg).padding(horizontal = 5.dp), contentAlignment = Alignment.Center) {
         Text(label, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Nt.TextSoft)
@@ -515,6 +516,7 @@ private fun NewHostSheet(onDismiss: () -> Unit, onPick: (Protocol) -> Unit, onIm
             Text(tr("Nouvel hôte"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 6.dp))
             TypeRow(Icons.Outlined.Terminal, Nt.Blue, "SSH", tr("Terminal sur un serveur Linux, macOS, routeur… (Mosh en option)")) { onPick(Protocol.SSH) }
             TypeRow(Icons.Outlined.DesktopWindows, Nt.Green, tr("Bureau à distance (RDP)"), tr("Bureau Windows ou serveur xrdp")) { onPick(Protocol.RDP) }
+            TypeRow(Icons.Outlined.ScreenShare, Nt.Blue, tr("Bureau à distance (VNC)"), tr("Linux, macOS, Raspberry Pi… (x11vnc, TigerVNC, partage d'écran)")) { onPick(Protocol.VNC) }
             TypeRow(Icons.Outlined.Lan, Nt.Accent, "Telnet", tr("Équipements réseau anciens, consoles")) { onPick(Protocol.TELNET) }
             TypeRow(Icons.Outlined.Usb, Nt.Pink, tr("Série USB"), tr("Câble console USB-OTG (FTDI, CP210x, CH34x…)")) { onPick(Protocol.SERIAL) }
             TypeRow(Icons.Outlined.PhoneAndroid, Nt.TextSoft, tr("Terminal local"), tr("Le shell de ce téléphone")) { onPick(Protocol.LOCAL) }

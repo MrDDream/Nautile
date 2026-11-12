@@ -75,7 +75,11 @@ android {
     kotlinOptions { jvmTarget = "17" }
     testOptions {
         unitTests.isIncludeAndroidResources = true
-        unitTests.all { it.systemProperty("nautile.screenshots", project.findProperty("nautileScreenshots")?.toString().orEmpty()) }
+        unitTests.all {
+            it.systemProperty("nautile.screenshots", project.findProperty("nautileScreenshots")?.toString().orEmpty())
+            // scripts/vnc-it.sh server, for the screenshot of a real VNC desktop.
+            it.systemProperty("nautile.vncPort", project.findProperty("vncPort")?.toString().orEmpty())
+        }
     }
     buildFeatures {
         compose = true
@@ -92,6 +96,7 @@ dependencies {
     implementation(project(":core:ssh"))
     implementation(project(":core:i18n"))
     implementation(project(":core:rdp"))
+    implementation(project(":core:vnc"))
     implementation(project(":third_party:terminal-view"))
     implementation(libs.usb.serial)
     implementation(libs.androidx.glance.appwidget)

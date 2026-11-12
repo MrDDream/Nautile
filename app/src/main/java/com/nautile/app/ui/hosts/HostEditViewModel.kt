@@ -74,7 +74,7 @@ data class HostForm(
 ) {
     val portValue: Int? get() = port.toIntOrNull()?.takeIf { it in 1..65535 }
     val proxyPortValue: Int? get() = proxyPort.toIntOrNull()?.takeIf { it in 1..65535 }
-    val needsAddress: Boolean get() = kind == Protocol.SSH || kind == Protocol.TELNET || kind == Protocol.RDP
+    val needsAddress: Boolean get() = kind == Protocol.SSH || kind == Protocol.TELNET || kind == Protocol.RDP || kind == Protocol.VNC
     val rdpResolutionValid: Boolean get() = rdpResolution.isBlank() || com.nautile.app.rdp.RdpManager.parseResolution(rdpResolution) != null
     val rdpScaleValue: Int? get() = rdpScale.toIntOrNull()?.takeIf { it in 100..500 }
     val knockValid: Boolean get() = knock.isBlank() || runCatching { com.nautile.ssh.PortKnocker.parse(knock) }.isSuccess
@@ -175,7 +175,7 @@ class HostEditViewModel(
                     protocol = if (f.kind == Protocol.SSH && f.mosh) Protocol.MOSH else f.kind,
                     knockSequence = f.knock.trim().takeIf { f.needsAddress && it.isNotEmpty() },
                     serialBaud = f.baud.toIntOrNull().takeIf { f.kind == Protocol.SERIAL },
-                    authMethod = if (f.kind == Protocol.RDP && f.auth == AuthMethod.KEY) AuthMethod.PASSWORD else f.auth,
+                    authMethod = if ((f.kind == Protocol.RDP && f.auth == AuthMethod.KEY) || f.kind == Protocol.VNC) AuthMethod.PASSWORD else f.auth,
                     // Also used by the terminal's key button to answer sudo prompts.
                     password = f.password.takeIf { it.isNotEmpty() },
                     keyId = f.keyId.takeIf { f.auth == AuthMethod.KEY },
@@ -190,7 +190,7 @@ class HostEditViewModel(
                     jumpHostId = f.jumpHostId,
                     color = f.color,
                     tags = f.tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }.joinToString(","),
-                    startupCommand = f.startupCommand.trim().ifEmpty { null }.takeIf { f.kind != Protocol.RDP },
+                    startupCommand = f.startupCommand.trim().ifEmpty { null }.takeIf { f.kind != Protocol.RDP && f.kind != Protocol.VNC },
                     rdpDomain = f.rdpDomain.trim().takeIf { f.kind == Protocol.RDP && it.isNotEmpty() },
                     rdpResolution = f.rdpResolution.takeIf { f.kind == Protocol.RDP }
                         ?.let(com.nautile.app.rdp.RdpManager::parseResolution)?.let { (w, h) -> "${w}x$h" },

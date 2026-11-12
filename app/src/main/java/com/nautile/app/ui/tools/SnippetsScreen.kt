@@ -107,7 +107,7 @@ fun SnippetsScreen(onOpenSession: (Long) -> Unit) {
         .collectAsState(initial = emptyList())
     val sessions by app.sessions.sessions.collectAsState()
     // Remote desktops have no shell to run snippets in.
-    val hosts by remember { app.hostRepository.hosts.map { list -> list.filter { it.protocol != com.nautile.data.model.Protocol.RDP } } }
+    val hosts by remember { app.hostRepository.hosts.map { list -> list.filter { it.protocol != com.nautile.data.model.Protocol.RDP && it.protocol != com.nautile.data.model.Protocol.VNC } } }
         .collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }

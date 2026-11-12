@@ -57,10 +57,12 @@ class RdpSession internal constructor(
     val hostId: Long get() = host.id
     val alias: String get() = host.alias
     val address: String get() = host.address
+    val protocol: com.nautile.data.model.Protocol get() = host.protocol
     internal val _state = MutableStateFlow<SessionState>(SessionState.Connecting(tr("Préparation…")))
     val state: StateFlow<SessionState> = _state.asStateFlow()
 
-    @Volatile internal var connection: RdpConnection? = null
+    /** FreeRDP or VNC, once connecting. */
+    @Volatile internal var backend: DesktopBackend? = null
     @Volatile internal var tunnel: Closeable? = null
     @Volatile var display: RdpDisplay? = null
     /** Last remote pointer image; null hides it. */
@@ -75,8 +77,8 @@ class RdpSession internal constructor(
     @Volatile private var viewSize: Pair<Int, Int>? = null
     @Volatile internal var sizeJob: kotlinx.coroutines.Job? = null
 
-    val bitmap get() = connection?.bitmap
-    val input: RdpConnection? get() = connection?.takeIf { _state.value == SessionState.Connected }
+    val bitmap get() = backend?.bitmap
+    val input: DesktopBackend? get() = backend?.takeIf { _state.value == SessionState.Connected }
 
     /** Starts connecting with a desktop sized for a [width]×[height] px view (first call only). */
     fun start(width: Int, height: Int, density: Float) {
@@ -129,7 +131,8 @@ class RdpManager(
 
     /** Same for a host that may not be saved (quick connection). */
     fun open(host: Host): Result<RdpSession> = runCatching {
-        RdpConnection.unavailableReason()?.let { error(tr("Bureau à distance indisponible sur cet appareil : %1\$s", it)) }
+        if (host.protocol != com.nautile.data.model.Protocol.VNC)
+            RdpConnection.unavailableReason()?.let { error(tr("Bureau à distance indisponible sur cet appareil : %1\$s", it)) }
         RdpSession(ids.incrementAndGet(), host, this).also { _list.value = _list.value + it }
     }
 
@@ -156,8 +159,8 @@ class RdpManager(
         (if (session.hostId != 0L) open(session.hostId) else open(session.host)).also { close(session) }
 
     private fun release(session: RdpSession) {
-        session.connection?.let { runCatching { it.close() } }
-        session.connection = null
+        session.backend?.let { runCatching { it.close() } }
+        session.backend = null
         session.tunnel?.let { runCatching { it.close() } }
         session.tunnel = null
     }
@@ -192,6 +195,11 @@ class RdpManager(
                     proxy = RdpArgs.proxyUrl(if (http) "http" else "socks5", ph, host.proxyPort ?: if (http) 8080 else 1080, host.proxyUsername, host.proxyPassword)
                 }
 
+                if (host.protocol == com.nautile.data.model.Protocol.VNC) {
+                    if (proxy != null) error(tr("Proxy non pris en charge en VNC : passez par un rebond SSH"))
+                    connectVnc(session, host, target, ::step)
+                    return@launch
+                }
                 val (username, password) = credentials(host)
                 val fixed = host.rdpResolution?.let(::parseResolution)
                 session.autoSize = fixed == null
@@ -211,13 +219,64 @@ class RdpManager(
                 )
                 step(tr("Connexion RDP à %1\$s:%2\$s…", host.hostname, host.port))
                 val conn = RdpConnection(context, Events(session, host))
-                session.connection = conn
+                session.backend = RdpBackend(conn)
                 if (!_list.value.contains(session)) { release(session); return@launch }
                 if (!conn.start(config)) error(tr("Paramètres de connexion refusés par FreeRDP"))
             } catch (e: Exception) {
                 release(session)
                 session._state.value = SessionState.Closed(ChannelBackend.describe(e), failed = true)
             }
+        }
+    }
+
+    /** VNC: a socket to [target], the password saved (or asked), then the RFB session. */
+    private suspend fun connectVnc(session: RdpSession, host: Host, target: Pair<String, Int>, step: (String) -> Unit) {
+        step(tr("Connexion VNC à %1\$s:%2\$s…", host.hostname, host.port))
+        val socket = java.net.Socket()
+        try {
+            socket.connect(java.net.InetSocketAddress(target.first, target.second), 15_000)
+        } catch (e: Exception) {
+            runCatching { socket.close() }
+            throw IllegalStateException(tr("Serveur VNC injoignable (%1\$s)", e.message ?: ""))
+        }
+        val saved = if (host.authMethod == AuthMethod.IDENTITY) host.identityId?.let { keys.identity(it) }?.password else host.password
+        val backend = VncBackend(socket, VncEvents(session, host))
+        backend.tunnel = session.tunnel
+        session.tunnel = null
+        session.backend = backend
+        if (!_list.value.contains(session)) { release(session); return }
+        try {
+            backend.start {
+                saved?.takeIf { it.isNotEmpty() } ?: runBlocking {
+                    val p = PendingPrompt.Secret(host.alias, tr("Mot de passe VNC"), tr("Mot de passe de %1\$s", host.alias))
+                    sessions.prompt(p) { p.answer.await() }
+                }
+            }
+        } catch (e: com.nautile.vnc.VncException) {
+            throw IllegalStateException(e.message)
+        }
+        session._state.value = SessionState.Connected
+        sessions.logConnection(host)
+        if (host.id != 0L) scope.launch { hosts.markConnected(host.id) }
+    }
+
+    private inner class VncEvents(private val session: RdpSession, private val host: Host) : VncBackend.Events {
+        override fun resized(width: Int, height: Int) { session.display?.resized(width, height) }
+        override fun frame(x: Int, y: Int, width: Int, height: Int) { session.display?.frame(x, y, width, height) }
+        override fun pointer(pointer: RdpPointer?) { session.pointer = pointer; session.display?.pointer(pointer) }
+
+        override fun remoteClipboard(text: String) {
+            if (!prefs.clipboard.value) return
+            val cm = context.getSystemService(ClipboardManager::class.java)
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                runCatching { cm.setPrimaryClip(ClipData.newPlainText(host.alias, text)) }
+            }
+        }
+
+        override fun closed(error: String?) {
+            if (session._state.value !is SessionState.Closed)
+                session._state.value = SessionState.Closed(error ?: tr("Session terminée"), failed = error != null)
+            scope.launch(Dispatchers.IO) { release(session) }
         }
     }
 

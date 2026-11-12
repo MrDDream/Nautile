@@ -1,6 +1,7 @@
 package com.nautile.app.ui
 
 import androidx.compose.foundation.background
+import com.nautile.data.model.isDesktop
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import com.nautile.i18n.tr
@@ -87,7 +88,7 @@ fun NautileRoot() {
     fun quickConnect(target: com.nautile.app.ui.hosts.QuickTarget) {
         val host = target.toHost()
         scope.launch {
-            if (host.protocol == com.nautile.data.model.Protocol.RDP) {
+            if (host.protocol.isDesktop) {
                 app.sessions.rdp.open(host)
                     .onSuccess { nav.navigate("rdp/${it.id}") { launchSingleTop = true } }
                     .onFailure { snackbar.showSnackbar(it.message ?: tr("Connexion impossible")) }
@@ -99,7 +100,7 @@ fun NautileRoot() {
 
     fun connect(hostId: Long) {
         scope.launch {
-            if (app.hostRepository.get(hostId)?.protocol == com.nautile.data.model.Protocol.RDP) {
+            if (app.hostRepository.get(hostId)?.protocol?.isDesktop == true) {
                 app.sessions.rdp.open(hostId)
                     .onSuccess { nav.navigate("rdp/${it.id}") { launchSingleTop = true } }
                     .onFailure { snackbar.showSnackbar(it.message ?: tr("Connexion impossible")) }

@@ -6,7 +6,10 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-enum class Protocol { SSH, MOSH, TELNET, SERIAL, LOCAL, RDP }
+enum class Protocol { SSH, MOSH, TELNET, SERIAL, LOCAL, RDP, VNC }
+
+/** A remote desktop (RDP or VNC) rather than a terminal. */
+val Protocol.isDesktop: Boolean get() = this == Protocol.RDP || this == Protocol.VNC
 
 /** AGENT is a legacy value from milestone 1, handled like PASSWORD. */
 enum class AuthMethod { PASSWORD, KEY, AGENT, IDENTITY }
@@ -110,6 +113,7 @@ val Protocol.defaultPort: Int
         Protocol.SSH, Protocol.MOSH -> 22
         Protocol.TELNET -> 23
         Protocol.RDP -> 3389
+        Protocol.VNC -> 5900
         Protocol.SERIAL, Protocol.LOCAL -> 0
     }
 

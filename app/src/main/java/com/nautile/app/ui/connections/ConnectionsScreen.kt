@@ -133,8 +133,8 @@ fun ConnectionsScreen(
                     if (i > 0 || terminals.isNotEmpty()) HorizontalDivider(color = Nt.Border)
                     val state by d.state.collectAsState()
                     SessionRow(
-                        { Avatar(byId[d.hostId]?.osId ?: "windows", d.alias, byId[d.hostId]?.color, Icons.Outlined.DesktopWindows) },
-                        d.alias, "${d.address} · rdp", state, onOpen = { onOpenDesktop(d.id) },
+                        { Avatar(byId[d.hostId]?.osId ?: if (d.protocol == Protocol.RDP) "windows" else null, d.alias, byId[d.hostId]?.color, Icons.Outlined.DesktopWindows) },
+                        d.alias, "${d.address} · ${d.protocol.name.lowercase()}", state, onOpen = { onOpenDesktop(d.id) },
                         onClose = { ask(d.alias, true, state) { app.sessions.rdp.close(d) } },
                         preview = { DesktopPreview(d) },
                     )
@@ -375,7 +375,7 @@ private fun Tile(icon: ImageVector, tint: Color) {
 }
 
 private fun protocolIcon(p: Protocol): ImageVector = when (p) {
-    Protocol.RDP -> Icons.Outlined.DesktopWindows
+    Protocol.RDP, Protocol.VNC -> Icons.Outlined.DesktopWindows
     Protocol.TELNET -> Icons.Outlined.Lan
     Protocol.SERIAL -> Icons.Outlined.Usb
     Protocol.LOCAL -> Icons.Outlined.PhoneAndroid

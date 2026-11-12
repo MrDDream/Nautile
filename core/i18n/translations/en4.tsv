@@ -564,3 +564,23 @@ IA · %1\$s	AI · %1\$s
 Retour au terminal	Back to the terminal
 Suggestions de l'historique	History suggestions
 Compléter : %1\$s	Complete: %1\$s
+Ce n'est pas un serveur VNC	This is not a VNC server
+Méthode d'authentification VNC non prise en charge (%1\$s)	Unsupported VNC authentication method (%1\$s)
+Mot de passe VNC requis	VNC password required
+Authentification VNC refusée : %1\$s	VNC authentication refused: %1\$s
+Mot de passe VNC refusé	VNC password refused
+Message VNC inconnu (%1\$s)	Unknown VNC message (%1\$s)
+Encodage VNC inattendu (%1\$s)	Unexpected VNC encoding (%1\$s)
+Flux ZRLE incomplet	Incomplete ZRLE stream
+Tuile ZRLE invalide (%1\$s)	Invalid ZRLE tile (%1\$s)
+Proxy non pris en charge en VNC : passez par un rebond SSH	Proxy not supported with VNC: use an SSH jump host
+Connexion VNC à %1\$s:%2\$s…	VNC connection to %1\$s:%2\$s…
+Serveur VNC injoignable (%1\$s)	VNC server unreachable (%1\$s)
+Mot de passe VNC	VNC password
+Mot de passe de %1\$s	Password for %1\$s
+Bureau à distance (VNC)	Remote desktop (VNC)
+Bureau VNC	VNC desktop
+Mot de passe VNC (demandé à la connexion si vide)	VNC password (asked when connecting if empty)
+Le protocole VNC n'utilise que les 8 premiers caractères. Laissez vide si le serveur n'a pas de mot de passe.	The VNC protocol only uses the first 8 characters. Leave empty if the server has no password.
+VNC n'est pas chiffré : hors de votre réseau local, passez par un tunnel SSH.	VNC is not encrypted: outside your local network, go through an SSH tunnel.
+Linux, macOS, Raspberry Pi… (x11vnc, TigerVNC, partage d'écran)	Linux, macOS, Raspberry Pi… (x11vnc, TigerVNC, Screen Sharing)

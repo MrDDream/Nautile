@@ -122,11 +122,15 @@ fun HostEditScreen(onDone: () -> Unit, onConnect: (Long) -> Unit, vm: HostEditVi
             ) {
                 PreviewCard(form, groups.firstOrNull { it.name == form.group.trim() }?.color) { k ->
                     vm.update { f ->
-                        val defaults = setOf("", "22", "23", "3389")
+                        val defaults = setOf("", "22", "23", "3389", "5900")
                         f.copy(
                             kind = k,
                             port = if (f.port in defaults && k.defaultPort > 0) k.defaultPort.toString() else f.port,
-                            auth = if (k == Protocol.RDP && f.auth == AuthMethod.KEY) AuthMethod.PASSWORD else f.auth,
+                            auth = when {
+                                k == Protocol.VNC -> AuthMethod.PASSWORD
+                                k == Protocol.RDP && f.auth == AuthMethod.KEY -> AuthMethod.PASSWORD
+                                else -> f.auth
+                            },
                         )
                     }
                 }
@@ -165,7 +169,7 @@ fun HostEditScreen(onDone: () -> Unit, onConnect: (Long) -> Unit, vm: HostEditVi
                                 }
                             },
                             tr("Adresse ou nom"), Modifier.weight(3f), mono = true,
-                            placeholder = if (form.kind == Protocol.RDP) "pc-bureau.lan" else "192.168.1.20",
+                            placeholder = when (form.kind) { Protocol.RDP -> "pc-bureau.lan"; Protocol.VNC -> "raspberrypi.lan"; else -> "192.168.1.20" },
                             isError = form.hostname.isBlank() && form.port.isNotEmpty() && form.alias.isNotEmpty(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                         )
@@ -185,6 +189,7 @@ fun HostEditScreen(onDone: () -> Unit, onConnect: (Long) -> Unit, vm: HostEditVi
                 }
 
                 if (form.kind == Protocol.RDP) RdpSection(form, identities, jumpHosts.map { it.id to it.alias }, vm::update, onProxy = { proxyDialog = true })
+                if (form.kind == Protocol.VNC) VncSection(form, jumpHosts.map { it.id to it.alias }, vm::update)
 
                 if (form.kind == Protocol.SSH) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     SectionLabel(tr("Authentification"))
@@ -313,7 +318,7 @@ fun HostEditScreen(onDone: () -> Unit, onConnect: (Long) -> Unit, vm: HostEditVi
 }
 
 private fun kindLabel(k: Protocol) = when (k) {
-    Protocol.SSH, Protocol.MOSH -> "SSH"; Protocol.RDP -> "RDP"; Protocol.TELNET -> "Telnet"; Protocol.SERIAL -> tr("série"); Protocol.LOCAL -> tr("local")
+    Protocol.SSH, Protocol.MOSH -> "SSH"; Protocol.RDP -> "RDP"; Protocol.VNC -> "VNC"; Protocol.TELNET -> "Telnet"; Protocol.SERIAL -> tr("série"); Protocol.LOCAL -> tr("local")
 }
 
 /** What the host will look like in the list, with its type (tap to change it). */
@@ -356,7 +361,7 @@ private fun PreviewCard(form: HostForm, groupColor: Long?, onKind: (Protocol) ->
                 }
             }
             DropdownMenu(menu, onDismissRequest = { menu = false }) {
-                listOf(Protocol.SSH to "SSH", Protocol.RDP to tr("Bureau à distance (RDP)"), Protocol.TELNET to "Telnet", Protocol.SERIAL to tr("Série USB"), Protocol.LOCAL to tr("Terminal local"))
+                listOf(Protocol.SSH to "SSH", Protocol.RDP to tr("Bureau à distance (RDP)"), Protocol.VNC to tr("Bureau à distance (VNC)"), Protocol.TELNET to "Telnet", Protocol.SERIAL to tr("Série USB"), Protocol.LOCAL to tr("Terminal local"))
                     .forEach { (k, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { menu = false; onKind(k) }) }
             }
         }
@@ -453,6 +458,20 @@ private fun RdpSection(
             HorizontalDivider(color = Nt.Border)
             SwitchRow(tr("Session console"), tr("Ouvre la session console du serveur (mstsc /admin)"), form.rdpConsole) { v -> update { it.copy(rdpConsole = v) } }
         }
+    }
+}
+
+/** VNC: its password (the protocol keeps 8 characters) and an optional SSH tunnel. */
+@Composable
+private fun VncSection(form: HostForm, jumpHosts: List<Pair<Long, String>>, update: ((HostForm) -> HostForm) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SectionLabel(tr("Bureau VNC"))
+        NtTextField(form.password, { v -> update { it.copy(password = v) } }, tr("Mot de passe VNC (demandé à la connexion si vide)"),
+            visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+        Text(tr("Le protocole VNC n'utilise que les 8 premiers caractères. Laissez vide si le serveur n'a pas de mot de passe."), color = Nt.Muted, fontSize = 12.sp)
+        SectionLabel(tr("Réseau"), Modifier.padding(top = 6.dp))
+        NtCard { JumpHostRow(form.jumpHostId, jumpHosts, tunnel = true) { id -> update { it.copy(jumpHostId = id) } } }
+        Text(tr("VNC n'est pas chiffré : hors de votre réseau local, passez par un tunnel SSH."), color = Nt.Muted, fontSize = 12.sp)
     }
 }
 

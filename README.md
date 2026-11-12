@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/MrDDream/Nautile/releases/latest"><img src="https://img.shields.io/github/v/release/MrDDream/Nautile?color=FFB547&label=release" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-FFB547" alt="Android 8.0+">
-  <img src="https://img.shields.io/badge/SSH%20·%20Mosh%20·%20RDP%20·%20SFTP-FFB547" alt="SSH, Mosh, RDP, SFTP">
+  <img src="https://img.shields.io/badge/SSH%20·%20Mosh%20·%20RDP%20·%20VNC%20·%20SFTP-FFB547" alt="SSH, Mosh, RDP, SFTP">
   <a href="https://mrddream.github.io/Nautile/"><img src="https://img.shields.io/badge/website-online-FFB547" alt="Website"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-FFB547" alt="GPL-3.0"></a>
 </p>
@@ -61,8 +61,8 @@ Termius is great, until your hosts, keys and passwords have to live in someone e
 | 🖥️ **A real terminal** | xterm-256color (Termux engine), tabs and split screen, pinch to zoom, a customisable key bar (Ctrl, Esc, arrows, tmux…), 10 colour themes plus `.itermcolors`/Xresources/Alacritty import, 5 Nerd Fonts or your own `.ttf`. |
 | 🔐 **SSH done right** | Password, keys (Ed25519, RSA, ECDSA; OpenSSH, PEM and PuTTY import) or identities, agent forwarding, ProxyJump chains, SOCKS5/HTTP proxies, port knocking, host-key pinning (TOFU) and a sudo-password key. |
 | 📶 **Mosh, Telnet, serial, local** | Mosh in pure Kotlin (no binary), Telnet for old gear, USB-OTG serial consoles and the phone's own shell. |
-| 🪟 **Remote desktop (RDP)** | FreeRDP 3 inside: NLA/TLS, hardware H.264, sound, clipboard, desktop resized to the screen, direct-touch or touchpad mode, Ctrl+Alt+Del and F-keys, through an SSH tunnel if needed. |
-| ⚡ **Quick connection** | Type `root@192.168.1.2`, `nas:2222` or `rdp://admin@pc` in the search bar and connect without saving anything. It lands in the history, ready to be saved. |
+| 🪟 **Remote desktop (RDP, VNC)** | FreeRDP 3 inside: NLA/TLS, hardware H.264, sound, clipboard, desktop resized to the screen, direct-touch or touchpad mode, Ctrl+Alt+Del and F-keys, through an SSH tunnel if needed. VNC for Linux, macOS and Raspberry Pi desktops (built-in client, ZRLE/Hextile, VNC password). |
+| ⚡ **Quick connection** | Type `root@192.168.1.2`, `nas:2222`, `rdp://admin@pc` or `vnc://pi.lan` in the search bar and connect without saving anything. It lands in the history, ready to be saved. |
 | 📁 **SFTP** | Browse, upload and download in the background, edit remote files, change permissions, copy host to host. |
 | 🔀 **Tunnels** | Local (`-L`), remote (`-R`) and dynamic SOCKS (`-D`) forwards, started with the session if you like. |
 | 📌 **Snippets** | Saved commands with `${VARIABLES}` and categories, an editor with quick inserts (`|`, `&&`, `sudo`…), run on one or several sessions at once, or on hosts that open for the occasion. |
@@ -101,9 +101,9 @@ The FreeRDP, OpenSSL, cJSON and uriparser libraries are prebuilt in `core/rdp/sr
 scripts/build-freerdp.sh
 ```
 
-SSH integration tests run against `sshd`, `mosh-server` and proxies in Docker: `scripts/ssh-it.sh`.
+SSH integration tests run against `sshd`, `mosh-server` and proxies in Docker: `scripts/ssh-it.sh`; VNC ones against x11vnc: `scripts/vnc-it.sh`.
 
-Modules: `app` (Compose UI), `core:data` (Room + SQLCipher, import, backup, sync), `core:security` (Keystore, lock), `core:ssh` (sshj, Mosh, Telnet; pure JVM), `core:rdp` (FreeRDP over JNI), `core:i18n`, and the Termux `terminal-emulator` / `terminal-view` under `third_party/`.
+Modules: `app` (Compose UI), `core:data` (Room + SQLCipher, import, backup, sync), `core:security` (Keystore, lock), `core:ssh` (sshj, Mosh, Telnet; pure JVM), `core:rdp` (FreeRDP over JNI), `core:vnc` (VNC client; pure JVM), `core:i18n`, and the Termux `terminal-emulator` / `terminal-view` under `third_party/`.
 
 ## 🔒 Privacy
 
