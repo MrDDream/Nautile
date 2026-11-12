@@ -206,62 +206,57 @@ private fun EntryCard(entries: List<Entry>, onNavigate: (String) -> Unit) {
 
 /** What protects the user's data, and the one thing to do if any. */
 @OptIn(ExperimentalLayoutApi::class)
-/** Where the data stands: four statuses, read only (each one is set in its own settings page). */
+/** Where the data stands: four statuses in one row, read only (each one is set in its own settings page). */
 @Composable
 private fun ProtectionCard(lockOn: Boolean, lastBackup: Long?, syncOn: Boolean) {
     val stale = BackupPrefs.isStale(lastBackup)
     val todo = listOf(!lockOn, stale).count { it }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Nt.Surface)
-            .border(1.dp, if (todo > 0) Nt.Accent.copy(alpha = 0.45f) else Nt.Green.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Nt.Surface)
+            .border(1.dp, if (todo > 0) Nt.Warn.copy(alpha = 0.45f) else Nt.Border, RoundedCornerShape(16.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            IconTile(Icons.Outlined.VerifiedUser, if (todo > 0) Nt.Accent else Nt.Green)
-            Column(Modifier.weight(1f)) {
-                Text(tr("Vos données restent sur l'appareil"), style = MaterialTheme.typography.titleMedium)
-                Text(
-                    when (todo) {
-                        0 -> tr("Tout est en ordre")
-                        1 -> tr("Une action recommandée")
-                        else -> tr("%1\$s actions recommandées", todo)
-                    },
-                    color = if (todo > 0) Nt.Accent else Nt.Green, fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                )
-            }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Outlined.VerifiedUser, contentDescription = null, tint = if (todo > 0) Nt.Warn else Nt.Green, modifier = Modifier.size(18.dp))
+            Text(tr("Vos données restent sur l'appareil"), fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                color = Nt.Text, modifier = Modifier.weight(1f), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            if (todo > 0) Text(if (todo == 1) tr("1 à faire") else tr("%1\$s à faire", todo), fontSize = 12.sp, color = Nt.Warn,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Status(Icons.Outlined.Lock, tr("Base"), tr("Chiffrée"), State.OK, Modifier.weight(1f))
-            Status(Icons.Outlined.Fingerprint, tr("Verrouillage"), if (lockOn) tr("Activé") else tr("Désactivé"), if (lockOn) State.OK else State.TODO, Modifier.weight(1f))
+            Status(Icons.Outlined.Fingerprint, tr("Verrou"), if (lockOn) tr("Actif") else tr("Inactif"), if (lockOn) State.OK else State.TODO, Modifier.weight(1f))
+            Status(Icons.Outlined.CloudSync, tr("Synchro"), if (syncOn) tr("Active") else tr("Inactive"), if (syncOn) State.OK else State.OFF, Modifier.weight(1f))
+            Status(Icons.Outlined.Backup, tr("Sauvegarde"), lastBackup?.let(::shortAgo) ?: tr("Jamais"), if (stale) State.TODO else State.OK, Modifier.weight(1f))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Status(Icons.Outlined.CloudSync, tr("Synchro"), if (syncOn) tr("Activée") else tr("Désactivée"), if (syncOn) State.OK else State.OFF, Modifier.weight(1f))
-            Status(
-                Icons.Outlined.Backup, tr("Sauvegarde"),
-                lastBackup?.let { relativeTime(it).replaceFirstChar { c -> c.uppercase() } } ?: tr("Jamais"),
-                if (stale) State.TODO else State.OK, Modifier.weight(1f),
-            )
-        }
+    }
+}
+
+/** « 5 min », « 3 h », « 2 j »: how long ago, in few letters. */
+private fun shortAgo(at: Long, now: Long = System.currentTimeMillis()): String {
+    val min = ((now - at) / 60_000).coerceAtLeast(0)
+    return when {
+        min < 1 -> tr("à l'instant")
+        min < 60 -> tr("%1\$s min", min)
+        min < 60 * 24 -> tr("%1\$s h", min / 60)
+        else -> tr("%1\$s j", min / (60 * 24))
     }
 }
 
 private enum class State { OK, TODO, OFF }
 
+/** One status: its icon, what it is, how it stands, coloured accordingly. */
 @Composable
 private fun Status(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, value: String, state: State, modifier: Modifier) {
-    val c = when (state) { State.OK -> Nt.Green; State.TODO -> Nt.Accent; State.OFF -> Nt.Muted }
-    Row(
-        modifier.clip(RoundedCornerShape(12.dp)).background(Nt.Bg).padding(horizontal = 10.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+    val c = when (state) { State.OK -> Nt.Green; State.TODO -> Nt.Warn; State.OFF -> Nt.Muted }
+    Column(
+        modifier.clip(RoundedCornerShape(10.dp)).background(c.copy(alpha = 0.10f)).padding(horizontal = 4.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Box(Modifier.size(30.dp).clip(RoundedCornerShape(9.dp)).background(c.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = null, tint = c, modifier = Modifier.size(17.dp))
-        }
-        Column {
-            Text(title, fontSize = 12.sp, color = Nt.Muted, maxLines = 1)
-            Text(value, fontSize = 13.sp, color = if (state == State.OFF) Nt.TextSoft else c, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-        }
+        Icon(icon, contentDescription = null, tint = c, modifier = Modifier.size(18.dp))
+        Text(title, fontSize = 10.5.sp, color = Nt.Muted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        Text(value, fontSize = 12.sp, color = if (state == State.OFF) Nt.TextSoft else c, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }

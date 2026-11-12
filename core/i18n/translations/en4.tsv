@@ -584,3 +584,28 @@ Mot de passe VNC (demandé à la connexion si vide)	VNC password (asked when con
 Le protocole VNC n'utilise que les 8 premiers caractères. Laissez vide si le serveur n'a pas de mot de passe.	The VNC protocol only uses the first 8 characters. Leave empty if the server has no password.
 VNC n'est pas chiffré : hors de votre réseau local, passez par un tunnel SSH.	VNC is not encrypted: outside your local network, go through an SSH tunnel.
 Linux, macOS, Raspberry Pi… (x11vnc, TigerVNC, partage d'écran)	Linux, macOS, Raspberry Pi… (x11vnc, TigerVNC, Screen Sharing)
+1 à faire	1 to do
+%1\$s à faire	%1\$s to do
+Verrou	Lock
+Inactif	Off
+Active	On
+Inactive	Off
+%1\$s min	%1\$s min
+%1\$s h	%1\$s h
+Comment fonctionne la synchronisation	How synchronisation works
+Vos hôtes, clés et snippets sur tous vos appareils	Your hosts, keys and snippets on all your devices
+%1\$s · %2\$s appareil(s)	%1\$s · %2\$s device(s)
+La synchronisation	Synchronisation
+Hôtes, clés, identités, snippets, tunnels et hôtes connus sont partagés entre vos appareils.	Hosts, keys, identities, snippets, tunnels and known hosts are shared between your devices.
+Sur chaque appareil : la même destination ci-dessous et le même mot de passe. Pour Google Drive ou OneDrive, choisissez « Fichier existant » sur le deuxième appareil.	On each device: the same destination below and the same password. For Google Drive or OneDrive, choose “Existing file” on the second device.
+La modification la plus récente l'emporte, suppressions comprises.	The latest change wins, deletions included.
+Le fichier synchronisé sert aussi de sauvegarde ; une copie par jour reste sur ce téléphone.	The synchronised file is also the backup; one copy a day stays on this phone.
+Les clés API et les réglages d'affichage restent propres à chaque appareil.	API keys and display settings stay specific to each device.
+Compris	Got it
+Assurée par la synchronisation (fichier à jour à chaque modification, une copie par jour sur le téléphone)	Done by synchronisation (file updated on every change, one copy a day on the phone)
+Synchroniser	Synchronise
+Le plus réactif, un peu plus de batterie	Most responsive, a little more battery
+Toutes les %1\$s min	Every %1\$s min
+Toutes les heures	Every hour
+Toutes les %1\$s h	Every %1\$s h
+Une fois par jour	Once a day

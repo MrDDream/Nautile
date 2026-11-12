@@ -140,6 +140,11 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
     val network: StateFlow<BackupNetwork> = _network.asStateFlow()
     fun setNetwork(n: BackupNetwork) { _network.value = n; prefs.edit().putString(KEY_NETWORK, n.name).apply() }
 
+    private val _syncMinutes = MutableStateFlow(prefs.getInt(KEY_SYNC_MINUTES, 60))
+    /** How often synchronisation runs in the background (it also runs after each change). */
+    val syncMinutes: StateFlow<Int> = _syncMinutes.asStateFlow()
+    fun setSyncMinutes(m: Int) { _syncMinutes.value = m; prefs.edit().putInt(KEY_SYNC_MINUTES, m).apply() }
+
     private val _charging = MutableStateFlow(prefs.getBoolean(KEY_CHARGING, false))
     /** Automatic backups only while the phone is charging (they never run on a low battery). */
     val charging: StateFlow<Boolean> = _charging.asStateFlow()
@@ -173,6 +178,8 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
         private const val KEY_WEEKDAY = "weekday"
         private const val KEY_NETWORK = "network"
         private const val KEY_CHARGING = "charging"
+        private const val KEY_SYNC_MINUTES = "sync_minutes"
+        val SYNC_CHOICES = listOf(15, 60, 360, 1440)
         private const val KEY_DOC_URI = "doc_uri"
         private const val KEY_DOC_LABEL = "doc_label"
         private const val KEY_DAV_URL = "dav_url"

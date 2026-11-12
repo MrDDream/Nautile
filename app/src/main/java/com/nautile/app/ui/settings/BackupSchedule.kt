@@ -140,18 +140,37 @@ internal fun BackupOptions(prefs: BackupPrefs, needsNetwork: Boolean, onChange: 
     }
 }
 
-/** The network row alone, for the synchronisation (which has no time nor battery condition). */
+/** Synchronisation: how often in the background (it also follows each change) and on which network. */
 @Composable
-internal fun SyncNetworkRow(prefs: BackupPrefs, onChange: () -> Unit) {
+internal fun SyncOptions(prefs: BackupPrefs, needsNetwork: Boolean, onChange: () -> Unit) {
     val network by prefs.network.collectAsState()
-    var open by remember { mutableStateOf(false) }
+    val minutes by prefs.syncMinutes.collectAsState()
+    var pick by remember { mutableStateOf<Pick?>(null) }
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Nt.Bg)) {
-        OptionRow(Icons.Outlined.Wifi, tr("Réseau"), networkLabel(network)) { open = true }
+        OptionRow(Icons.Outlined.Repeat, tr("Fréquence"), syncLabel(minutes)) { pick = Pick.FREQUENCY }
+        if (needsNetwork) {
+            Divider()
+            OptionRow(Icons.Outlined.Wifi, tr("Réseau"), networkLabel(network)) { pick = Pick.NETWORK }
+        }
     }
-    if (open) ChoiceDialog(
-        tr("Réseau"), BackupNetwork.entries.map { it to networkLabel(it) }, network, onDismiss = { open = false },
-        detail = { if (it == BackupNetwork.WIFI) tr("Attend un Wi-Fi : aucune donnée mobile consommée") else tr("Wi-Fi ou 4G/5G, dès qu'une connexion est disponible") },
-    ) { prefs.setNetwork(it); open = false; onChange() }
+    when (pick) {
+        Pick.FREQUENCY -> ChoiceDialog(
+            tr("Synchroniser"), BackupPrefs.SYNC_CHOICES.map { it to syncLabel(it) }, minutes, onDismiss = { pick = null },
+            detail = { if (it == 15) tr("Le plus réactif, un peu plus de batterie") else null },
+        ) { prefs.setSyncMinutes(it); pick = null; onChange() }
+        Pick.NETWORK -> ChoiceDialog(
+            tr("Réseau"), BackupNetwork.entries.map { it to networkLabel(it) }, network, onDismiss = { pick = null },
+            detail = { if (it == BackupNetwork.WIFI) tr("Attend un Wi-Fi : aucune donnée mobile consommée") else tr("Wi-Fi ou 4G/5G, dès qu'une connexion est disponible") },
+        ) { prefs.setNetwork(it); pick = null; onChange() }
+        else -> {}
+    }
+}
+
+private fun syncLabel(minutes: Int) = when {
+    minutes < 60 -> tr("Toutes les %1\$s min", minutes)
+    minutes == 60 -> tr("Toutes les heures")
+    minutes < 1440 -> tr("Toutes les %1\$s h", minutes / 60)
+    else -> tr("Une fois par jour")
 }
 
 @Composable
@@ -176,7 +195,7 @@ private fun <T> ChoiceDialog(
     options: List<Pair<T, String>>,
     selected: T,
     onDismiss: () -> Unit,
-    detail: ((T) -> String)? = null,
+    detail: ((T) -> String?)? = null,
     onPick: (T) -> Unit,
 ) {
     AlertDialog(
@@ -195,7 +214,7 @@ private fun <T> ChoiceDialog(
                             modifier = Modifier.padding(end = 12.dp))
                         Column {
                             Text(label, fontSize = 15.sp, color = Nt.Text)
-                            detail?.let { Text(it(value), fontSize = 12.sp, color = Nt.Muted) }
+                            detail?.invoke(value)?.let { Text(it, fontSize = 12.sp, color = Nt.Muted) }
                         }
                     }
                 }

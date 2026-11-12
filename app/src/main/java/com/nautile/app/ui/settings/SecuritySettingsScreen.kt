@@ -26,6 +26,8 @@ import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
@@ -115,6 +117,7 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
     val syncError by prefs.syncError.collectAsState()
     val devices by prefs.devices.collectAsState()
     val syncing by app.sync.running.collectAsState()
+    var syncInfo by remember { mutableStateOf(false) }
 
     fun syncNow(password: String? = null) {
         scope.launch {
@@ -207,12 +210,17 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 IconTile(Icons.Outlined.Sync, if (syncOn) Nt.Green else Nt.Muted)
                 Column(Modifier.weight(1f)) {
-                    Text(tr("Synchroniser mes appareils"), style = MaterialTheme.typography.titleMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(tr("Synchroniser mes appareils"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f, fill = false))
+                        IconButton(onClick = { syncInfo = true }, modifier = Modifier.size(30.dp)) {
+                            Icon(Icons.Outlined.Info, contentDescription = tr("Comment fonctionne la synchronisation"), tint = Nt.Muted, modifier = Modifier.size(18.dp))
+                        }
+                    }
                     Text(
                         when {
-                            !syncOn -> tr("Hôtes, clés, identités, snippets, tunnels et hôtes connus partagés entre vos téléphones et tablettes")
+                            !syncOn -> tr("Vos hôtes, clés et snippets sur tous vos appareils")
                             syncing -> tr("Synchronisation…")
-                            lastSync != null -> tr("Dernière synchro %1\$s · %2\$s appareil(s)", relativeTime(lastSync!!), devices.size.coerceAtLeast(1))
+                            lastSync != null -> tr("%1\$s · %2\$s appareil(s)", relativeTime(lastSync!!).replaceFirstChar { it.uppercase() }, devices.size.coerceAtLeast(1))
                             else -> tr("Pas encore synchronisé")
                         },
                         color = Nt.Muted, fontSize = 12.sp,
@@ -234,17 +242,35 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
                         }
                     }
                 }
-                destination?.let { d -> if (!AutoBackup.isLocal(d)) SyncNetworkRow(prefs, onChange = ::reschedule) }
-                OutlinedButton(onClick = { syncNow() }, enabled = !syncing, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (syncing) tr("Synchronisation…") else tr("Synchroniser maintenant"), color = Nt.Text)
+                SyncOptions(prefs, needsNetwork = destination?.let { !AutoBackup.isLocal(it) } ?: true, onChange = ::reschedule)
+                OutlinedButton(onClick = { syncNow() }, enabled = !syncing, modifier = Modifier.fillMaxWidth().height(42.dp)) {
+                    Icon(Icons.Outlined.Sync, contentDescription = null, tint = Nt.Text, modifier = Modifier.size(18.dp))
+                    Text("  " + if (syncing) tr("Synchronisation…") else tr("Synchroniser maintenant"), color = Nt.Text)
                 }
                 if (syncing) LinearProgressIndicator(color = Nt.Accent, trackColor = Nt.Border, modifier = Modifier.fillMaxWidth())
             }
-            Hint(
-                tr("Sur chaque appareil : la même destination ci-dessous et le même mot de passe. Pour Google Drive ou OneDrive, choisissez « Fichier existant » sur le deuxième appareil. ") +
-                    tr("La modification la plus récente l'emporte, suppressions comprises. Les clés API et les réglages d'affichage restent propres à chaque appareil."),
-            )
         }
+        if (syncInfo) androidx.compose.material3.AlertDialog(
+            onDismissRequest = { syncInfo = false }, containerColor = Nt.Surface,
+            title = { Text(tr("La synchronisation")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    listOf(
+                        tr("Hôtes, clés, identités, snippets, tunnels et hôtes connus sont partagés entre vos appareils."),
+                        tr("Sur chaque appareil : la même destination ci-dessous et le même mot de passe. Pour Google Drive ou OneDrive, choisissez « Fichier existant » sur le deuxième appareil."),
+                        tr("La modification la plus récente l'emporte, suppressions comprises."),
+                        tr("Le fichier synchronisé sert aussi de sauvegarde ; une copie par jour reste sur ce téléphone."),
+                        tr("Les clés API et les réglages d'affichage restent propres à chaque appareil."),
+                    ).forEach { line ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("•", color = Nt.Accent, fontSize = 14.sp)
+                            Text(line, color = Nt.TextSoft, fontSize = 14.sp, lineHeight = 20.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { syncInfo = false }) { Text(tr("Compris"), color = Nt.Accent) } },
+        )
 
         SectionLabel(tr("Sauvegarde"), Modifier.padding(top = 8.dp))
         run {
@@ -316,7 +342,7 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
                         Text(
                             when {
                                 destination == null -> tr("Choisissez d'abord une destination")
-                                syncOn -> tr("La synchronisation met le fichier à jour à chaque modification")
+                                syncOn -> tr("Assurée par la synchronisation (fichier à jour à chaque modification, une copie par jour sur le téléphone)")
                                 auto -> tr("Activée · %1\$s", frequencyLabel(frequency))
                                 else -> tr("Seulement quand vous le demandez")
                             },

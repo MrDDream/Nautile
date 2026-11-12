@@ -20,6 +20,12 @@ object BackupVersions {
         list(context).drop(KEEP).forEach { it.file.delete() }
     }
 
+    /** Keeps [bytes] unless a version younger than [minAgeMs] exists (sync writes often: one a day is enough). */
+    fun addIfOlder(context: Context, bytes: ByteArray, minAgeMs: Long, now: Long = System.currentTimeMillis()) {
+        if (list(context).firstOrNull()?.let { now - it.at < minAgeMs } == true) return
+        add(context, bytes, now)
+    }
+
     /** Newest first. */
     fun list(context: Context): List<Version> =
         dir(context).listFiles { f -> f.name.endsWith(".nautile") }.orEmpty()

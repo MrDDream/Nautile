@@ -73,6 +73,8 @@ object Nt {
     val Accent get() = palette.accent
     val OnAccent get() = palette.onAccent
     val Green get() = palette.green
+    /** Something to do (not an error): amber whatever the accent. */
+    val Warn get() = if (palette.isLight) Color(0xFF9A5B00) else Color(0xFFFFB547)
     val Blue get() = palette.blue
     val Pink get() = palette.pink
     val Grey get() = palette.grey

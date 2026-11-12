@@ -144,7 +144,7 @@ object AutoBackup {
             .setRequiresCharging(!sync && prefs.charging.value)
             .build()
         val now = System.currentTimeMillis()
-        val request = if (sync) PeriodicWorkRequestBuilder<Worker>(1, TimeUnit.HOURS).setConstraints(constraints).build()
+        val request = if (sync) PeriodicWorkRequestBuilder<Worker>(prefs.syncMinutes.value.toLong().coerceAtLeast(15), TimeUnit.MINUTES).setConstraints(constraints).build()
         else {
             val f = prefs.frequency.value
             val next = nextRun(f, prefs.time.value, prefs.weekday.value, prefs.lastExport.value, now)

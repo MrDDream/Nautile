@@ -68,7 +68,11 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
                     val devices = (others + me).sortedByDescending { it.lastSeen }
                     if (data == null || dirtyBefore || stats.changed || now - myLastSeen > 12 * 3600_000L) {
                         val text = withContext(Dispatchers.Default) { BackupCodec.export(merge.snapshot(devices), pw) }
-                        withContext(Dispatchers.IO) { write(dest, text, remote) }
+                        withContext(Dispatchers.IO) {
+                            write(dest, text, remote)
+                            // The synchronised file is also the backup: keep a daily copy on the phone.
+                            BackupVersions.addIfOlder(app, text.toByteArray(), 20 * 3600_000L)
+                        }
                     }
                     prefs.syncedChange = merge.lastChange()
                     prefs.markSynced(devices, now)
