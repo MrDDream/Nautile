@@ -239,6 +239,8 @@ private fun SessionRow(
 }
 
 /** The last lines of a terminal, with its colours, refreshed every second. */
+// value is assigned inside the refresh loop (the lint check only looks at the top level).
+@android.annotation.SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 private fun TerminalPreview(session: com.nautile.app.session.ActiveSession) {
     val theme by (LocalContext.current.applicationContext as NautileApp).terminalPrefs.theme.collectAsState()
@@ -301,6 +303,8 @@ private fun previewLines(e: com.termux.terminal.TerminalEmulator): List<androidx
 }
 
 /** A thumbnail of the remote desktop, refreshed every two seconds. */
+// value is assigned inside the refresh loop (the lint check only looks at the top level).
+@android.annotation.SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 private fun DesktopPreview(session: com.nautile.app.rdp.RdpSession) {
     val thumb by produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, session) {

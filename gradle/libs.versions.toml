@@ -1,7 +1,7 @@
 [versions]
-agp = "8.5.2"
-kotlin = "2.0.21"
-ksp = "2.0.21-1.0.27"
+agp = "8.7.3"
+kotlin = "2.1.21"
+ksp = "2.1.21-2.0.1"
 coreKtx = "1.13.1"
 lifecycle = "2.8.4"
 activityCompose = "1.9.1"
@@ -9,9 +9,9 @@ composeBom = "2024.09.02"
 navigationCompose = "2.8.0"
 kotlinxSerialization = "1.7.1"
 coroutines = "1.8.1"
-room = "2.6.1"
+room = "2.7.2"
 sqlcipher = "4.6.1"
-sqlite = "2.4.0"
+sqlite = "2.5.2"
 biometric = "1.1.0"
 fragment = "1.8.5"
 glance = "1.1.0"
@@ -29,6 +29,7 @@ eddsa = "0.3.0"
 bouncycastle = "1.78.1"
 slf4j = "2.0.13"
 annotation = "1.8.0"
+composeMultiplatform = "1.8.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -82,3 +83,5 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
