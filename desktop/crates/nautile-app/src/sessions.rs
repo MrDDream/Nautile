@@ -28,6 +28,8 @@ pub enum TabState {
 
 pub struct Tab {
     pub id: u64,
+    /// The file browser of an SFTP tab (no terminal then).
+    pub files: Option<Box<crate::files::Files>>,
     /// `None` for a local terminal opened without a saved host.
     pub host_id: Option<i64>,
     pub name: String,
@@ -199,6 +201,14 @@ impl App {
         })
     }
 
+    pub(crate) fn ssh_params_for(&self, host: &Host) -> Result<Params, String> {
+        self.ssh_params(host)
+    }
+
+    pub(crate) fn new_tab(&mut self, host_id: Option<i64>, name: String, color: i64, protocol: Protocol) -> u64 {
+        self.open_tab(host_id, name, color, protocol)
+    }
+
     fn open_tab(&mut self, host_id: Option<i64>, name: String, color: i64, protocol: Protocol) -> u64 {
         self.next_tab += 1;
         let (cols, rows) = self.grid;
@@ -212,6 +222,7 @@ impl App {
             input: None,
             state: TabState::Connecting(String::new()),
             remote_title: None,
+            files: None,
         });
         self.active_tab = Some(self.next_tab);
         self.last_tab = self.active_tab;
@@ -270,6 +281,11 @@ impl App {
     }
 
     pub fn reconnect(&mut self, id: u64) -> Task<Message> {
+        if let Some(t) = self.tab(id).filter(|t| t.files.is_some()) {
+            let host = t.host_id;
+            self.close_tab(id);
+            return host.map(|h| self.open_files(h)).unwrap_or_else(Task::none);
+        }
         let theme = self.term_theme();
         let (cols, rows) = self.grid;
         if let Some(t) = self.tab_mut(id) {
@@ -363,11 +379,17 @@ impl App {
                     return iced::clipboard::write(text);
                 }
             }
-            Event::Prompt(p) => self.prompts.push(PendingPrompt {
-                tab: Some(id),
-                forward: None,
-                prompt: p,
-            }),
+            Event::Prompt(p) => {
+                let secret = matches!(p, Prompt::Secret { .. });
+                self.prompts.push(PendingPrompt {
+                    tab: Some(id),
+                    forward: None,
+                    prompt: p,
+                });
+                if secret && self.prompts.len() == 1 {
+                    return iced::widget::operation::focus("prompt-secret");
+                }
+            }
             Event::Trust { info, .. } => self.trust(info),
             Event::Closed(reason) => {
                 if let Some(t) = self.tab_mut(id) {

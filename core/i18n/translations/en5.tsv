@@ -78,3 +78,21 @@ Lecture de la clé…	Reading the key…
 sur %1\$s	on %1\$s
 Ce type de connexion arrive bientôt sur ordinateur	This kind of connection is coming soon to the desktop
 Le bureau à distance (RDP, VNC) arrive bientôt sur ordinateur	Remote desktop (RDP, VNC) is coming soon to the desktop
+Code incorrect, %1\$s essai(s) restant(s)	Wrong code, %1\$s try(ies) left
+Code actuel incorrect	Wrong current code
+Le code PIN doit faire 4 à 8 chiffres	The PIN must be 4 to 8 digits
+Le mot de passe doit faire au moins 6 caractères	The password must be at least 6 characters
+Les deux saisies ne correspondent pas	The two entries do not match
+Verrouiller	Lock
+Code actuel	Current code
+Nouveau code PIN (4 à 8 chiffres)	New PIN (4 to 8 digits)
+Nouveau mot de passe	New password
+Verrouiller après une inactivité de	Lock after being idle for
+Nautile est verrouillé	Nautile is locked
+%1\$s session(s) restent ouvertes	%1\$s session(s) still open
+Glissez des fichiers sur la fenêtre pour les envoyer dans le dossier du serveur.	Drop files on the window to send them to the server's folder.
+Effacer les terminés	Clear finished
+Cet ordinateur	This computer
+Nom du dossier	Folder name
+Les fichiers passent par SSH	Files go through SSH
+%1\$s — fichiers	%1\$s — files

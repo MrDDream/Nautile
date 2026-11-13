@@ -273,6 +273,7 @@ fn with_session(app: &mut App) -> u64 {
         input: None,
         state: TabState::Open,
         remote_title: Some("mrd@docker-01: ~".into()),
+        files: None,
     });
     app.next_tab = 1;
     let _ = app.update(Message::SelectTab(Some(1)));
@@ -353,4 +354,91 @@ fn a_generated_key_is_saved_like_on_android() {
     assert_eq!((saved.key_type.as_str(), saved.description.as_str()), ("ssh-ed25519", "ED25519"));
     assert!(saved.generated && !saved.encrypted);
     assert_eq!(saved.sync_id.len(), 32);
+}
+
+#[test]
+fn the_lock_takes_a_pin() {
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = demo(false, true);
+    let _ = app.update(Message::LockPick(Some(nautile_core::lock::LockMethod::Pin)));
+    let _ = app.update(Message::LockNew("12".into()));
+    let _ = app.update(Message::LockConfirm("12".into()));
+    let _ = app.update(Message::LockSave);
+    assert!(!app.settings.locks(), "too short");
+    let _ = app.update(Message::LockNew("2468".into()));
+    let _ = app.update(Message::LockConfirm("2468".into()));
+    let _ = app.update(Message::LockSave);
+    assert!(app.settings.locks());
+    let _ = app.update(Message::LockNow);
+    assert!(app.locked);
+    let _ = app.update(Message::Nav(Page::Keys));
+    assert_eq!(app.page, Page::Hosts, "nothing else while locked");
+    let _ = app.update(Message::LockInput("1111".into()));
+    let _ = app.update(Message::Unlock);
+    assert!(app.locked && app.lock_error.is_some());
+    let _ = app.update(Message::LockInput("2468".into()));
+    let _ = app.update(Message::Unlock);
+    assert!(!app.locked);
+}
+
+#[test]
+fn lock_screen() {
+    each(|app| {
+        app.settings.lock_method = Some(nautile_core::lock::LockMethod::Pin);
+        app.settings.lock_hash = Some(nautile_core::lock::hash_with("2468", 1000));
+        let _ = app.update(Message::LockNow);
+        "lock"
+    });
+}
+
+#[test]
+fn files() {
+    each(|app| {
+        use nautile_app::files::{Files, Job, Refresh};
+        use nautile_net::sftp::Entry;
+        with_session(app);
+        let e = |name: &str, dir: bool, size: u64, t: i64| Entry {
+            name: name.into(),
+            dir,
+            link: false,
+            size,
+            modified: Some(1_794_500_000 + t),
+            mode: None,
+        };
+        let mut f = Files::new();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        std::mem::forget(rx);
+        f.cmd = Some(tx);
+        f.local_path = PathBuf::from("/home/mrd/Projets");
+        f.local = vec![
+            e("nautile", true, 0, 0),
+            e("site", true, 0, 9_000),
+            e("compose.yml", false, 2_418, 50_000),
+            e("photo-serveur.jpg", false, 3_481_210, 7_000),
+        ];
+        f.remote_path = "/home/mrd".into();
+        f.remote_input = "/home/mrd".into();
+        f.remote = vec![
+            e("backups", true, 0, 0),
+            e("compose", true, 0, 3_000),
+            e(".bashrc", false, 3_771, 1_000),
+            e("deploy.sh", false, 1_204, 20_000),
+            e("release.tar.gz", false, 48_912_311, 30_000),
+        ];
+        f.selected = Some((true, "release.tar.gz".into()));
+        f.jobs = vec![Job {
+            id: 1,
+            label: "↓ release.tar.gz".into(),
+            done: 31_000_000,
+            total: 48_912_311,
+            finished: false,
+            error: None,
+            transfer: true,
+            refresh: Refresh::Local,
+        }];
+        let t = app.tabs.iter_mut().find(|t| t.id == 1).unwrap();
+        t.name = "docker-01 — fichiers".into();
+        t.files = Some(Box::new(f));
+        "files"
+    });
 }

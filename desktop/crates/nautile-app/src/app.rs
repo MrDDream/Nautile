@@ -256,6 +256,17 @@ pub struct KeyForm {
     pub error: Option<String>,
 }
 
+/// Choosing or changing the lock in the settings.
+#[derive(Debug, Clone, Default)]
+pub struct LockForm {
+    /// `None`: no lock.
+    pub method: Option<nautile_core::lock::LockMethod>,
+    pub current: String,
+    pub new: String,
+    pub confirm: String,
+    pub error: Option<String>,
+}
+
 /// The panel on the right.
 #[derive(Debug)]
 pub enum Editor {
@@ -373,8 +384,23 @@ pub enum Message {
     TermTheme(String),
     TermFont(f32),
     ToastClear,
+    // --- Lock ---
+    LockInput(String),
+    Unlock,
+    LockNow,
+    LockPick(Option<nautile_core::lock::LockMethod>),
+    LockCurrent(String),
+    LockNew(String),
+    LockConfirm(String),
+    LockSave,
+    LockAfter(u32),
+    Tick,
     // --- Sessions ---
     Connect(i64),
+    OpenFiles(i64),
+    Files(u64, crate::files::FilesMsg),
+    Sftp(u64, nautile_net::sftp::Update),
+    FileDropped(std::path::PathBuf),
     OpenLocal,
     SelectTab(Option<u64>),
     CloseTab(u64),
@@ -428,6 +454,11 @@ pub struct App {
     pub snippet_run: Option<(i64, Vec<(String, String)>)>,
     /// Tunnels started from the Tunnels page, by rule.
     pub tunnels: std::collections::HashMap<i64, TunnelRun>,
+    pub locked: bool,
+    pub lock_input: String,
+    pub lock_error: Option<String>,
+    pub lock_form: LockForm,
+    pub last_activity: std::time::Instant,
 }
 
 impl App {
@@ -443,7 +474,13 @@ impl App {
             Ok(db) => (Some(db), None),
             Err(e) => (None, Some(e)),
         };
-        (App::with(paths, settings, db, fatal), Task::none())
+        let app = App::with(paths, settings, db, fatal);
+        let focus = if app.locked {
+            iced::widget::operation::focus("lock")
+        } else {
+            Task::none()
+        };
+        (app, focus)
     }
 
     pub fn with(paths: Paths, settings: Settings, db: Option<Db>, fatal: Option<String>) -> App {
@@ -475,7 +512,14 @@ impl App {
             last_tab: None,
             snippet_run: None,
             tunnels: Default::default(),
+            locked: false,
+            lock_input: String::new(),
+            lock_error: None,
+            lock_form: LockForm::default(),
+            last_activity: std::time::Instant::now(),
         };
+        app.locked = app.settings.locks();
+        app.lock_form.method = app.settings.lock_method;
         app.reload();
         app
     }
@@ -489,7 +533,14 @@ impl App {
 
     /// Window shortcuts: new local terminal, close / switch tabs.
     pub fn subscription(&self) -> iced::Subscription<Message> {
-        iced::keyboard::listen().filter_map(shortcut)
+        let mut subs = vec![
+            iced::keyboard::listen().filter_map(shortcut),
+            iced::event::listen_with(dropped_file),
+        ];
+        if self.settings.locks() && !self.locked && self.settings.lock_after() > 0 {
+            subs.push(iced::time::every(std::time::Duration::from_secs(20)).map(|_| Message::Tick));
+        }
+        iced::Subscription::batch(subs)
     }
 
     pub fn theme(&self) -> iced::Theme {
@@ -531,6 +582,27 @@ impl App {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if !matches!(
+            message,
+            Message::Session(..) | Message::Tunnel(..) | Message::Sftp(..) | Message::Tick | Message::ToastClear
+        ) {
+            self.last_activity = std::time::Instant::now();
+        }
+        // Locked: only the code goes through (connections keep running behind).
+        if self.locked
+            && !matches!(
+                message,
+                Message::LockInput(_)
+                    | Message::Unlock
+                    | Message::Session(..)
+                    | Message::Tunnel(..)
+                    | Message::Sftp(..)
+                    | Message::ToastClear
+                    | Message::Tick
+            )
+        {
+            return Task::none();
+        }
         match message {
             Message::Nav(p) => {
                 self.active_tab = None;
@@ -1212,8 +1284,48 @@ impl App {
                 let _ = self.settings.save(&self.paths);
             }
 
+            // --- Lock ---
+            Message::LockInput(v) => {
+                self.lock_input = v;
+                self.lock_error = None;
+            }
+            Message::Unlock => return self.unlock(),
+            Message::LockNow => {
+                if self.settings.locks() {
+                    self.locked = true;
+                    self.lock_input.clear();
+                    return iced::widget::operation::focus("lock");
+                }
+            }
+            Message::Tick => {
+                let after = self.settings.lock_after() as u64 * 60;
+                if self.settings.locks() && after > 0 && self.last_activity.elapsed().as_secs() >= after {
+                    self.locked = true;
+                    self.lock_input.clear();
+                    return iced::widget::operation::focus("lock");
+                }
+            }
+            Message::LockPick(m) => {
+                self.lock_form = LockForm {
+                    method: m,
+                    ..LockForm::default()
+                }
+            }
+            Message::LockCurrent(v) => self.lock_form.current = v,
+            Message::LockNew(v) => self.lock_form.new = v,
+            Message::LockConfirm(v) => self.lock_form.confirm = v,
+            Message::LockSave => return self.save_lock(),
+            Message::LockAfter(m) => {
+                self.settings.lock_after = Some(m);
+                let _ = self.settings.save(&self.paths);
+            }
+
             // --- Sessions ---
             Message::Connect(id) => return self.connect(id),
+            Message::OpenFiles(id) => return self.open_files(id),
+            Message::Files(id, m) => self.on_files(id, m),
+            Message::Sftp(id, u) => return self.on_sftp(id, u),
+            Message::FileDropped(p) => return self.dropped(p),
             Message::OpenLocal => return self.open_local(),
             Message::SelectTab(id) => {
                 self.active_tab = id;
@@ -1260,6 +1372,98 @@ fn shortcut(e: iced::keyboard::Event) -> Option<Message> {
         Key::Named(Named::Tab) if m.control() => Some(Message::NextTab(!m.shift())),
         Key::Character("t" | "T") if m.control() && m.shift() => Some(Message::OpenLocal),
         Key::Character("w" | "W") if m.control() && m.shift() => Some(Message::CloseActiveTab),
+        _ => None,
+    }
+}
+
+impl App {
+    fn unlock(&mut self) -> Task<Message> {
+        use nautile_core::lock;
+        let now = nautile_core::model::now_ms();
+        if now < self.settings.lock_until {
+            let secs = (self.settings.lock_until - now + 999) / 1000;
+            self.lock_error = Some(trf("Trop d'essais : réessayez dans %1$s s", &[&secs]));
+            return Task::none();
+        }
+        let ok = self
+            .settings
+            .lock_hash
+            .as_deref()
+            .is_some_and(|h| lock::verify(&self.lock_input, h));
+        self.lock_input.clear();
+        if ok {
+            self.locked = false;
+            self.lock_error = None;
+            self.settings.lock_failures = 0;
+            self.settings.lock_until = 0;
+        } else {
+            self.settings.lock_failures += 1;
+            let wait = lock::lockout_ms(self.settings.lock_failures);
+            self.settings.lock_until = now + wait as i64;
+            let left = lock::FREE_TRIES.saturating_sub(self.settings.lock_failures);
+            self.lock_error = Some(if wait > 0 {
+                trf("Trop d'essais : réessayez dans %1$s s", &[&(wait / 1000)])
+            } else {
+                trf("Code incorrect, %1$s essai(s) restant(s)", &[&left])
+            });
+        }
+        let _ = self.settings.save(&self.paths);
+        Task::none()
+    }
+
+    /// Saves the lock chosen in the settings (the current code is checked first when there is one).
+    fn save_lock(&mut self) -> Task<Message> {
+        use nautile_core::lock::{self, LockMethod};
+        let f = self.lock_form.clone();
+        if let Some(h) = self.settings.lock_hash.as_deref().filter(|_| self.settings.locks()) {
+            if !lock::verify(&f.current, h) {
+                self.lock_form.error = Some(tr("Code actuel incorrect"));
+                return Task::none();
+            }
+        }
+        match f.method {
+            None => {
+                self.settings.lock_method = None;
+                self.settings.lock_hash = None;
+            }
+            Some(m) => {
+                let valid = match m {
+                    LockMethod::Pin => lock::valid_pin(&f.new),
+                    LockMethod::Password => lock::valid_password(&f.new),
+                };
+                if !valid {
+                    self.lock_form.error = Some(match m {
+                        LockMethod::Pin => tr("Le code PIN doit faire 4 à 8 chiffres"),
+                        LockMethod::Password => tr("Le mot de passe doit faire au moins 6 caractères"),
+                    });
+                    return Task::none();
+                }
+                if f.new != f.confirm {
+                    self.lock_form.error = Some(tr("Les deux saisies ne correspondent pas"));
+                    return Task::none();
+                }
+                self.settings.lock_method = Some(m);
+                self.settings.lock_hash = Some(lock::hash(&f.new));
+            }
+        }
+        self.settings.lock_failures = 0;
+        self.settings.lock_until = 0;
+        let _ = self.settings.save(&self.paths);
+        self.lock_form = LockForm {
+            method: self.settings.lock_method,
+            ..LockForm::default()
+        };
+        self.say(if self.settings.locks() {
+            tr("Verrouillage activé")
+        } else {
+            tr("Verrouillage désactivé")
+        })
+    }
+}
+
+fn dropped_file(e: iced::Event, _status: iced::event::Status, _window: iced::window::Id) -> Option<Message> {
+    match e {
+        iced::Event::Window(iced::window::Event::FileDropped(p)) => Some(Message::FileDropped(p)),
         _ => None,
     }
 }

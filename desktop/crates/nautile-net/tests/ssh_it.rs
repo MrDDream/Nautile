@@ -232,6 +232,61 @@ async fn ssh_against_a_real_server() {
     s.input.send(Input::Close).unwrap();
     eprintln!("mosh OK");
 
+    // SFTP: a folder up, listed, down again, renamed, removed.
+    {
+        use nautile_net::sftp::{self, Cmd, Update};
+        let mut b = sftp::spawn(Params {
+            chain: vec![target("127.0.0.1", port, password())],
+            ..Default::default()
+        });
+        let Update::Ready(home) = next_update(&mut b).await else {
+            panic!("ready")
+        };
+        let tmp = std::env::temp_dir().join(format!("nautile-sftp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("up/sub")).unwrap();
+        std::fs::write(tmp.join("up/a.txt"), b"alpha").unwrap();
+        std::fs::write(tmp.join("up/sub/b.bin"), vec![7u8; 300_000]).unwrap();
+        let remote = sftp::join(&home, "nautile-up");
+        b.cmd
+            .send((
+                1,
+                Cmd::Upload {
+                    local: tmp.join("up"),
+                    remote: remote.clone(),
+                },
+            ))
+            .unwrap();
+        assert!(matches!(next_update(&mut b).await, Update::Finished { id: 1, error: None }));
+        b.cmd.send((2, Cmd::List(remote.clone()))).unwrap();
+        let Update::Listing { entries, .. } = next_update(&mut b).await else {
+            panic!("listing")
+        };
+        let names: Vec<_> = entries.iter().map(|e| (e.name.as_str(), e.dir)).collect();
+        assert_eq!(names, vec![("sub", true), ("a.txt", false)]);
+        assert!(matches!(next_update(&mut b).await, Update::Finished { id: 2, error: None }));
+        b.cmd
+            .send((
+                3,
+                Cmd::Download {
+                    remote: remote.clone(),
+                    local: tmp.join("down"),
+                },
+            ))
+            .unwrap();
+        assert!(matches!(next_update(&mut b).await, Update::Finished { id: 3, error: None }));
+        assert_eq!(std::fs::read(tmp.join("down/sub/b.bin")).unwrap().len(), 300_000);
+        let renamed = sftp::join(&home, "nautile-renamed");
+        b.cmd.send((4, Cmd::Rename(remote, renamed.clone()))).unwrap();
+        assert!(matches!(next_update(&mut b).await, Update::Finished { id: 4, error: None }));
+        b.cmd.send((5, Cmd::Remove(renamed.clone()))).unwrap();
+        assert!(matches!(next_update(&mut b).await, Update::Finished { id: 5, error: None }));
+        b.cmd.send((6, Cmd::List(renamed))).unwrap();
+        assert!(matches!(next_update(&mut b).await, Update::Finished { id: 6, error: Some(_) }));
+        let _ = std::fs::remove_dir_all(&tmp);
+        eprintln!("sftp OK");
+    }
+
     // A wrong password ends with the reason.
     let (mut s, mut asked) = (
         ssh::spawn(
@@ -263,4 +318,20 @@ async fn ssh_against_a_real_server() {
         }
     }
     assert_eq!(asked, 2, "asked again after a refusal");
+}
+
+async fn next_update(b: &mut nautile_net::sftp::Browser) -> nautile_net::sftp::Update {
+    use nautile_net::sftp::Update;
+    loop {
+        match tokio::time::timeout(Duration::from_secs(30), b.updates.recv())
+            .await
+            .expect("sftp")
+            .expect("open")
+        {
+            Update::Conn(Event::Prompt(Prompt::HostKey { reply, .. })) => reply.send(true),
+            Update::Conn(Event::Closed(e)) => panic!("closed {e:?}"),
+            Update::Conn(_) | Update::Progress { .. } => {}
+            u => return u,
+        }
+    }
 }

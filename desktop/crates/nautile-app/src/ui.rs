@@ -142,6 +142,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .into();
     }
 
+    if app.locked {
+        return lock_screen(app);
+    }
     let active = app.active_tab.and_then(|id| app.tab(id));
     let page: Element<Message> = match active {
         Some(t) => session(app, t),
@@ -215,6 +218,23 @@ fn sidebar(app: &App) -> Element<'_, Message> {
             item(I_TUNNEL, tr("Tunnels"), Page::Tunnels, Some(app.forwards.len())),
             Space::new().height(Fill),
             item(I_SETTINGS, tr("Réglages"), Page::Settings, None),
+            {
+                let lock: Element<Message> = if app.settings.locks() {
+                    button(
+                        row![icon('\u{F033E}').size(15), text(tr("Verrouiller")).size(13)]
+                            .spacing(12)
+                            .align_y(Alignment::Center),
+                    )
+                    .width(Fill)
+                    .padding([8, 12])
+                    .style(theme::nav(false))
+                    .on_press(Message::LockNow)
+                    .into()
+                } else {
+                    Space::new().into()
+                };
+                lock
+            },
             label(place).size(11),
         ]
         .spacing(4),
@@ -317,17 +337,15 @@ fn host_row<'a>(app: &'a App, h: &'a Host) -> Element<'a, Message> {
     let proto = container(text(crate::app::protocol_label(h.protocol)).size(11).font(BOLD))
         .padding([3, 8])
         .style(|t: &iced::Theme| theme::chip(theme::nt(t).text_soft)(t));
-    button(
-        row![
-            tile,
-            info,
-            Space::new().width(Fill),
-            proto,
-            icon_button(I_EDIT, Message::EditHost(h.id))
-        ]
-        .spacing(14)
-        .align_y(Alignment::Center),
-    )
+    button({
+        let mut r = row![tile, info, Space::new().width(Fill), proto]
+            .spacing(14)
+            .align_y(Alignment::Center);
+        if matches!(h.protocol, Protocol::Ssh | Protocol::Mosh) {
+            r = r.push(icon_button(I_FOLDER, Message::OpenFiles(h.id)));
+        }
+        r.push(icon_button(I_EDIT, Message::EditHost(h.id)))
+    })
     .width(Fill)
     .padding([10, 12])
     .style(theme::row_item(selected))
@@ -892,6 +910,67 @@ fn settings(app: &App) -> Element<'_, Message> {
         .spacing(14),
     );
 
+    let lf = &app.lock_form;
+    let mut lock_body = column![segmented(
+        vec![
+            (None, tr("Aucun")),
+            (Some(nautile_core::lock::LockMethod::Pin), tr("Code PIN")),
+            (Some(nautile_core::lock::LockMethod::Password), tr("Mot de passe")),
+        ],
+        lf.method,
+        Message::LockPick
+    )]
+    .spacing(12);
+    let changing = lf.method != s.lock_method || lf.method.is_some() && !s.locks();
+    let secure = |ph: String, v: &str, on: fn(String) -> Message| {
+        text_input(&ph, v)
+            .on_input(on)
+            .on_submit(Message::LockSave)
+            .secure(true)
+            .padding([9, 12])
+            .size(14)
+            .style(theme::input)
+    };
+    if s.locks() {
+        lock_body = lock_body.push(secure(tr("Code actuel"), &lf.current, Message::LockCurrent));
+    }
+    if lf.method.is_some() {
+        lock_body = lock_body.push(
+            row![
+                secure(
+                    if lf.method == Some(nautile_core::lock::LockMethod::Pin) {
+                        tr("Nouveau code PIN (4 à 8 chiffres)")
+                    } else {
+                        tr("Nouveau mot de passe")
+                    },
+                    &lf.new,
+                    Message::LockNew
+                ),
+                secure(tr("Confirmer"), &lf.confirm, Message::LockConfirm),
+            ]
+            .spacing(10),
+        );
+    }
+    if changing || lf.method.is_some() {
+        lock_body = lock_body.push(row![primary(tr("Enregistrer"), Some(Message::LockSave))]);
+    }
+    if let Some(e) = &lf.error {
+        lock_body = lock_body.push(text(e.clone()).size(13).style(|t: &iced::Theme| text::Style {
+            color: Some(theme::nt(t).pink),
+        }));
+    }
+    if s.locks() {
+        lock_body = lock_body.push(field(
+            tr("Verrouiller après une inactivité de"),
+            segmented(
+                vec![(5, "5 min".into()), (15, "15 min".into()), (60, "1 h".into()), (0, tr("Jamais"))],
+                s.lock_after(),
+                Message::LockAfter,
+            ),
+        ));
+    }
+    let lock_card = settings_card(tr("Verrouillage"), lock_body);
+
     let imp = &app.import;
     let mut restore = column![soft(tr(
         "Un fichier nautile.backup de votre téléphone ou d'un autre ordinateur : tout est fusionné, rien n'est effacé ici."
@@ -983,12 +1062,17 @@ fn settings(app: &App) -> Element<'_, Message> {
 
     column![
         header(tr("Réglages"), None, None, vec![]),
-        scrollable(column![look, terminal, backup, data].spacing(16).max_width(760).padding(Padding {
-            top: 4.0,
-            right: 28.0,
-            bottom: 28.0,
-            left: 28.0
-        }))
+        scrollable(
+            column![look, terminal, lock_card, backup, data]
+                .spacing(16)
+                .max_width(760)
+                .padding(Padding {
+                    top: 4.0,
+                    right: 28.0,
+                    bottom: 28.0,
+                    left: 28.0
+                })
+        )
         .height(Fill),
     ]
     .into()
@@ -1525,6 +1609,9 @@ fn tab_bar(app: &App) -> Element<'_, Message> {
 /// A session: its terminal, and what is happening when it is not open.
 fn session<'a>(app: &'a App, t: &'a Tab) -> Element<'a, Message> {
     let id = t.id;
+    if let Some(f) = &t.files {
+        return files_view(app, t, f);
+    }
     let focused = app.prompts.is_empty() && app.editor.is_none();
     let term: Element<Message> =
         term_view::view(&t.term, MONO, app.settings.terminal_font(), focused, move |a| Message::Term(id, a)).into();
@@ -1724,4 +1811,315 @@ fn snippet_dialog<'a>(app: &'a App, id: i64, vars: &'a [(String, String)]) -> El
             ..Default::default()
         })
         .into()
+}
+
+/// The app is locked: the code, nothing else.
+fn lock_screen(app: &App) -> Element<'_, Message> {
+    let pin = app.settings.lock_method == Some(nautile_core::lock::LockMethod::Pin);
+    let mut c = column![
+        container(icon('\u{F033E}').size(30))
+            .padding([10, 14])
+            .style(|t: &iced::Theme| theme::tile(theme::nt(t).accent)(t)),
+        text(tr("Nautile est verrouillé")).size(20).font(BOLD),
+        text_input(&if pin { tr("Code PIN") } else { tr("Mot de passe") }, &app.lock_input)
+            .id("lock")
+            .on_input(Message::LockInput)
+            .on_submit(Message::Unlock)
+            .secure(true)
+            .padding([10, 14])
+            .size(16)
+            .width(280)
+            .style(theme::input),
+        primary(tr("Déverrouiller"), Some(Message::Unlock)),
+    ]
+    .spacing(16)
+    .align_x(Alignment::Center);
+    if let Some(e) = &app.lock_error {
+        c = c.push(text(e.clone()).size(13).style(|t: &iced::Theme| text::Style {
+            color: Some(theme::nt(t).pink),
+        }));
+    }
+    if !app.tabs.is_empty() {
+        c = c.push(soft(trf("%1$s session(s) restent ouvertes", &[&app.tabs.len()])));
+    }
+    container(c).center(Fill).style(theme::page).into()
+}
+
+const I_UP: char = '\u{F0143}';
+const I_REFRESH: char = '\u{F0450}';
+const I_HOME: char = '\u{F02DC}';
+const I_FOLDER_PLUS: char = '\u{F0257}';
+const I_FILE: char = '\u{F0214}';
+const I_DOWNLOAD: char = '\u{F01DA}';
+const I_UPLOAD: char = '\u{F0552}';
+const I_RENAME: char = '\u{F0CB6}';
+
+/// The SFTP tab: this computer | the server, then the transfers.
+fn files_view<'a>(app: &'a App, t: &'a Tab, f: &'a crate::files::Files) -> Element<'a, Message> {
+    let id = t.id;
+    let mut body = column![row![files_pane(app, t, f, false), files_pane(app, t, f, true)]
+        .spacing(12)
+        .height(Fill)]
+    .spacing(10);
+    let transfers: Vec<&crate::files::Job> = f.jobs.iter().filter(|j| j.transfer).collect();
+    if transfers.is_empty() {
+        body = body.push(label(tr(
+            "Glissez des fichiers sur la fenêtre pour les envoyer dans le dossier du serveur.",
+        )));
+    } else {
+        let mut list = Column::new().spacing(6);
+        for j in transfers.iter().rev().take(5) {
+            let ratio = if j.total > 0 { j.done as f32 / j.total as f32 } else { 0.0 };
+            let state = match (&j.error, j.finished) {
+                (Some(e), _) => e.clone(),
+                (None, true) => tr("Terminé"),
+                (None, false) => format!(
+                    "{} / {}",
+                    nautile_net::sftp::human_size(j.done),
+                    nautile_net::sftp::human_size(j.total)
+                ),
+            };
+            list = list.push(
+                row![
+                    text(j.label.clone()).size(13).width(Length::FillPortion(2)),
+                    iced::widget::progress_bar(0.0..=1.0, if j.finished { 1.0 } else { ratio })
+                        .length(Length::FillPortion(3))
+                        .girth(6),
+                    label(state).width(Length::FillPortion(2)),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            );
+        }
+        body = body.push(
+            container(
+                column![
+                    row![
+                        text(tr("Transferts")).font(BOLD).size(13),
+                        Space::new().width(Fill),
+                        button(text(tr("Effacer les terminés")).size(12))
+                            .padding([4, 8])
+                            .style(theme::ghost)
+                            .on_press(Message::Files(id, crate::files::FilesMsg::ClearJobs))
+                    ]
+                    .align_y(Alignment::Center),
+                    list
+                ]
+                .spacing(8),
+            )
+            .padding(12)
+            .style(theme::card),
+        );
+    }
+    let mut out = column![container(body).padding(16).height(Fill)];
+    if let TabState::Closed(reason) = &t.state {
+        out = out.push(
+            container(
+                row![
+                    text(reason.clone().unwrap_or_else(|| tr("Session terminée"))).size(14),
+                    Space::new().width(Fill),
+                    primary(tr("Reconnecter"), Some(Message::Reconnect(id))),
+                    secondary(tr("Fermer"), Message::CloseTab(id)),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            )
+            .padding([10, 16]),
+        );
+    }
+    out.into()
+}
+
+fn small_button<'a>(c: char, m: Message) -> Element<'a, Message> {
+    button(icon(c).size(15)).padding([4, 6]).style(theme::ghost).on_press(m).into()
+}
+
+/// One side of the file browser.
+fn files_pane<'a>(app: &'a App, t: &'a Tab, f: &'a crate::files::Files, remote: bool) -> Element<'a, Message> {
+    use crate::files::{Edit, FilesMsg};
+    let id = t.id;
+    let fm = move |m: FilesMsg| Message::Files(id, m);
+    let entries = if remote { &f.remote } else { &f.local };
+    let title_text = if remote {
+        app.hosts
+            .iter()
+            .find(|h| Some(h.id) == t.host_id)
+            .map(|h| h.alias.clone())
+            .unwrap_or_default()
+    } else {
+        tr("Cet ordinateur")
+    };
+    let path: Element<Message> = if remote {
+        text_input("/", &f.remote_input)
+            .on_input(move |v| fm(FilesMsg::RemoteInput(v)))
+            .on_submit(fm(FilesMsg::RemoteGo))
+            .font(MONO)
+            .size(13)
+            .padding([6, 10])
+            .style(theme::input)
+            .into()
+    } else {
+        container(text(f.local_path.display().to_string()).font(MONO).size(13))
+            .padding([7, 10])
+            .width(Fill)
+            .style(theme::card)
+            .into()
+    };
+    let mut tools = row![
+        small_button(I_UP, fm(FilesMsg::Up(remote))),
+        small_button(I_REFRESH, fm(FilesMsg::Refresh(remote)))
+    ]
+    .spacing(2);
+    if !remote {
+        tools = tools.push(small_button(I_HOME, fm(FilesMsg::LocalHome)));
+    }
+    tools = tools.push(small_button(
+        I_FOLDER_PLUS,
+        fm(FilesMsg::StartEdit(Edit::NewFolder {
+            remote,
+            name: String::new(),
+        })),
+    ));
+    let head = column![
+        row![text(title_text).font(BOLD).size(15), Space::new().width(Fill), tools].align_y(Alignment::Center),
+        path
+    ]
+    .spacing(8);
+
+    let mut list = Column::new().spacing(2);
+    match &f.edit {
+        Some(Edit::NewFolder { remote: r, name }) if *r == remote => {
+            list = list.push(edit_row(id, name, tr("Nom du dossier"), tr("Créer")));
+        }
+        Some(Edit::Delete { remote: r, name }) if *r == remote => {
+            list = list.push(
+                container(
+                    row![
+                        text(trf("Supprimer « %1$s » ?", &[name])).size(13),
+                        Space::new().width(Fill),
+                        secondary(tr("Annuler"), fm(FilesMsg::EditCancel)),
+                        button(text(tr("Supprimer")).size(13).font(BOLD))
+                            .padding([8, 14])
+                            .style(theme::danger)
+                            .on_press(fm(FilesMsg::EditGo)),
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                )
+                .padding(8)
+                .style(theme::card),
+            );
+        }
+        _ => {}
+    }
+    if remote && (f.remote_path.is_empty() || matches!(t.state, TabState::Closed(_))) {
+        list = list.push(soft(match &t.state {
+            TabState::Connecting(s) if !s.is_empty() => s.clone(),
+            TabState::Closed(Some(e)) => e.clone(),
+            TabState::Closed(None) => tr("Session terminée"),
+            _ => trf("Connexion à %1$s…", &[&t.name]),
+        }));
+    }
+    if !remote {
+        if let Some(e) = &f.local_error {
+            list = list.push(text(e.clone()).size(13).style(|th: &iced::Theme| text::Style {
+                color: Some(theme::nt(th).pink),
+            }));
+        }
+    }
+    for e in entries {
+        if let Some(Edit::Rename { remote: r, old, new }) = &f.edit {
+            if *r == remote && *old == e.name {
+                list = list.push(edit_row(id, new, e.name.clone(), tr("Renommer")));
+                continue;
+            }
+        }
+        let selected = f.selected.as_ref().is_some_and(|(r, n)| *r == remote && *n == e.name);
+        let size = if e.dir {
+            String::new()
+        } else {
+            nautile_net::sftp::human_size(e.size)
+        };
+        let when = e.modified.map(crate::files::date).unwrap_or_default();
+        let mut r = row![
+            icon(if e.dir { I_FOLDER } else { I_FILE }).size(15),
+            text(e.name.clone()).size(13).width(Fill),
+            label(size).width(80).align_x(Alignment::End),
+            label(when).font(MONO).width(130),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center);
+        if selected {
+            if f.remote_ready() {
+                r = r.push(small_button(
+                    if remote { I_DOWNLOAD } else { I_UPLOAD },
+                    fm(FilesMsg::Transfer {
+                        remote,
+                        name: e.name.clone(),
+                    }),
+                ));
+            }
+            r = r
+                .push(small_button(
+                    I_RENAME,
+                    fm(FilesMsg::StartEdit(Edit::Rename {
+                        remote,
+                        old: e.name.clone(),
+                        new: e.name.clone(),
+                    })),
+                ))
+                .push(small_button(
+                    I_TRASH,
+                    fm(FilesMsg::StartEdit(Edit::Delete {
+                        remote,
+                        name: e.name.clone(),
+                    })),
+                ));
+        }
+        let open = if e.dir && selected {
+            FilesMsg::Open {
+                remote,
+                name: e.name.clone(),
+            }
+        } else {
+            FilesMsg::Select {
+                remote,
+                name: e.name.clone(),
+            }
+        };
+        list = list.push(
+            button(r)
+                .width(Fill)
+                .padding([5, 8])
+                .style(theme::row_item(selected))
+                .on_press(fm(open)),
+        );
+    }
+    container(column![head, scrollable(list).height(Fill)].spacing(10))
+        .padding(14)
+        .width(Fill)
+        .height(Fill)
+        .style(theme::card)
+        .into()
+}
+
+fn edit_row<'a>(id: u64, value: &'a str, placeholder: String, action: String) -> Element<'a, Message> {
+    use crate::files::FilesMsg;
+    container(
+        row![
+            text_input(&placeholder, value)
+                .id("files-edit")
+                .on_input(move |v| Message::Files(id, FilesMsg::EditInput(v)))
+                .on_submit(Message::Files(id, FilesMsg::EditGo))
+                .size(13)
+                .padding([6, 10])
+                .style(theme::input),
+            secondary(tr("Annuler"), Message::Files(id, FilesMsg::EditCancel)),
+            primary(action, Some(Message::Files(id, FilesMsg::EditGo))),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center),
+    )
+    .padding(6)
+    .into()
 }

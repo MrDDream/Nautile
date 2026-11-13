@@ -7,6 +7,7 @@ pub mod mosh;
 mod pem;
 pub mod proxy;
 pub mod session;
+pub mod sftp;
 mod socks;
 pub mod ssh;
 pub mod telnet;

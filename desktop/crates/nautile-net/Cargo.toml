@@ -10,7 +10,7 @@ rust-version.workspace = true
 nautile-core = { path = "../nautile-core" }
 # ring instead of aws-lc-rs: no CMake/NASM needed to build on Windows.
 russh = { version = "0.65", default-features = false, features = ["ring", "flate2", "rsa"] }
-tokio = { version = "1", features = ["net", "io-util", "rt-multi-thread", "sync", "time", "macros"] }
+tokio = { version = "1", features = ["net", "io-util", "rt-multi-thread", "sync", "time", "macros", "fs"] }
 portable-pty = "0.9"
 thiserror.workspace = true
 base64.workspace = true
@@ -26,6 +26,7 @@ md5 = "0.8"
 # Mosh: AES-128-OCB3 packets, zlib-compressed instructions.
 ocb3 = "0.2"
 flate2 = "1"
+russh-sftp = "3"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

@@ -71,6 +71,15 @@ pub struct Settings {
     /// The terminal colour scheme (ids of the Android app).
     pub terminal_theme: Option<String>,
     pub terminal_font: Option<f32>,
+    /// The app's own lock (PIN or password), as on Android.
+    pub lock_method: Option<nautile_core::lock::LockMethod>,
+    /// `pbkdf2-sha256:…`, never the code itself.
+    pub lock_hash: Option<String>,
+    pub lock_failures: u32,
+    /// No try before this time (ms) after too many wrong codes.
+    pub lock_until: i64,
+    /// Locks again after this many idle minutes (0: never).
+    pub lock_after: Option<u32>,
 }
 
 impl Settings {
@@ -88,6 +97,14 @@ impl Settings {
 
     pub fn terminal_theme(&self) -> &str {
         self.terminal_theme.as_deref().unwrap_or("nautile")
+    }
+
+    pub fn locks(&self) -> bool {
+        self.lock_method.is_some() && self.lock_hash.is_some()
+    }
+
+    pub fn lock_after(&self) -> u32 {
+        self.lock_after.unwrap_or(15)
     }
 
     pub fn terminal_font(&self) -> f32 {
