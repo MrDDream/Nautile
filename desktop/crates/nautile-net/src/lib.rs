@@ -5,6 +5,7 @@ pub mod ai;
 pub mod keys;
 pub mod lan_sync;
 pub mod local;
+pub mod monitor;
 pub mod mosh;
 mod pem;
 pub mod proxy;

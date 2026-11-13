@@ -72,6 +72,7 @@ const I_VPN_LOCK: char = '\u{E62F}'; // vpn_lock
 const I_CHEVRON_RIGHT: char = '\u{E5CC}'; // chevron_right
 const I_KEYBOARD: char = '\u{E312}'; // keyboard
 const I_FILE_OPEN: char = '\u{EAF3}'; // file_open
+const I_MONITOR: char = '\u{EAA2}'; // monitor_heart
 const I_PLUS: char = '\u{E145}'; // add
 
 pub fn icon<'a>(c: char) -> iced::widget::Text<'a> {

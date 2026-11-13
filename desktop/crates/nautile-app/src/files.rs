@@ -51,26 +51,61 @@ pub struct Files {
     pub selected: Option<(bool, String)>,
     pub jobs: Vec<Job>,
     pub edit: Option<Edit>,
+    /// A remote text file open in the editor.
+    pub editor: Option<RemoteEditor>,
     next_id: u64,
     /// The remote folder asked last (answers to older listings are ignored).
     asked: String,
 }
 
+/// A remote text file being edited: its text, as read, and the time it had then.
+pub struct RemoteEditor {
+    pub path: String,
+    pub content: iced::widget::text_editor::Content,
+    pub original: String,
+    pub mtime: Option<u32>,
+    pub saving: bool,
+    pub error: Option<String>,
+    /// The file changed on the server since it was opened.
+    pub conflict: bool,
+}
+
+impl RemoteEditor {
+    pub fn modified(&self) -> bool {
+        self.content.text() != self.original
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum FilesMsg {
-    Open { remote: bool, name: String },
-    Select { remote: bool, name: String },
+    Open {
+        remote: bool,
+        name: String,
+    },
+    Select {
+        remote: bool,
+        name: String,
+    },
     Up(bool),
     Refresh(bool),
     LocalHome,
     RemoteInput(String),
     RemoteGo,
-    Transfer { remote: bool, name: String },
+    Transfer {
+        remote: bool,
+        name: String,
+    },
     StartEdit(Edit),
     EditInput(String),
     EditGo,
     EditCancel,
     ClearJobs,
+    /// Opens a remote file in the editor.
+    EditFile(String),
+    EditorAction(iced::widget::text_editor::Action),
+    /// Saves; `true`: even if the file changed on the server.
+    EditorSave(bool),
+    EditorClose,
 }
 
 fn home() -> PathBuf {
@@ -136,6 +171,7 @@ impl Files {
             selected: None,
             jobs: Vec::new(),
             edit: None,
+            editor: None,
             next_id: 0,
             asked: String::new(),
         };
@@ -214,6 +250,42 @@ impl Files {
                 }
             }
             FilesMsg::Select { remote, name } => self.selected = Some((remote, name)),
+            FilesMsg::EditFile(name) => {
+                let path = sftp::join(&self.remote_path, &name);
+                self.send(Cmd::Read(path), None);
+            }
+            FilesMsg::EditorAction(a) => {
+                if let Some(e) = &mut self.editor {
+                    e.content.perform(a);
+                }
+            }
+            FilesMsg::EditorSave(force) => {
+                let Some(e) = &mut self.editor else { return };
+                e.saving = true;
+                e.error = None;
+                e.conflict = false;
+                let cmd = Cmd::Write {
+                    path: e.path.clone(),
+                    text: e.content.text(),
+                    expect: if force { None } else { e.mtime },
+                };
+                self.next_id += 1;
+                let id = self.next_id;
+                if let Some(tx) = &self.cmd {
+                    let _ = tx.send((id, cmd));
+                }
+                self.jobs.push(Job {
+                    id,
+                    label: String::new(),
+                    done: 0,
+                    total: 0,
+                    finished: false,
+                    error: None,
+                    transfer: false,
+                    refresh: Refresh::Nothing,
+                });
+            }
+            FilesMsg::EditorClose => self.editor = None,
             FilesMsg::Up(true) => {
                 let p = sftp::parent(&self.remote_path);
                 self.cd_remote(p);
@@ -321,6 +393,26 @@ impl Files {
                     }
                 }
             }
+            Update::Text { path, text, mtime } => {
+                self.editor = Some(RemoteEditor {
+                    content: iced::widget::text_editor::Content::with_text(&text),
+                    original: text,
+                    path,
+                    mtime,
+                    saving: false,
+                    error: None,
+                    conflict: false,
+                });
+            }
+            Update::Saved { path, mtime } => {
+                if let Some(e) = self.editor.as_mut().filter(|e| e.path == path) {
+                    e.saving = false;
+                    e.mtime = mtime;
+                    e.original = e.content.text();
+                }
+                let p = self.remote_path.clone();
+                self.cd_remote(p);
+            }
             Update::Progress { id, done, total } => {
                 if let Some(j) = self.jobs.iter_mut().find(|j| j.id == id) {
                     j.done = done;
@@ -345,6 +437,13 @@ impl Files {
                         self.cd_remote(p);
                     }
                     _ => {}
+                }
+                // A failed save stays in the editor (with « Écraser quand même » when it changed meanwhile).
+                if let (Some(e), Some(ed)) = (&error, self.editor.as_mut().filter(|ed| ed.saving)) {
+                    ed.saving = false;
+                    ed.conflict = *e == nautile_core::tr("Le fichier a changé sur le serveur depuis son ouverture");
+                    ed.error = Some(e.clone());
+                    return None;
                 }
                 if let Some(e) = error {
                     return Some(e);

@@ -104,6 +104,7 @@ fn a_question_becomes_a_command() {
         files: None,
         remote: None,
         log: None,
+        monitor: None,
     });
     let _ = app.update(Message::SelectTab(Some(1)));
     let _ = app.update(Message::Ai(AiMsg::Toggle));

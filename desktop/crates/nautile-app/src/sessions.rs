@@ -44,6 +44,42 @@ pub struct Tab {
     pub remote_title: Option<String>,
     /// The copy of the output, when sessions are recorded.
     pub log: Option<crate::logs::SessionLog>,
+    /// The readings of a monitor tab (no terminal then).
+    pub monitor: Option<Box<MonitorState>>,
+}
+
+/// The last readings of a host's CPU, memory, disk and load, for the gauges and the small curves.
+#[derive(Debug, Default)]
+pub struct MonitorState {
+    pub last: Option<nautile_net::monitor::Sample>,
+    pub cpu: Option<f32>,
+    /// The last two minutes, in percent.
+    pub cpu_history: std::collections::VecDeque<f32>,
+    pub mem_history: std::collections::VecDeque<f32>,
+    /// The output was not a Linux one.
+    pub unsupported: bool,
+}
+
+impl MonitorState {
+    pub fn push(&mut self, text: &str) {
+        let Some(s) = nautile_net::monitor::parse(text) else {
+            self.unsupported = true;
+            return;
+        };
+        self.unsupported = false;
+        if let Some(prev) = &self.last {
+            let cpu = s.cpu_percent(prev);
+            self.cpu = Some(cpu);
+            self.cpu_history.push_back(cpu);
+        }
+        self.mem_history.push_back(s.mem_percent());
+        for h in [&mut self.cpu_history, &mut self.mem_history] {
+            while h.len() > 40 {
+                h.pop_front();
+            }
+        }
+        self.last = Some(s);
+    }
 }
 
 impl Tab {
@@ -285,6 +321,7 @@ impl App {
             files: None,
             remote: None,
             log: None,
+            monitor: None,
         });
         self.active_tab = Some(self.next_tab);
         self.last_tab = self.active_tab;
@@ -363,7 +400,38 @@ impl App {
         self.start(id)
     }
 
+    /// Opens the CPU, memory and disk of an SSH host, read every few seconds.
+    pub fn open_monitor(&mut self, host_id: i64) -> Task<Message> {
+        let Some(h) = self.host_by(host_id).cloned() else {
+            return Task::none();
+        };
+        if !matches!(h.protocol, Protocol::Ssh | Protocol::Mosh) {
+            return self.say(tr("Le moniteur passe par SSH"));
+        }
+        let params = match self.ssh_params(&h) {
+            Ok(mut p) => {
+                p.forwards.clear();
+                p.startup_command = None;
+                p
+            }
+            Err(e) => return self.say(e),
+        };
+        self.editor = None;
+        let id = self.open_tab(Some(h.id), trf("%1$s — moniteur", &[&h.alias]), h.color, h.protocol);
+        let session = nautile_net::monitor::spawn(params);
+        if let Some(t) = self.tab_mut(id) {
+            t.input = Some(session.input);
+            t.monitor = Some(Box::default());
+        }
+        Task::run(events(session.events), move |e| Message::Session(id, e))
+    }
+
     pub fn reconnect(&mut self, id: u64) -> Task<Message> {
+        if let Some(t) = self.tab(id).filter(|t| t.monitor.is_some()) {
+            let host = t.host_id;
+            self.close_tab(id);
+            return host.map(|h| self.open_monitor(h)).unwrap_or_else(Task::none);
+        }
         if let Some(t) = self.tab(id).filter(|t| t.files.is_some()) {
             let host = t.host_id;
             self.close_tab(id);
@@ -477,6 +545,10 @@ impl App {
             }
             Event::Output(bytes) => {
                 let Some(t) = self.tab_mut(id) else { return Task::none() };
+                if let Some(m) = &mut t.monitor {
+                    m.push(&String::from_utf8_lossy(&bytes));
+                    return Task::none();
+                }
                 let fx = t.term.feed(&bytes);
                 if let Some(log) = &mut t.log {
                     log.write(&bytes);

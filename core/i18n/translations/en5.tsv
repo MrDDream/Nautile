@@ -298,3 +298,22 @@ déjà présent	already there
 Importer %1\$s hôte(s)	Import %1\$s host(s)
 %1\$s trouvé(s), %2\$s déjà présent(s)	%1\$s found, %2\$s already there
 %1\$s trouvé(s)	%1\$s found
+Fichier trop gros pour l'éditeur (2 Mo au plus)	File too big for the editor (2 MB at most)
+Ce fichier n'est pas du texte	This file is not text
+Le fichier a changé sur le serveur depuis son ouverture	The file changed on the server since it was opened
+Le moniteur passe par SSH	The monitor works over SSH
+%1\$s — moniteur	%1\$s — monitor
+%1\$s j %2\$s h	%1\$s d %2\$s h
+%1\$s h %2\$s min	%1\$s h %2\$s min
+Ce serveur n'est pas un Linux : le moniteur lit /proc, absent ici.	This server is not Linux: the monitor reads /proc, missing here.
+Première mesure…	First reading…
+Processeur	Processor
+%1\$s cœur(s)	%1\$s core(s)
+Disque /	Disk /
+Charge	Load
+5 min : %1\$s · 15 min : %2\$s · allumé depuis %3\$s	5 min: %1\$s · 15 min: %2\$s · up for %3\$s
+Mesuré toutes les %1\$s s par SSH.	Read every %1\$s s over SSH.
+Enregistrement…	Saving…
+Modifié · Ctrl+S pour enregistrer	Modified · Ctrl+S to save
+Enregistré sur le serveur	Saved on the server
+Écraser quand même	Overwrite anyway

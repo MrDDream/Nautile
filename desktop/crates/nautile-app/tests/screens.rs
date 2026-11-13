@@ -494,6 +494,51 @@ fn importing_hosts_links_jump_hosts_and_skips_existing_ones() {
 }
 
 #[test]
+fn monitor() {
+    each(|app| {
+        let id = with_session(app);
+        let t = app.tabs.iter_mut().find(|t| t.id == id).unwrap();
+        t.name = "docker-01 — moniteur".into();
+        let mut m = nautile_app::sessions::MonitorState::default();
+        let (mut total, mut idle) = (3_700_000u64, 3_600_000u64);
+        for i in 0..30u64 {
+            let busy = [12, 18, 35, 22, 64, 41, 27, 15, 33, 52][(i % 10) as usize];
+            total += 400;
+            idle += 400 - busy * 4;
+            m.push(&format!(
+                "cpu  {} 0 0 {idle} 0 0 0 0 0 0\nMemTotal: 8040260 kB\nMemAvailable: {} kB\n/dev/sda1 61255492 22849808 35264996 38% /\n0.42 0.36 0.30 2/412 31337\n3566841.35 361072.11\n4\n",
+                total - idle,
+                5_023_412 - i * 12_000,
+            ));
+        }
+        t.monitor = Some(Box::new(m));
+        "monitor"
+    });
+}
+
+#[test]
+fn sftp_editor() {
+    each(|app| {
+        let id = with_session(app);
+        let t = app.tabs.iter_mut().find(|t| t.id == id).unwrap();
+        t.name = "docker-01 — fichiers".into();
+        let mut f = nautile_app::files::Files::new();
+        let text = "services:\n  jellyfin:\n    image: jellyfin/jellyfin:10.10\n    restart: unless-stopped\n    ports:\n      - \"8096:8096\"\n    volumes:\n      - ./config:/config\n      - /srv/media:/media:ro\n";
+        f.editor = Some(nautile_app::files::RemoteEditor {
+            path: "/home/mrd/compose/jellyfin.yml".into(),
+            content: iced::widget::text_editor::Content::with_text(&text.replace("10.10", "10.11")),
+            original: text.into(),
+            mtime: Some(1),
+            saving: false,
+            error: Some("Le fichier a changé sur le serveur depuis son ouverture".into()),
+            conflict: true,
+        });
+        t.files = Some(Box::new(f));
+        "sftp-editor"
+    });
+}
+
+#[test]
 fn settings_lock() {
     each(|app| {
         let _ = app.update(Message::Nav(Page::Settings));
@@ -558,6 +603,7 @@ fn with_session(app: &mut App) -> u64 {
         files: None,
         remote: None,
         log: None,
+        monitor: None,
     });
     app.next_tab = 1;
     let _ = app.update(Message::SelectTab(Some(1)));
@@ -894,6 +940,7 @@ fn vnc_desktop() {
                 cursor: None,
             })),
             log: None,
+            monitor: None,
         });
         let _ = app.update(Message::SelectTab(Some(7)));
         "vnc"

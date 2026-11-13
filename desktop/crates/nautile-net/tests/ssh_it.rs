@@ -335,3 +335,111 @@ async fn next_update(b: &mut nautile_net::sftp::Browser) -> nautile_net::sftp::U
         }
     }
 }
+
+/// « Moniteur »: readings of the real server's /proc.
+#[tokio::test(flavor = "multi_thread")]
+async fn monitor_against_a_real_server() {
+    let Some(port) = env("IT_PORT") else {
+        eprintln!("IT_PORT not set: skipped");
+        return;
+    };
+    let p = Params {
+        chain: vec![target("127.0.0.1", port, password())],
+        ..Default::default()
+    };
+    let mut s = nautile_net::monitor::spawn(p);
+    let mut samples = Vec::new();
+    while samples.len() < 2 {
+        let e = tokio::time::timeout(Duration::from_secs(40), s.events.recv())
+            .await
+            .expect("a reading");
+        match e {
+            Some(Event::Prompt(Prompt::HostKey { reply, .. })) => reply.send(true),
+            Some(Event::Output(bytes)) => {
+                samples.push(nautile_net::monitor::parse(&String::from_utf8_lossy(&bytes)).expect("Linux /proc"));
+            }
+            Some(Event::Closed(r)) => panic!("closed: {r:?}"),
+            None => panic!("ended"),
+            _ => {}
+        }
+    }
+    let (a, b) = (&samples[0], &samples[1]);
+    assert!(a.mem_total_kb > 0 && a.disk_size_kb > 0 && a.cpus > 0, "{a:?}");
+    assert!(b.cpu_total >= a.cpu_total);
+    let _ = s.input.send(nautile_net::Input::Close);
+}
+
+/// The SFTP editor: a file written, read back, and a save refused when it changed on the server meanwhile.
+#[tokio::test(flavor = "multi_thread")]
+async fn sftp_editor_against_a_real_server() {
+    use nautile_net::sftp::{self, Cmd, Update};
+    let Some(port) = env("IT_PORT") else {
+        eprintln!("IT_PORT not set: skipped");
+        return;
+    };
+    let mut b = sftp::spawn(Params {
+        chain: vec![target("127.0.0.1", port, password())],
+        ..Default::default()
+    });
+    // Host key question first, then ready.
+    let home = loop {
+        match tokio::time::timeout(Duration::from_secs(40), b.updates.recv())
+            .await
+            .expect("ready")
+            .expect("open")
+        {
+            Update::Conn(Event::Prompt(Prompt::HostKey { reply, .. })) => reply.send(true),
+            Update::Ready(h) => break h,
+            Update::Conn(Event::Closed(r)) => panic!("closed: {r:?}"),
+            _ => {}
+        }
+    };
+    let path = sftp::join(&home, "nautile-edit.conf");
+    b.cmd
+        .send((
+            1,
+            Cmd::Write {
+                path: path.clone(),
+                text: "port = 80\n".into(),
+                expect: None,
+            },
+        ))
+        .unwrap();
+    let Ok(Update::Saved { mtime: first, .. }) = wait_edit(&mut b).await else {
+        panic!("saved")
+    };
+    b.cmd.send((2, Cmd::Read(path.clone()))).unwrap();
+    let Ok(Update::Text { text, mtime, .. }) = wait_edit(&mut b).await else {
+        panic!("read")
+    };
+    assert_eq!((text.as_str(), mtime), ("port = 80\n", first));
+    // Someone else changes it (an older time is enough to differ).
+    let stale = first.map(|m| m - 100);
+    b.cmd
+        .send((
+            3,
+            Cmd::Write {
+                path: path.clone(),
+                text: "port = 81\n".into(),
+                expect: stale,
+            },
+        ))
+        .unwrap();
+    assert!(wait_edit(&mut b).await.is_err(), "refused: it changed meanwhile");
+    b.cmd.send((4, Cmd::Remove(path))).unwrap();
+}
+
+async fn wait_edit(b: &mut nautile_net::sftp::Browser) -> Result<nautile_net::sftp::Update, String> {
+    use nautile_net::sftp::Update;
+    loop {
+        match tokio::time::timeout(Duration::from_secs(30), b.updates.recv())
+            .await
+            .expect("answer")
+            .expect("open")
+        {
+            u @ (Update::Text { .. } | Update::Saved { .. }) => return Ok(u),
+            Update::Finished { error: Some(e), .. } => return Err(e),
+            _ => {}
+        }
+    }
+}

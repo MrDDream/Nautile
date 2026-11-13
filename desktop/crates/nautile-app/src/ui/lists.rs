@@ -55,6 +55,12 @@ pub(super) fn host_row<'a>(app: &'a App, h: &'a Host) -> Element<'a, Message> {
     }
     if matches!(h.protocol, Protocol::Ssh | Protocol::Mosh) {
         r = r.push(
+            button(icon(I_MONITOR).size(22))
+                .padding(8)
+                .style(theme::ghost)
+                .on_press(Message::OpenMonitor(h.id)),
+        );
+        r = r.push(
             button(icon(I_FOLDER).size(24))
                 .padding(8)
                 .style(theme::ghost)

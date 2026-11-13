@@ -46,7 +46,18 @@ pub enum Cmd {
     Rename(String, String),
     /// A file, or a folder with everything in it.
     Remove(String),
+    /// A text file for the editor.
+    Read(String),
+    /// Saves the editor's text; `expect`: the modification time it was read with (refused if it changed).
+    Write {
+        path: String,
+        text: String,
+        expect: Option<u32>,
+    },
 }
+
+/// The largest file the editor opens.
+pub const MAX_EDIT_BYTES: u64 = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub enum Update {
@@ -62,6 +73,17 @@ pub enum Update {
         id: u64,
         done: u64,
         total: u64,
+    },
+    /// A text file read for the editor, and its modification time.
+    Text {
+        path: String,
+        text: String,
+        mtime: Option<u32>,
+    },
+    /// The editor's text was written; the file's new modification time.
+    Saved {
+        path: String,
+        mtime: Option<u32>,
     },
     /// A command finished (`error` set when it failed).
     Finished {
@@ -232,6 +254,34 @@ async fn run(sftp: &SftpSession, id: u64, cmd: Cmd, up: &UnboundedSender<Update>
         Cmd::Mkdir(path) => sftp.create_dir(path).await.map_err(err)?,
         Cmd::Rename(from, to) => sftp.rename(from, to).await.map_err(err)?,
         Cmd::Remove(path) => remove(sftp, &path).await?,
+        Cmd::Read(path) => {
+            let meta = sftp.metadata(&path).await.map_err(err)?;
+            if meta.size.unwrap_or(0) > MAX_EDIT_BYTES {
+                return Err(nautile_core::tr("Fichier trop gros pour l'éditeur (2 Mo au plus)"));
+            }
+            let mut f = sftp.open(&path).await.map_err(err)?;
+            let mut bytes = Vec::new();
+            f.read_to_end(&mut bytes).await.map_err(err)?;
+            let text = String::from_utf8(bytes).map_err(|_| nautile_core::tr("Ce fichier n'est pas du texte"))?;
+            let _ = up.send(Update::Text {
+                path,
+                text,
+                mtime: meta.mtime,
+            });
+        }
+        Cmd::Write { path, text, expect } => {
+            if let Some(m) = expect {
+                let now = sftp.metadata(&path).await.ok().and_then(|x| x.mtime);
+                if now.is_some_and(|n| n != m) {
+                    return Err(nautile_core::tr("Le fichier a changé sur le serveur depuis son ouverture"));
+                }
+            }
+            let mut f = sftp.create(&path).await.map_err(err)?;
+            f.write_all(text.as_bytes()).await.map_err(err)?;
+            f.shutdown().await.map_err(err)?;
+            let mtime = sftp.metadata(&path).await.ok().and_then(|x| x.mtime);
+            let _ = up.send(Update::Saved { path, mtime });
+        }
         Cmd::Download { remote, local } => {
             let total = remote_size(sftp, &remote).await;
             let mut m = Meter {

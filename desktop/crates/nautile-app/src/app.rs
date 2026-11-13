@@ -431,6 +431,9 @@ pub enum Message {
     SaveLogged(i64),
     ForgetLogged(i64),
     ImportHostsPick,
+    OpenMonitor(i64),
+    /// Ctrl+S: saves the remote file being edited.
+    SaveShortcut,
     ImportHostsRead(Option<Result<Vec<nautile_core::import::ImportedHost>, String>>),
     ImportHostsRun,
     /// The window's close button: hide in the notification area, or quit.
@@ -1032,6 +1035,15 @@ impl App {
                     let mut f = HostForm::from(Some(logged_host(&e)));
                     f.original = None;
                     self.editor = Some(Editor::Host(Box::new(f)));
+                }
+            }
+            Message::OpenMonitor(h) => return self.open_monitor(h),
+            Message::SaveShortcut => {
+                if let Some(id) = self.active_tab {
+                    let editing = self.tab(id).and_then(|t| t.files.as_ref()).is_some_and(|f| f.editor.is_some());
+                    if editing {
+                        self.on_files(id, crate::files::FilesMsg::EditorSave(false));
+                    }
                 }
             }
             Message::ImportHostsPick => {
@@ -2045,6 +2057,7 @@ fn shortcut(e: iced::keyboard::Event) -> Option<Message> {
         Key::Character("w" | "W") if m.control() && m.shift() => Some(Message::CloseActiveTab),
         Key::Character("a" | "A") if m.control() && m.shift() => Some(Message::Ai(crate::assistant::AiMsg::Toggle)),
         Key::Character("p" | "P") if m.control() && m.shift() => Some(Message::TypePassword),
+        Key::Character("s" | "S") if m.control() && !m.shift() => Some(Message::SaveShortcut),
         Key::Named(Named::Escape) => Some(Message::Escape),
         _ => None,
     }

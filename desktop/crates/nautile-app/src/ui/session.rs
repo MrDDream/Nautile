@@ -88,6 +88,9 @@ pub(super) fn session<'a>(app: &'a App, t: &'a Tab) -> Element<'a, Message> {
     if let Some(r) = &t.remote {
         return remote_desktop(app, t, r);
     }
+    if let Some(m) = &t.monitor {
+        return monitor_view(app, t, m);
+    }
     let focused = app.prompts.is_empty() && app.editor.is_none();
     let term: Element<Message> = term_view::view(
         &t.term,
@@ -337,6 +340,9 @@ pub(super) const I_RENAME: char = '\u{E9A2}'; // drive_file_rename_outline
 /// The SFTP tab: this computer | the server, then the transfers.
 pub(super) fn files_view<'a>(app: &'a App, t: &'a Tab, f: &'a crate::files::Files) -> Element<'a, Message> {
     let id = t.id;
+    if let Some(ed) = &f.editor {
+        return remote_editor(id, ed);
+    }
     let mut body = column![row![files_pane(app, t, f, false), files_pane(app, t, f, true)]
         .spacing(12)
         .height(Fill)]
@@ -538,6 +544,9 @@ pub(super) fn files_pane<'a>(app: &'a App, t: &'a Tab, f: &'a crate::files::File
                         name: e.name.clone(),
                     }),
                 ));
+            }
+            if remote && !e.dir && f.remote_ready() {
+                r = r.push(small_button(I_EDIT, fm(FilesMsg::EditFile(e.name.clone()))));
             }
             r = r
                 .push(small_button(
@@ -844,4 +853,235 @@ impl std::fmt::Display for ProviderChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0.short_label())
     }
+}
+
+/// A gauge of the monitor: its name, value, detail, bar and, when given, its small curve.
+fn gauge<'a>(
+    name: String,
+    value: String,
+    detail: String,
+    percent: f32,
+    history: Option<&std::collections::VecDeque<f32>>,
+) -> Element<'a, Message> {
+    let tone = move |t: &iced::Theme| {
+        let n = theme::nt(t);
+        if percent >= 90.0 {
+            n.pink
+        } else if percent >= 70.0 {
+            n.accent
+        } else {
+            n.green
+        }
+    };
+    let mut c = column![
+        kit::section_label(name),
+        text(value)
+            .size(30)
+            .font(BOLD)
+            .style(move |t: &iced::Theme| text::Style { color: Some(tone(t)) }),
+        soft(detail),
+        iced::widget::progress_bar(0.0..=100.0, percent)
+            .girth(8)
+            .style(move |t: &iced::Theme| {
+                iced::widget::progress_bar::Style {
+                    background: theme::nt(t).key_bg.into(),
+                    bar: tone(t).into(),
+                    border: iced::border::rounded(4),
+                }
+            }),
+    ]
+    .spacing(8);
+    if let Some(h) = history {
+        // The last two minutes, one bar per reading.
+        let bars = row(h.iter().map(|v| {
+            let v = *v;
+            container(Space::new().width(Fill).height(Length::Fixed((v / 100.0 * 44.0).max(2.0))))
+                .style(move |t: &iced::Theme| container::Style {
+                    background: Some(theme::alpha(theme::nt(t).blue, 0.75).into()),
+                    border: iced::border::rounded(2),
+                    ..Default::default()
+                })
+                .into()
+        }))
+        .spacing(2)
+        .height(46)
+        .align_y(Alignment::End);
+        c = c.push(bars);
+    }
+    container(c).padding(18).width(Fill).style(theme::card).into()
+}
+
+fn uptime(s: u64) -> String {
+    let (d, h, m) = (s / 86_400, s % 86_400 / 3600, s % 3600 / 60);
+    if d > 0 {
+        trf("%1$s j %2$s h", &[&d, &h])
+    } else if h > 0 {
+        trf("%1$s h %2$s min", &[&h, &m])
+    } else {
+        trf("%1$s min", &[&m])
+    }
+}
+
+fn gb(kb: u64) -> String {
+    let s = if kb >= 1024 * 1024 {
+        format!("{:.1} Go", kb as f64 / 1024.0 / 1024.0)
+    } else {
+        format!("{:.0} Mo", kb as f64 / 1024.0)
+    };
+    decimal(s)
+}
+
+/// A number written the French way (« 3,2 ») unless in English.
+fn decimal(s: String) -> String {
+    if nautile_core::i18n::is_english() {
+        s.replace(" Go", " GB").replace(" Mo", " MB")
+    } else {
+        s.replace('.', ",")
+    }
+}
+
+/// A host's CPU, memory, disk and load, read every few seconds over SSH.
+fn monitor_view<'a>(app: &'a App, t: &'a Tab, m: &'a crate::sessions::MonitorState) -> Element<'a, Message> {
+    let id = t.id;
+    let head = kit::page_header(t.name.clone(), None, vec![]);
+    let body: Element<Message> = match (&t.state, &m.last) {
+        (TabState::Closed(reason), _) => column![
+            soft(reason.clone().unwrap_or_else(|| tr("Session terminée"))).size(14),
+            row![primary(tr("Reconnecter"), Some(Message::Reconnect(id)))],
+        ]
+        .spacing(12)
+        .into(),
+        (_, _) if m.unsupported => soft(tr("Ce serveur n'est pas un Linux : le moniteur lit /proc, absent ici."))
+            .size(14)
+            .into(),
+        (_, None) => soft(tr("Première mesure…")).size(14).into(),
+        (_, Some(s)) => {
+            let cpu = m.cpu.unwrap_or(0.0);
+            let load_pct = if s.cpus > 0 { s.load[0] * 100.0 / s.cpus as f32 } else { 0.0 };
+            column![
+                row![
+                    gauge(
+                        tr("Processeur"),
+                        format!("{cpu:.0} %"),
+                        trf("%1$s cœur(s)", &[&s.cpus]),
+                        cpu,
+                        Some(&m.cpu_history)
+                    ),
+                    gauge(
+                        tr("Mémoire"),
+                        format!("{:.0} %", s.mem_percent()),
+                        format!(
+                            "{} / {}",
+                            gb(s.mem_total_kb - s.mem_available_kb.min(s.mem_total_kb)),
+                            gb(s.mem_total_kb)
+                        ),
+                        s.mem_percent(),
+                        Some(&m.mem_history)
+                    ),
+                ]
+                .spacing(16),
+                row![
+                    gauge(
+                        tr("Disque /"),
+                        format!("{:.0} %", s.disk_percent()),
+                        format!("{} / {}", gb(s.disk_used_kb), gb(s.disk_size_kb)),
+                        s.disk_percent(),
+                        None
+                    ),
+                    gauge(
+                        tr("Charge"),
+                        decimal(format!("{:.2}", s.load[0])),
+                        trf(
+                            "5 min : %1$s · 15 min : %2$s · allumé depuis %3$s",
+                            &[
+                                &decimal(format!("{:.2}", s.load[1])),
+                                &decimal(format!("{:.2}", s.load[2])),
+                                &uptime(s.uptime_s)
+                            ]
+                        ),
+                        load_pct.min(100.0),
+                        None
+                    ),
+                ]
+                .spacing(16),
+                soft(trf("Mesuré toutes les %1$s s par SSH.", &[&nautile_net::monitor::EVERY])),
+            ]
+            .spacing(16)
+            .into()
+        }
+    };
+    let _ = app;
+    scrollable(container(column![head, body].spacing(18).max_width(1000)).padding(Padding {
+        top: 0.0,
+        right: 28.0,
+        bottom: 28.0,
+        left: 28.0,
+    }))
+    .height(Fill)
+    .into()
+}
+
+/// A remote text file in the editor: Ctrl+S saves it back, refused when it changed on the server meanwhile.
+fn remote_editor(id: u64, ed: &crate::files::RemoteEditor) -> Element<'_, Message> {
+    use crate::files::FilesMsg;
+    let fm = move |m: FilesMsg| Message::Files(id, m);
+    let modified = ed.modified();
+    let mut head = row![
+        icon(I_EDIT).size(20),
+        column![
+            text(ed.path.clone()).font(MONO).size(14),
+            soft(if ed.saving {
+                tr("Enregistrement…")
+            } else if modified {
+                tr("Modifié · Ctrl+S pour enregistrer")
+            } else {
+                tr("Enregistré sur le serveur")
+            }),
+        ]
+        .spacing(2)
+        .width(Fill),
+    ]
+    .spacing(12)
+    .align_y(Alignment::Center);
+    head = head.push(secondary(tr("Fermer"), fm(FilesMsg::EditorClose))).push(primary(
+        tr("Enregistrer"),
+        (modified && !ed.saving).then_some(fm(FilesMsg::EditorSave(false))),
+    ));
+    let mut c = column![head].spacing(12);
+    if let Some(e) = &ed.error {
+        let mut r = row![pink(e.clone()).width(Fill)].spacing(10).align_y(Alignment::Center);
+        if ed.conflict {
+            r = r.push(
+                button(text(tr("Écraser quand même")).size(13))
+                    .padding([7, 12])
+                    .style(theme::danger)
+                    .on_press(fm(FilesMsg::EditorSave(true))),
+            );
+        }
+        c = c.push(r);
+    }
+    c = c.push(
+        text_editor(&ed.content)
+            .on_action(move |a| Message::Files(id, FilesMsg::EditorAction(a)))
+            .font(MONO)
+            .size(14)
+            .height(Fill)
+            .padding(14)
+            .style(|t: &iced::Theme, s| {
+                let n = theme::nt(t);
+                let focused = matches!(s, text_editor::Status::Focused { .. });
+                text_editor::Style {
+                    background: n.bg.into(),
+                    border: iced::Border {
+                        color: if focused { n.accent } else { n.border },
+                        width: 1.0,
+                        radius: 12.0.into(),
+                    },
+                    placeholder: n.placeholder,
+                    value: n.text,
+                    selection: theme::alpha(n.accent, 0.35),
+                }
+            }),
+    );
+    container(c).padding(20).height(Fill).into()
 }
