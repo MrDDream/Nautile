@@ -1,0 +1,4 @@
+• Nautile now also runs on Windows, Linux and macOS, synced with your phone
+• Updates checked at start and installed from the app (Settings › About)
+• Sync can wait for your VPN (WireGuard, Tailscale…) when your server is private
+• An unreachable server is retried quietly

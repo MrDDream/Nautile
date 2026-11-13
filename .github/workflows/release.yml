@@ -62,11 +62,16 @@ jobs:
         run: |
           CODE=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)
           {
-            cat "fastlane/metadata/android/en-US/changelogs/$CODE.txt" 2>/dev/null || true
-            echo
-            echo "---"
-            echo
-            cat "fastlane/metadata/android/fr-FR/changelogs/$CODE.txt" 2>/dev/null || true
+            # Full notes when written for this version, else the store changelogs.
+            if [ -f "release-notes/$GITHUB_REF_NAME.md" ]; then
+              cat "release-notes/$GITHUB_REF_NAME.md"
+            else
+              cat "fastlane/metadata/android/en-US/changelogs/$CODE.txt" 2>/dev/null || true
+              echo
+              echo "---"
+              echo
+              cat "fastlane/metadata/android/fr-FR/changelogs/$CODE.txt" 2>/dev/null || true
+            fi
             echo
             echo "---"
             echo
@@ -74,7 +79,7 @@ jobs:
             echo
             echo "**Package:** \`com.nautile\` · **Signing certificate SHA-256:** \`$CERT\`"
             echo
-            echo "**Desktop:** \`Nautile-*-setup.exe\` (Windows, no administrator rights needed), \`Nautile-*-portable.zip\` (Windows, everything stays in its folder), \`.deb\` (Debian, Ubuntu), \`.rpm\` (Fedora, openSUSE), \`.tar.gz\` (other Linux). The Windows files are not signed yet: SmartScreen shows « Windows protected your PC » → *More info* → *Run anyway*."
+            echo "**Desktop:** \`Nautile-*-setup.exe\` (Windows, no administrator rights needed), \`Nautile-*-portable.zip\` (Windows, everything stays in its folder), \`.deb\` (Debian, Ubuntu), \`.rpm\` (Fedora, openSUSE), \`.tar.gz\` (other Linux), \`.dmg\` (macOS, Apple silicon, not notarised yet: right click › Open). The Windows files are not signed yet: SmartScreen shows « Windows protected your PC » → *More info* → *Run anyway*."
           } > notes.md
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
@@ -90,7 +95,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -129,6 +134,8 @@ jobs:
 
   publish-desktop:
     needs: [release, desktop]
+    # Whatever was built is attached, even if one system failed (macOS runners are sometimes scarce).
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v5

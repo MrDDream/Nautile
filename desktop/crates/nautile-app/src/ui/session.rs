@@ -768,11 +768,15 @@ pub(super) fn assistant_panel(app: &App) -> Element<'_, Message> {
     }
 
     let mut attach = row![
-        iced::widget::checkbox(st.screen)
-            .label(tr("Joindre l'écran"))
-            .on_toggle(|v| am(A::Screen(v)))
-            .size(14)
-            .text_size(12),
+        row![
+            iced::widget::toggler(st.screen)
+                .on_toggle(|v| am(A::Screen(v)))
+                .size(18)
+                .style(theme::toggler),
+            text(tr("Joindre l'écran")).size(13),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center),
         Space::new().width(Fill),
         button(
             row![icon(I_FILE).size(13), text(tr("Fichier…")).size(12)]

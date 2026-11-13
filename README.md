@@ -11,12 +11,13 @@
 
 <p align="center">
   <b>Your servers, in your pocket.</b><br>
-  A free SSH and remote-desktop client for Android. No cloud, no account, nothing leaves your phone unless you ask.
+  A free SSH and remote-desktop client for Android, Windows, Linux and macOS. No cloud, no account, nothing leaves your devices unless you ask.
 </p>
 
 <p align="center">
   <a href="https://github.com/MrDDream/Nautile/releases/latest"><img src="https://img.shields.io/github/v/release/MrDDream/Nautile?color=FFB547&label=release" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-FFB547" alt="Android 8.0+">
+  <img src="https://img.shields.io/badge/Windows%20·%20Linux%20·%20macOS-FFB547" alt="Windows, Linux, macOS">
   <img src="https://img.shields.io/badge/SSH%20·%20Mosh%20·%20RDP%20·%20VNC%20·%20SFTP-FFB547" alt="SSH, Mosh, RDP, SFTP">
   <a href="https://mrddream.github.io/Nautile/"><img src="https://img.shields.io/badge/website-online-FFB547" alt="Website"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-FFB547" alt="GPL-3.0"></a>
@@ -66,10 +67,10 @@ Termius is great, until your hosts, keys and passwords have to live in someone e
 | 📁 **SFTP** | Browse, upload and download in the background, edit remote files, change permissions, copy host to host. |
 | 🔀 **Tunnels** | Local (`-L`), remote (`-R`) and dynamic SOCKS (`-D`) forwards, started with the session if you like. |
 | 📌 **Snippets** | Saved commands with `${VARIABLES}` and categories, an editor with quick inserts (`|`, `&&`, `sudo`…), run on one or several sessions at once, or on hosts that open for the occasion. |
-| 🔄 **Sync & backup** | End-to-end encrypted file (Argon2id + AES-256-GCM) on Google Drive, OneDrive, Nextcloud/WebDAV, S3 storage (Backblaze B2, Cloudflare R2, MinIO…) or a folder synced by Syncthing; or straight between your devices over Wi-Fi, paired with a 6-digit code. As many backup locations as you like, each with its own schedule (every 6 h to monthly, at the time and on the network you choose), the last 5 kept and restorable. Sync merges record by record, latest change wins, deletions included. |
+| 🔄 **Sync & backup** | Between phones, tablets and computers. End-to-end encrypted file (Argon2id + AES-256-GCM) on Google Drive, OneDrive, Nextcloud/WebDAV, S3 storage (Backblaze B2, Cloudflare R2, MinIO…) or a folder synced by Syncthing; or straight between your devices over Wi-Fi, paired with a 6-digit code. As many backup locations as you like, each with its own schedule (every 6 h to monthly, at the time and on the network you choose), the last 5 kept and restorable. Sync merges record by record, latest change wins, deletions included; it can use your VPN only (WireGuard, Tailscale…) when your server is private. |
 | 🛡️ **Private by design** | SQLCipher database with its key in the Android Keystore, app lock by biometrics, PIN or password with re-lock delay, hidden from recent apps if you want. No analytics, no account. |
 | 🤖 **AI assistant (optional)** | Your own key for Claude, OpenAI, Gemini, Grok, Mistral, DeepSeek or a local model (Ollama, LM Studio). Pick the provider and your own system prompts in the terminal, type or dictate, attach the screen or files (from the phone or the server), follow up in a conversation and export it as Markdown. Nothing runs without your tap. |
-| ✨ **And more** | Server monitor (CPU, memory, disks, processes), active-session previews, home-screen widget and shortcuts, session logs, anonymised crash reports you can post on GitHub, English and French. |
+| ✨ **And more** | Server monitor (CPU, memory, disks, processes), active-session previews, home-screen widget and shortcuts, session logs, updates checked and installed from the app, anonymised crash reports you can post on GitHub, English and French. |
 
 ## 📲 Install
 
@@ -87,13 +88,31 @@ com.nautile
 09:88:CF:FC:59:0E:A1:60:F9:75:DF:D5:04:0B:3F:41:91:38:1A:23:30:E6:63:2A:6E:B7:CF:40:B9:A3:D7:2D
 ```
 
-### 💻 On a computer (Windows, Linux)
+### 💻 On a computer (Windows, Linux, macOS)
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/desktop/en-light-hosts.webp">
+    <img src="docs/assets/desktop/en-dark-hosts.webp" alt="Hosts on the desktop" width="720">
+  </picture>
+</p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/desktop/en-light-assistant.webp">
+    <img src="docs/assets/desktop/en-dark-assistant.webp" alt="Terminal and AI assistant" width="356">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/desktop/en-light-palette.webp">
+    <img src="docs/assets/desktop/en-dark-palette.webp" alt="Ctrl+K search" width="356">
+  </picture>
+</p>
 
 From version 0.4.0, each [release](https://github.com/MrDDream/Nautile/releases/latest) also carries the desktop app, a native Rust program (about 35 MB of RAM) that reads the phone's backups and syncs with it (shared file or straight over Wi-Fi):
 
 - `Nautile-X.Y.Z-setup.exe`: Windows installer, no administrator rights needed;
 - `Nautile-X.Y.Z-portable.zip`: Windows, everything (encrypted data included) stays in the folder, e.g. on a USB stick;
-- `nautile_X.Y.Z_amd64.deb` (Debian, Ubuntu), `nautile-X.Y.Z.x86_64.rpm` (Fedora, openSUSE), `nautile-X.Y.Z-linux-x86_64.tar.gz` (others).
+- `nautile_X.Y.Z_amd64.deb` (Debian, Ubuntu), `nautile-X.Y.Z.x86_64.rpm` (Fedora, openSUSE), `nautile-X.Y.Z-linux-x86_64.tar.gz` (others);
+- `Nautile-X.Y.Z-macos-arm64.dmg`: macOS (Apple silicon), not notarised yet: right click › Open the first time.
 
 It has the phone's interface (same settings, same themes) plus what a PC needs: an icon in the notification area (closing the window keeps it running), start with the session, Ctrl+K search over everything, right click on hosts, drag and drop, a server monitor, an SFTP file editor, `~/.ssh/config` import, sync that waits for the VPN and in-app updates.
 

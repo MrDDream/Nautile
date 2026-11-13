@@ -988,6 +988,7 @@ fn backup_add_place() {
 fn assistant() {
     each(|app| {
         use nautile_app::assistant::{Shown, Turn};
+        with_ai(app);
         let id = with_session(app);
         let host = app.tab(id).unwrap().host_id.unwrap();
         let en = nautile_core::i18n::is_english();

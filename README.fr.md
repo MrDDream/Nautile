@@ -11,12 +11,13 @@
 
 <p align="center">
   <b>Tes serveurs, dans ta poche.</b><br>
-  Un client SSH et bureau à distance libre pour Android. Pas de cloud, pas de compte, rien ne quitte ton téléphone sans que tu le demandes.
+  Un client SSH et bureau à distance libre pour Android, Windows, Linux et macOS. Pas de cloud, pas de compte, rien ne quitte tes appareils sans que tu le demandes.
 </p>
 
 <p align="center">
   <a href="https://github.com/MrDDream/Nautile/releases/latest"><img src="https://img.shields.io/github/v/release/MrDDream/Nautile?color=FFB547&label=version" alt="Dernière version"></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-FFB547" alt="Android 8.0+">
+  <img src="https://img.shields.io/badge/Windows%20·%20Linux%20·%20macOS-FFB547" alt="Windows, Linux, macOS">
   <img src="https://img.shields.io/badge/SSH%20·%20Mosh%20·%20RDP%20·%20VNC%20·%20SFTP-FFB547" alt="SSH, Mosh, RDP, SFTP">
   <a href="https://mrddream.github.io/Nautile/"><img src="https://img.shields.io/badge/site-en%20ligne-FFB547" alt="Site web"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-GPL--3.0-FFB547" alt="GPL-3.0"></a>
@@ -66,10 +67,10 @@ Termius est très bien, jusqu'au moment où tes hôtes, tes clés et tes mots de
 | 📁 **SFTP** | Navigation, envoi et téléchargement en arrière-plan, édition de fichiers distants, permissions, copie d'hôte à hôte. |
 | 🔀 **Tunnels** | Redirections locales (`-L`), distantes (`-R`) et SOCKS dynamiques (`-D`), lancées avec la session si tu veux. |
 | 📌 **Snippets** | Commandes enregistrées avec `${VARIABLES}` et catégories, un éditeur avec insertions rapides (`|`, `&&`, `sudo`…), lancées sur une ou plusieurs sessions à la fois, ou sur des hôtes ouverts pour l'occasion. |
-| 🔄 **Synchro et sauvegarde** | Fichier chiffré de bout en bout (Argon2id + AES-256-GCM) sur Google Drive, OneDrive, Nextcloud/WebDAV, un stockage S3 (Backblaze B2, Cloudflare R2, MinIO…) ou un dossier synchronisé par Syncthing ; ou directement entre tes appareils sur le Wi-Fi, associés par un code à 6 chiffres. Autant d'emplacements de sauvegarde que tu veux, chacun avec sa planification (de toutes les 6 h à chaque mois, à l'heure et sur le réseau choisis), les 5 dernières gardées et restaurables. La synchro fusionne élément par élément : la modification la plus récente gagne, suppressions comprises. |
+| 🔄 **Synchro et sauvegarde** | Entre téléphones, tablettes et ordinateurs. Fichier chiffré de bout en bout (Argon2id + AES-256-GCM) sur Google Drive, OneDrive, Nextcloud/WebDAV, un stockage S3 (Backblaze B2, Cloudflare R2, MinIO…) ou un dossier synchronisé par Syncthing ; ou directement entre tes appareils sur le Wi-Fi, associés par un code à 6 chiffres. Autant d'emplacements de sauvegarde que tu veux, chacun avec sa planification (de toutes les 6 h à chaque mois, à l'heure et sur le réseau choisis), les 5 dernières gardées et restaurables. La synchro fusionne élément par élément : la modification la plus récente gagne, suppressions comprises ; elle peut n'utiliser que ton VPN (WireGuard, Tailscale…) si ton serveur est privé. |
 | 🛡️ **Privé par conception** | Base SQLCipher dont la clé reste dans l'Android Keystore, verrouillage par biométrie, code PIN ou mot de passe avec délai, masquage dans les apps récentes. Aucune statistique, aucun compte. |
 | 🤖 **Assistant IA (optionnel)** | Ta propre clé pour Claude, OpenAI, Gemini, Grok, Mistral, DeepSeek ou un modèle local (Ollama, LM Studio). Choix du fournisseur et de tes prompts système dans le terminal, saisie ou dictée, écran ou fichiers joints (du téléphone ou du serveur), suite de la conversation et export en Markdown. Rien n'est exécuté sans ton accord. |
-| ✨ **Et aussi** | Moniteur serveur (CPU, mémoire, disques, processus), aperçu des sessions actives, widget et raccourcis d'écran d'accueil, journaux de session, rapports de plantage anonymisés à publier sur GitHub, français et anglais. |
+| ✨ **Et aussi** | Moniteur serveur (CPU, mémoire, disques, processus), aperçu des sessions actives, widget et raccourcis d'écran d'accueil, journaux de session, mises à jour vérifiées et installées depuis l'app, rapports de plantage anonymisés à publier sur GitHub, français et anglais. |
 
 ## 📲 Installer
 
@@ -87,13 +88,31 @@ com.nautile
 09:88:CF:FC:59:0E:A1:60:F9:75:DF:D5:04:0B:3F:41:91:38:1A:23:30:E6:63:2A:6E:B7:CF:40:B9:A3:D7:2D
 ```
 
-### 💻 Sur ordinateur (Windows, Linux)
+### 💻 Sur ordinateur (Windows, Linux, macOS)
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/desktop/fr-light-hosts.webp">
+    <img src="docs/assets/desktop/fr-dark-hosts.webp" alt="Les hôtes sur ordinateur" width="720">
+  </picture>
+</p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/desktop/fr-light-assistant.webp">
+    <img src="docs/assets/desktop/fr-dark-assistant.webp" alt="Terminal et assistant IA" width="356">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/desktop/fr-light-palette.webp">
+    <img src="docs/assets/desktop/fr-dark-palette.webp" alt="Recherche Ctrl+K" width="356">
+  </picture>
+</p>
 
 À partir de la version 0.4.0, chaque [version](https://github.com/MrDDream/Nautile/releases/latest) contient aussi l'app pour ordinateur, un programme natif en Rust (environ 35 Mo de RAM) qui lit les sauvegardes du téléphone et se synchronise avec lui (fichier partagé ou directement en Wi-Fi) :
 
 - `Nautile-X.Y.Z-setup.exe` : installeur Windows, sans droits administrateur ;
 - `Nautile-X.Y.Z-portable.zip` : Windows, tout (données chiffrées comprises) reste dans le dossier, par exemple sur une clé USB ;
-- `nautile_X.Y.Z_amd64.deb` (Debian, Ubuntu), `nautile-X.Y.Z.x86_64.rpm` (Fedora, openSUSE), `nautile-X.Y.Z-linux-x86_64.tar.gz` (les autres).
+- `nautile_X.Y.Z_amd64.deb` (Debian, Ubuntu), `nautile-X.Y.Z.x86_64.rpm` (Fedora, openSUSE), `nautile-X.Y.Z-linux-x86_64.tar.gz` (les autres) ;
+- `Nautile-X.Y.Z-macos-arm64.dmg` : macOS (puces Apple), pas encore notarisé : clic droit › Ouvrir la première fois.
 
 Elle reprend l'interface du téléphone (mêmes réglages, mêmes thèmes) et y ajoute ce qui sert sur un PC : icône dans la zone de notification (fermer la fenêtre la garde ouverte), lancement au démarrage, recherche universelle Ctrl+K, clic droit sur les hôtes, glisser-déposer, moniteur de serveur, éditeur de fichiers SFTP, import de `~/.ssh/config`, synchro qui attend le VPN et mises à jour depuis l'appli.
 

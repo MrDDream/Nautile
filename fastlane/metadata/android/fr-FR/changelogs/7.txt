@@ -1,0 +1,4 @@
+• Nautile fonctionne aussi sur Windows, Linux et macOS, synchronisé avec ton téléphone
+• Mises à jour vérifiées au démarrage et installées depuis l'app (Réglages › À propos)
+• La synchro peut attendre ton VPN (WireGuard, Tailscale…) si ton serveur est privé
+• Un serveur injoignable est réessayé discrètement
