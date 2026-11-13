@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.VerifiedUser
@@ -146,6 +147,9 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
         Entry(Icons.AutoMirrored.Outlined.Article, Nt.TextSoft, tr("Journaux de session"),
             if (logCount == 0) tr("Aucun journal") else tr("%1\$s fichier(s)", logCount),
             "logs journaux sorties output enregistrement", SettingsRoutes.LOGS),
+        Entry(Icons.Outlined.Info, Nt.Blue, tr("À propos"),
+            tr("Version %1\$s · mises à jour", com.nautile.app.BuildConfig.VERSION_NAME),
+            "a propos about version mise a jour update github", SettingsRoutes.ABOUT),
     )
     val visiblePersonal = personal.filter { it.matches(q) }
     val visibleServices = services.filter { it.matches(q) }

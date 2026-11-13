@@ -119,6 +119,7 @@ fun NautileRoot() {
 
     prompt?.let { PromptDialog(it) }
     CrashReportDialog()
+    com.nautile.app.update.UpdateDialog()
 
     Scaffold(
         containerColor = Nt.Bg,
@@ -264,6 +265,7 @@ fun NautileRoot() {
             }
             composable(com.nautile.app.ui.settings.SettingsRoutes.ACCENT) { com.nautile.app.ui.appearance.AccentScreen(onBack = { nav.popBackStack() }) }
             composable("logs") { com.nautile.app.ui.settings.LogsScreen(onBack = { nav.popBackStack() }) }
+            composable(com.nautile.app.ui.settings.SettingsRoutes.ABOUT) { com.nautile.app.ui.settings.AboutScreen(onBack = { nav.popBackStack() }) }
         }
     }
 }

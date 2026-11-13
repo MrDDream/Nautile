@@ -399,6 +399,32 @@ fn settings_system() {
 }
 
 #[test]
+fn update_available() {
+    each(|app| {
+        use nautile_app::update::UpdateMsg as U;
+        use nautile_net::update::{Asset, Release};
+        let asset = |n: &str| Asset {
+            name: n.into(),
+            browser_download_url: format!("https://example.org/{n}"),
+            size: 31_000_000,
+        };
+        let release = Release {
+            tag_name: "v0.5.0".into(),
+            name: Some("Nautile v0.5.0".into()),
+            body: Some("## Nouveautés\n\n- **Bureau** : formulaires en pop-up, barre latérale réglable\n- Synchro qui attend le VPN\n- Mises à jour depuis l'appli\n\n## Corrections\n\n- Le terminal garde sa police après une reconnexion".into()),
+            prerelease: false,
+            html_url: "https://github.com/MrDDream/Nautile/releases/tag/v0.5.0".into(),
+            assets: ["nautile-0.5.0-linux-x86_64.tar.gz", "Nautile-0.5.0-setup.exe", "Nautile-0.5.0-portable.zip", "nautile_0.5.0_amd64.deb"]
+                .map(asset)
+                .to_vec(),
+        };
+        let _ = app.update(Message::Update(U::Checked(true, Ok(release))));
+        let _ = app.update(Message::Update(U::Progress(12_400_000, 31_000_000)));
+        "update-available"
+    });
+}
+
+#[test]
 fn settings_lock() {
     each(|app| {
         let _ = app.update(Message::Nav(Page::Settings));

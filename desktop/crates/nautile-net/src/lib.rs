@@ -14,5 +14,6 @@ mod socks;
 pub mod ssh;
 pub mod store;
 pub mod telnet;
+pub mod update;
 
 pub use session::{Event, HostKeyInfo, Input, KnownKey, Prompt, Session};

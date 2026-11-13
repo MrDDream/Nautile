@@ -51,6 +51,8 @@ pub enum Modal {
     Password,
     /// « Exporter une copie dans un fichier ».
     Export,
+    /// A new version, its notes and « Télécharger et installer ».
+    Update,
 }
 
 /// A sub-page of the settings (`None` in [App::settings_page]: their home).
@@ -416,6 +418,7 @@ pub enum Message {
     OpenPath(std::path::PathBuf),
     DeleteLog(std::path::PathBuf),
     Tray(crate::tray::TrayEvent),
+    Update(crate::update::UpdateMsg),
     /// The window's close button: hide in the notification area, or quit.
     CloseRequested(iced::window::Id),
     WindowMoved(iced::Point),
@@ -612,6 +615,7 @@ pub struct App {
     pub hidden: bool,
     pub focused: bool,
     pub window_pos: Option<iced::Point>,
+    pub updates: crate::update::UpdateState,
 }
 
 impl App {
@@ -646,7 +650,8 @@ impl App {
         } else {
             Task::none()
         };
-        (app, Task::batch([focus, backups, os_theme, font, show]))
+        let updates = app.update_boot();
+        (app, Task::batch([focus, backups, os_theme, font, show, updates]))
     }
 
     pub fn with(paths: Paths, settings: Settings, db: Option<Db>, fatal: Option<String>) -> App {
@@ -699,6 +704,7 @@ impl App {
             hidden: false,
             focused: true,
             window_pos: None,
+            updates: Default::default(),
         };
         // Before several providers could be on, the chosen one was the only one.
         if app.settings.ai_enabled.is_empty() {
@@ -832,6 +838,11 @@ impl App {
                 Message::LockInput(_)
                     | Message::Unlock
                     | Message::Tray(_)
+                    | Message::Update(
+                        crate::update::UpdateMsg::Checked(..)
+                            | crate::update::UpdateMsg::Progress(..)
+                            | crate::update::UpdateMsg::Downloaded(_)
+                    )
                     | Message::CloseRequested(_)
                     | Message::ShowWindow
                     | Message::Quit
@@ -972,6 +983,7 @@ impl App {
             Message::OpenPath(p) => {
                 let _ = opener::open(&p);
             }
+            Message::Update(m) => return self.update_msg(m),
             Message::Tray(e) => {
                 use crate::tray::TrayEvent as T;
                 return match e {

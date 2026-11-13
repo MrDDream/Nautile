@@ -81,6 +81,7 @@ open class NautileApp : Application() {
             if (backupPrefs.syncEnabled.value) sync.requestSoon(3_000)
         }
         appScope.launch { runCatching { lanSync.start() } }
+        com.nautile.app.update.UpdateChecker.checkAtStart(this)
         // Keep launcher shortcuts and the widget in sync with recent connections.
         appScope.launch {
             hostRepository.hosts.collect { hosts ->

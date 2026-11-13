@@ -3832,6 +3832,7 @@ dependencies = [
  "cbc",
  "des",
  "flate2",
+ "hex",
  "hmac 0.12.1",
  "md5",
  "mdns-sd",

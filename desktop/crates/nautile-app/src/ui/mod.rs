@@ -206,6 +206,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         (Some(crate::app::Modal::Target), None) => layers = layers.push(target_modal(app, max_h)),
         (Some(crate::app::Modal::Password), None) => layers = layers.push(password_modal(app, max_h)),
         (Some(crate::app::Modal::Export), None) => layers = layers.push(export_modal(app, max_h)),
+        (Some(crate::app::Modal::Update), None) => layers = layers.push(update_modal(app, max_h)),
         (None, None) => {}
     }
     if app.import.file.is_some() {

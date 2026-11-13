@@ -135,6 +135,11 @@ pub struct Settings {
     /// The window as it was left, and the page shown.
     pub window: Option<WindowState>,
     pub last_page: Option<String>,
+    /// Look for a new version at start, once a day at most (on by default).
+    pub update_check: Option<bool>,
+    pub update_last_check: i64,
+    /// « Ignorer cette version ».
+    pub update_skipped: Option<String>,
     /// The sidebar's width, when set by dragging its edge.
     pub sidebar_width: Option<f32>,
     /// The sidebar shows only its icons.
@@ -168,6 +173,10 @@ impl Settings {
 
     pub fn lock_after(&self) -> u32 {
         self.lock_after.unwrap_or(15)
+    }
+
+    pub fn update_check(&self) -> bool {
+        self.update_check.unwrap_or(true)
     }
 
     pub fn close_to_tray(&self) -> bool {

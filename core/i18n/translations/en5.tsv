@@ -250,3 +250,36 @@ Nautile démarre réduit dans la zone de notification : la synchronisation et le
 Notifications	Notifications
 Notifications du système	System notifications
 Quand la fenêtre est cachée : sauvegarde ou synchronisation échouée, tunnel coupé, mise à jour disponible.	While the window is hidden: failed backup or sync, tunnel down, update available.
+Nautile %1\$s est disponible	Nautile %1\$s is available
+Ouvrez Nautile pour l'installer.	Open Nautile to install it.
+%1\$s disponible	%1\$s available
+Nautile est à jour (v%1\$s)	Nautile is up to date (v%1\$s)
+Archive téléchargée : remplacez l'ancien dossier par celui-ci.	Archive downloaded: replace the old folder with this one.
+Le paquet est ouvert dans l'installeur du système. Redémarrez Nautile ensuite.	The package is open in the system's installer. Restart Nautile afterwards.
+Le fichier téléchargé ne correspond pas à la somme de contrôle de la version : il a été supprimé.	The downloaded file does not match the release's checksum: it was deleted.
+Impossible d'ouvrir l'archive téléchargée	Cannot open the downloaded archive
+Pas de nautile.exe dans l'archive	No nautile.exe in the archive
+Mode portable : Windows seulement	Portable mode: Windows only
+Pas de notes pour cette version.	No notes for this version.
+Pas de fichier pour cet ordinateur dans cette version : la page de la version s'ouvre dans le navigateur.	No file for this computer in this version: the release page opens in the browser.
+Ignorer cette version	Skip this version
+Plus tard	Later
+Téléchargement…	Downloading…
+Télécharger et installer	Download and install
+Ouvrir la page	Open the page
+Vous avez la version %1\$s	You have version %1\$s
+Recherche…	Searching…
+Version %1\$s	Version %1\$s
+Nautile %1\$s	Nautile %1\$s
+Voir	View
+Vérifier maintenant	Check now
+Mises à jour	Updates
+Vérifier au démarrage	Check at startup
+Une fois par jour au plus, sur GitHub (MrDDream/Nautile) ; rien n'est installé sans votre accord.	At most once a day, on GitHub (MrDDream/Nautile); nothing is installed without your consent.
+Autorisez Nautile à installer des applis, puis touchez « Installer ».	Allow Nautile to install apps, then tap “Install”.
+Installer	Install
+À propos	About
+L'APK vient de la page des versions sur GitHub, vérifié par sa somme SHA-256, puis Android l'installe par-dessus en gardant vos données (même clé de signature).	The APK comes from the GitHub releases page, checked by its SHA-256, then Android installs it over the current one, keeping your data (same signing key).
+Code source	Source code
+Nautile sur GitHub	Nautile on GitHub
+Version %1\$s · mises à jour	Version %1\$s · updates

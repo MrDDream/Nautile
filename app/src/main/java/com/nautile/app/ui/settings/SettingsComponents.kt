@@ -46,6 +46,7 @@ object SettingsRoutes {
     const val SECURITY = "settings/security"
     const val BACKUP = "settings/backup"
     const val LOGS = "logs"
+    const val ABOUT = "settings/about"
 }
 
 /** A settings sub-screen: back arrow, title, scrolling content. */

@@ -2723,6 +2723,7 @@ pub(super) fn system_settings(app: &App) -> Column<'_, Message> {
             )]),
         ]
         .spacing(10),
+        update_section(app),
         column![
             container(kit::section_label(tr("Notifications"))).padding([0, 4]),
             kit::card(vec![kit::toggle_row(
@@ -2735,4 +2736,128 @@ pub(super) fn system_settings(app: &App) -> Column<'_, Message> {
         ]
         .spacing(10),
     ]
+}
+
+/// « Nautile vX est disponible »: what is new, and « Télécharger et installer ».
+pub(super) fn update_modal(app: &App, max_height: f32) -> Element<'_, Message> {
+    use crate::update::UpdateMsg as U;
+    let um = Message::Update;
+    let st = &app.updates;
+    let Some(r) = &st.available else { return Space::new().into() };
+    let has_file = nautile_net::update::asset_for(r, crate::update::target(app.paths.portable)).is_some();
+    let mut body = column![].spacing(14);
+    if st.notes.is_empty() {
+        body = body.push(soft(tr("Pas de notes pour cette version.")));
+    } else {
+        body =
+            body.push(iced::widget::markdown::view(&st.notes, md_settings(app)).map(|u| Message::Ai(crate::assistant::AiMsg::OpenLink(u))));
+    }
+    if !has_file {
+        body = body.push(label(tr(
+            "Pas de fichier pour cet ordinateur dans cette version : la page de la version s'ouvre dans le navigateur.",
+        )));
+    }
+    if let Some((done, total)) = st.progress {
+        let pct = if total > 0 { done as f32 * 100.0 / total as f32 } else { 0.0 };
+        body = body.push(
+            column![
+                iced::widget::progress_bar(0.0..=100.0, pct).girth(8).style(|t: &iced::Theme| {
+                    iced::widget::progress_bar::Style {
+                        background: theme::nt(t).key_bg.into(),
+                        bar: theme::nt(t).accent.into(),
+                        border: iced::border::rounded(4),
+                    }
+                }),
+                soft(format!(
+                    "{} / {}",
+                    nautile_net::sftp::human_size(done),
+                    nautile_net::sftp::human_size(total)
+                )),
+            ]
+            .spacing(6),
+        );
+    }
+    match &st.status {
+        Some(Ok(s)) if st.progress.is_none() && !s.is_empty() && st.available.is_some() => body = body.push(green(s.clone())),
+        Some(Err(e)) => body = body.push(pink(e.clone())),
+        _ => {}
+    }
+    let busy = st.progress.is_some();
+    let foot = row![
+        button(text(tr("Ignorer cette version")).size(14))
+            .padding([9, 4])
+            .style(theme::ghost)
+            .on_press_maybe((!busy).then_some(um(U::Skip))),
+        Space::new().width(Fill),
+        secondary(tr("Plus tard"), um(U::Later)),
+        primary(
+            if busy {
+                tr("Téléchargement…")
+            } else if has_file {
+                tr("Télécharger et installer")
+            } else {
+                tr("Ouvrir la page")
+            },
+            (!busy).then_some(um(if has_file { U::Download } else { U::OpenPage }))
+        ),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+    kit::overlay(
+        kit::dialog(
+            kit::dialog_head(
+                trf("Nautile %1$s est disponible", &[&r.tag_name]),
+                Some(trf("Vous avez la version %1$s", &[&env!("CARGO_PKG_VERSION")])),
+                None,
+                um(U::Later),
+            ),
+            body,
+            Some(foot.into()),
+            620.0,
+            max_height,
+        ),
+        None,
+    )
+}
+
+/// « Mises à jour »: the version here, the check at start, « Vérifier maintenant ».
+fn update_section(app: &App) -> Element<'_, Message> {
+    use crate::update::UpdateMsg as U;
+    let st = &app.updates;
+    let status: Element<Message> = if st.checking {
+        soft(tr("Recherche…")).into()
+    } else {
+        match &st.status {
+            Some(Ok(s)) => green(s.clone()).into(),
+            Some(Err(e)) => pink(e.clone()).size(13).into(),
+            None => soft(trf("Version %1$s", &[&env!("CARGO_PKG_VERSION")])).into(),
+        }
+    };
+    let mut now = row![
+        column![text(trf("Nautile %1$s", &[&env!("CARGO_PKG_VERSION")])).size(15).font(BOLD), status]
+            .spacing(3)
+            .width(Fill),
+    ]
+    .spacing(10)
+    .padding([14, 14])
+    .align_y(Alignment::Center);
+    if st.available.is_some() {
+        now = now.push(primary(tr("Voir"), Some(Message::OpenModal(Some(crate::app::Modal::Update)))));
+    }
+    now = now.push(secondary(tr("Vérifier maintenant"), Message::Update(U::Check(true))));
+    column![
+        container(kit::section_label(tr("Mises à jour"))).padding([0, 4]),
+        kit::card(vec![
+            kit::toggle_row(
+                None,
+                tr("Vérifier au démarrage"),
+                tr("Une fois par jour au plus, sur GitHub (MrDDream/Nautile) ; rien n'est installé sans votre accord."),
+                app.settings.update_check(),
+                |v| Message::Update(U::AutoCheck(v))
+            ),
+            now.into(),
+        ]),
+    ]
+    .spacing(10)
+    .into()
 }

@@ -621,6 +621,8 @@ pub(super) fn md_settings(app: &App) -> iced::widget::markdown::Settings {
         border: iced::border::rounded(4),
     };
     let mut s = iced::widget::markdown::Settings::with_text_size(14, style);
+    s.h1_size = 18.into();
+    s.h2_size = 16.into();
     s.h3_size = 15.into();
     s.code_size = 13.into();
     s
