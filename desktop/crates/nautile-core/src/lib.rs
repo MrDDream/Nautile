@@ -5,6 +5,7 @@ pub mod backup;
 pub mod db;
 pub mod i18n;
 pub mod lan;
+pub mod lock;
 pub mod model;
 pub mod sync;
 
