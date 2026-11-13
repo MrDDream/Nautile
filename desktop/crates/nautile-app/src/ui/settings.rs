@@ -249,7 +249,7 @@ pub(super) fn settings_home(app: &App) -> Element<'_, Message> {
             icon: I_TERMINAL,
             tint: n.blue,
             title: tr("Terminal"),
-            detail: format!("JetBrains Mono {} · {}", s.terminal_font(), tr(term.name)),
+            detail: format!("{} {} · {}", tr(s.terminal_family().name), s.terminal_font(), tr(term.name)),
             words: "police font taille size couleurs colors raccourcis shortcuts clavier keyboard copier coller",
             dot: None,
             page: P::Terminal,
@@ -380,8 +380,14 @@ pub(super) fn settings(app: &App) -> Element<'_, Message> {
         P::Backup => (tr("Sauvegarde et synchro"), backup_settings(app)),
         P::Security => (tr("Sécurité"), column![settings_card(tr("Verrouillage"), lock_settings(app))]),
         P::Data => (tr("Données"), data_settings(app)),
+        P::Logs => (tr("Journaux de session"), logs_settings(app)),
     };
-    let head = container(kit::page_header(name, Some(Message::SettingsPage(None)), vec![])).padding(Padding {
+    let back = if page == P::Logs {
+        Message::SettingsPage(Some(P::Terminal))
+    } else {
+        Message::SettingsPage(None)
+    };
+    let head = container(kit::page_header(name, Some(back), vec![])).padding(Padding {
         top: 0.0,
         right: 28.0,
         bottom: 14.0,
@@ -546,59 +552,355 @@ pub(super) fn appearance_settings(app: &App) -> Column<'_, Message> {
     ]
 }
 
-pub(super) fn terminal_settings(app: &App) -> Column<'_, Message> {
+/// The terminal as it will look: a few lines of `docker compose ps` in the chosen colours, font, size and cursor.
+fn terminal_preview(app: &App) -> Element<'_, Message> {
     let s = &app.settings;
-    let current = themes::by_id(s.terminal_theme());
-    let swatches = row(themes::all().into_iter().map(|t| {
-        let selected = t.id == current.id;
-        let (bg, fg, accent) = (t.background, t.foreground, t.ansi[2]);
-        let id = t.id.to_owned();
-        button(
-            column![
-                text("$ ls").font(MONO).size(12).color(fg),
-                text("~/docker").font(MONO).size(12).color(accent),
-            ]
-            .spacing(2),
-        )
-        .padding([8, 10])
-        .width(86)
-        .style(move |th: &iced::Theme, _| button::Style {
-            background: Some(bg.into()),
-            border: iced::Border {
-                color: if selected { theme::nt(th).accent } else { theme::nt(th).border },
-                width: if selected { 2.0 } else { 1.0 },
-                radius: 10.0.into(),
-            },
+    let t = themes::by_id(s.terminal_theme());
+    let font = s.terminal_family().font;
+    let size = s.terminal_font();
+    let (green, blue, yellow, red) = (t.ansi[2], t.ansi[4], t.ansi[3], t.ansi[1]);
+    let span = |v: &str, c: iced::Color| iced::widget::span(v.to_owned()).color(c).font(font);
+    let line =
+        |spans: Vec<iced::widget::text::Span<'static, Message>>| iced::widget::rich_text(spans).size(size).line_height(1.5).font(font);
+    let prompt = |rest: &str| {
+        vec![
+            span("mrd@docker-01", green),
+            span(":", t.foreground),
+            span("~", blue),
+            span("$ ", t.foreground),
+            span(rest, t.foreground),
+        ]
+    };
+    let cursor_w = match s.terminal_cursor() {
+        "bar" => 2.0,
+        _ => size * 0.6,
+    };
+    let cursor_h = if s.terminal_cursor() == "underline" { 2.0 } else { size * 1.2 };
+    let cursor_c = t.cursor;
+    let last = row![
+        line(prompt("")),
+        container(Space::new().width(cursor_w).height(cursor_h)).style(move |_| container::Style {
+            background: Some(cursor_c.into()),
             ..Default::default()
         })
-        .on_press(Message::TermTheme(id))
-        .into()
-    }))
-    .spacing(8)
-    .wrap();
+    ]
+    .align_y(if s.terminal_cursor() == "underline" {
+        Alignment::End
+    } else {
+        Alignment::Center
+    });
+    let bg = t.background;
+    container(
+        column![
+            line(prompt("docker compose ps")),
+            line(vec![span("jellyfin    ", t.foreground), span("Up 3 days", green)]),
+            line(vec![span("papote-api  ", t.foreground), span("Restarting", yellow)]),
+            line(vec![span("Error: ECONNREFUSED :5432", red)]),
+            last,
+        ]
+        .spacing(2),
+    )
+    .padding(16)
+    .width(Fill)
+    .style(move |th: &iced::Theme| container::Style {
+        background: Some(bg.into()),
+        border: iced::Border {
+            color: theme::nt(th).border,
+            width: 1.0,
+            radius: 16.0.into(),
+        },
+        ..Default::default()
+    })
+    .into()
+}
+
+/// A choice in a grid of the terminal settings: drawn on the terminal's background, outlined when chosen.
+fn term_tile<'a>(content: Element<'a, Message>, name: String, selected: bool, bg: iced::Color, on: Message) -> Element<'a, Message> {
+    button(
+        column![
+            container(content).padding([10, 12]).width(Fill).style(move |_| container::Style {
+                background: Some(bg.into()),
+                border: iced::border::rounded(8),
+                ..Default::default()
+            }),
+            text(name).size(13).font(if selected { BOLD } else { theme::UI }),
+        ]
+        .spacing(8),
+    )
+    .width(Fill)
+    .padding(8)
+    .style(move |th: &iced::Theme, st| {
+        let n = theme::nt(th);
+        button::Style {
+            background: Some(
+                if matches!(st, button::Status::Hovered) {
+                    n.key_bg
+                } else {
+                    n.surface
+                }
+                .into(),
+            ),
+            text_color: n.text,
+            border: iced::Border {
+                color: if selected { n.accent } else { n.border },
+                width: if selected { 2.0 } else { 1.0 },
+                radius: 12.0.into(),
+            },
+            ..Default::default()
+        }
+    })
+    .on_press(on)
+    .into()
+}
+
+/// Items in rows of [per] equal columns.
+fn grid<'a>(items: Vec<Element<'a, Message>>, per: usize) -> Element<'a, Message> {
+    let mut rows = column![].spacing(10);
+    let mut items = items.into_iter().peekable();
+    while items.peek().is_some() {
+        let mut r = row![].spacing(10);
+        for _ in 0..per {
+            r = r.push(match items.next() {
+                Some(e) => container(e).width(Fill),
+                None => container(Space::new()).width(Fill),
+            });
+        }
+        rows = rows.push(r);
+    }
+    rows.into()
+}
+
+pub(super) fn terminal_settings(app: &App) -> Column<'_, Message> {
+    use crate::app::TermTab;
+    let tabs = segmented(
+        vec![
+            (TermTab::Aspect, tr("Aspect")),
+            (TermTab::Keyboard, tr("Clavier")),
+            (TermTab::Sessions, tr("Sessions")),
+        ],
+        app.term_tab,
+        Message::TermTab,
+    );
+    let body = match app.term_tab {
+        TermTab::Aspect => terminal_aspect(app),
+        TermTab::Keyboard => terminal_keyboard(app),
+        TermTab::Sessions => terminal_sessions(app),
+    };
+    column![terminal_preview(app), tabs].push(body.spacing(18))
+}
+
+fn terminal_aspect(app: &App) -> Column<'_, Message> {
+    let s = &app.settings;
+    let current = themes::by_id(s.terminal_theme());
+    let themes = themes::all()
+        .into_iter()
+        .map(|t| {
+            let dots = row([t.ansi[2], t.ansi[4], t.ansi[3], t.ansi[1]].map(|c| kit::dot(c, 10.0)))
+                .spacing(6)
+                .height(14)
+                .align_y(Alignment::Center);
+            term_tile(
+                dots.into(),
+                tr(t.name),
+                t.id == current.id,
+                t.background,
+                Message::TermTheme(t.id.to_owned()),
+            )
+        })
+        .collect();
+    let family = s.terminal_family();
+    let fonts = crate::term::fonts::ALL
+        .iter()
+        .map(|f| {
+            let sample = if f.nerd { "0Oo il1 {} \u{E0B0}" } else { "0Oo il1 {}" };
+            term_tile(
+                text(sample).font(f.font).size(16).color(current.foreground).into(),
+                tr(f.name),
+                f.id == family.id,
+                current.background,
+                Message::TermFamily(f.id.to_owned()),
+            )
+        })
+        .collect();
     let size = s.terminal_font();
     column![
-        settings_card(trf("Couleurs · %1$s", &[&tr(current.name)]), swatches),
+        settings_card(trf("Thème · %1$s", &[&tr(current.name)]), grid(themes, 5)),
         settings_card(
-            tr("Police"),
-            row![
-                column![
-                    text("JetBrains Mono").size(15).font(BOLD),
-                    soft(trf("Taille du texte · %1$spx", &[&size])),
+            tr("Curseur"),
+            segmented(
+                vec![("block", tr("Bloc")), ("bar", tr("Barre")), ("underline", tr("Souligné"))],
+                match s.terminal_cursor() {
+                    "bar" => "bar",
+                    "underline" => "underline",
+                    _ => "block",
+                },
+                |v: &str| Message::TermCursor(v.to_owned())
+            )
+        ),
+        settings_card(
+            trf("Police · %1$s", &[&tr(family.name)]),
+            column![
+                grid(fonts, 3),
+                row![
+                    text(tr("Taille du texte")).size(14).width(Fill),
+                    secondary("A−".into(), Message::TermFont(size - 1.0)),
+                    text(format!("{size} px")).font(MONO).size(14),
+                    secondary("A+".into(), Message::TermFont(size + 1.0)),
                 ]
-                .spacing(3)
-                .width(Fill),
-                secondary("A−".into(), Message::TermFont(size - 1.0)),
-                secondary("A+".into(), Message::TermFont(size + 1.0)),
+                .spacing(10)
+                .align_y(Alignment::Center),
+                soft(tr(
+                    "Toutes les polices fournies sont des Nerd Fonts : symboles Powerline pour Powerlevel10k et Starship."
+                )),
             ]
-            .spacing(8)
-            .align_y(Alignment::Center)
+            .spacing(14)
         ),
-        settings_card(
-            tr("Raccourcis"),
-            soft(tr("Ctrl+Maj+C / Ctrl+Maj+V pour copier-coller, clic droit pour copier la sélection ou coller. Ctrl+Maj+T ouvre un terminal local, Ctrl+Tab change d'onglet.")).size(14)
-        ),
+        soft(tr(
+            "Le terminal garde ses propres couleurs : l'app peut être en clair et le terminal en sombre."
+        )),
     ]
+}
+
+fn terminal_keyboard(app: &App) -> Column<'_, Message> {
+    let keys = [
+        ("Ctrl+Maj+C".to_owned(), tr("Copier la sélection")),
+        ("Ctrl+Maj+V".to_owned(), tr("Coller")),
+        (tr("Clic droit"), tr("Copier la sélection, ou coller")),
+        ("Ctrl+Maj+T".to_owned(), tr("Nouveau terminal local")),
+        ("Ctrl+Maj+W".to_owned(), tr("Fermer l'onglet")),
+        ("Ctrl+Tab".to_owned(), tr("Onglet suivant (Maj : précédent)")),
+        ("Ctrl+Maj+A".to_owned(), tr("Assistant IA")),
+        ("Ctrl+Maj+P".to_owned(), tr("Taper le mot de passe de l'hôte")),
+        (tr("Échap"), tr("Fermer la fenêtre ouverte")),
+    ];
+    let rows: Vec<Element<Message>> = keys
+        .into_iter()
+        .map(|(k, what)| {
+            row![
+                text(what).size(14).width(Fill),
+                container(text(k.replace("Maj", &tr("Maj"))).font(MONO).size(13))
+                    .padding([4, 10])
+                    .style(|t: &iced::Theme| container::Style {
+                        background: Some(theme::nt(t).key_bg.into()),
+                        border: iced::Border {
+                            color: theme::nt(t).border,
+                            width: 1.0,
+                            radius: 8.0.into(),
+                        },
+                        ..Default::default()
+                    }),
+            ]
+            .padding([12, 16])
+            .align_y(Alignment::Center)
+            .into()
+        })
+        .collect();
+    column![
+        column![container(kit::section_label(tr("Raccourcis"))).padding([0, 4]), kit::card(rows)].spacing(10),
+        kit::card(vec![kit::toggle_row(
+            None,
+            tr("Raccourci mot de passe"),
+            tr("Ctrl+Maj+P tape le mot de passe de l'hôte à une invite sudo"),
+            app.settings.password_key(),
+            Message::PasswordKey
+        )]),
+    ]
+}
+
+fn terminal_sessions(app: &App) -> Column<'_, Message> {
+    let s = &app.settings;
+    let logs = crate::logs::list(&app.paths.data.join("logs")).len();
+    column![
+        column![
+            container(kit::section_label(tr("Fermeture"))).padding([0, 4]),
+            kit::card(vec![kit::toggle_row(
+                None,
+                tr("Confirmer la fermeture"),
+                tr("Demande avant de fermer une session connectée (terminal ou bureau à distance)"),
+                s.confirm_close(),
+                Message::ConfirmClose
+            )]),
+        ]
+        .spacing(10),
+        column![
+            container(kit::section_label(tr("Historique et journaux"))).padding([0, 4]),
+            kit::card(vec![
+                kit::toggle_row(
+                    None,
+                    tr("Enregistrer les sessions"),
+                    tr("Copie de la sortie de chaque nouvelle session, stockée sur cet ordinateur"),
+                    s.session_logs,
+                    Message::SessionLogs
+                ),
+                kit::nav_row(
+                    I_DESCRIPTION,
+                    theme::nt(&app.theme()).text_soft,
+                    tr("Journaux de session"),
+                    if logs == 0 {
+                        tr("Aucun journal")
+                    } else {
+                        trf("%1$s fichier(s)", &[&logs])
+                    },
+                    None,
+                    Message::SettingsPage(Some(crate::app::SettingsPage::Logs))
+                ),
+            ]),
+        ]
+        .spacing(10),
+    ]
+}
+
+/// The recorded sessions: open one, show the folder, delete.
+pub(super) fn logs_settings(app: &App) -> Column<'_, Message> {
+    let dir = app.paths.data.join("logs");
+    let files = crate::logs::list(&dir);
+    let now = nautile_core::model::now_ms();
+    let mut c = column![row![
+        soft(dir.display().to_string()).font(MONO).width(Fill),
+        secondary(tr("Ouvrir le dossier"), Message::OpenPath(dir.clone())),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center)];
+    if files.is_empty() {
+        c = c.push(soft(tr(
+            "Aucun journal. Activez « Enregistrer les sessions » dans Terminal › Sessions.",
+        )));
+        return c;
+    }
+    let rows: Vec<Element<Message>> = files
+        .into_iter()
+        .map(|f| {
+            let size = if f.size >= 1024 * 1024 {
+                format!("{:.1} Mo", f.size as f64 / 1048576.0)
+            } else {
+                format!("{} Ko", f.size.div_ceil(1024))
+            };
+            row![
+                button(
+                    row![
+                        kit::icon_tile(I_DESCRIPTION, theme::nt(&app.theme()).text_soft),
+                        column![
+                            text(f.name.clone()).size(14).font(MONO),
+                            soft(format!("{size} · {}", kit::relative_time(f.modified, now))),
+                        ]
+                        .spacing(2)
+                        .width(Fill),
+                    ]
+                    .spacing(12)
+                    .align_y(Alignment::Center)
+                )
+                .width(Fill)
+                .padding([10, 14])
+                .style(theme::card_pick(false))
+                .on_press(Message::OpenPath(f.path.clone())),
+                icon_button(I_TRASH, Message::DeleteLog(f.path)),
+                Space::new().width(6),
+            ]
+            .align_y(Alignment::Center)
+            .into()
+        })
+        .collect();
+    c.push(kit::card(rows))
 }
 
 pub(super) fn lock_settings(app: &App) -> Column<'_, Message> {

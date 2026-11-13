@@ -5,6 +5,7 @@ pub mod assistant;
 pub mod backup;
 pub mod files;
 pub mod kit;
+pub mod logs;
 pub mod remote_view;
 pub mod sessions;
 pub mod storage;

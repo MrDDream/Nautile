@@ -145,11 +145,23 @@ fn demo(english: bool, dark: bool) -> App {
     )
 }
 
+/// The app's fonts and the terminal ones (loaded on demand in the app).
+fn test_fonts() -> Vec<std::borrow::Cow<'static, [u8]>> {
+    let mut f: Vec<std::borrow::Cow<'static, [u8]>> = vec![theme::FONT_UI.into(), theme::FONT_MONO.into(), theme::FONT_ICONS.into()];
+    f.extend(
+        nautile_app::term::fonts::ALL
+            .iter()
+            .filter_map(|x| x.bytes)
+            .map(std::borrow::Cow::from),
+    );
+    f
+}
+
 fn shoot(app: &App, name: &str) {
     // The settings page is long: shown whole.
     let height = if name.ends_with("backups") { 1600.0 } else { 800.0 };
     let settings = iced_test::core::Settings {
-        fonts: vec![theme::FONT_UI.into(), theme::FONT_MONO.into(), theme::FONT_ICONS.into()],
+        fonts: test_fonts(),
         default_font: theme::UI,
         ..Default::default()
     };
@@ -297,6 +309,18 @@ fn settings_terminal() {
 }
 
 #[test]
+fn settings_terminal_sessions() {
+    each(|app| {
+        let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::Terminal)));
+        let _ = app.update(Message::TermTab(nautile_app::app::TermTab::Sessions));
+        let _ = app.update(Message::TermCursor("bar".into()));
+        let _ = app.update(Message::TermFamily("cascadia".into()));
+        "settings-terminal-sessions"
+    });
+}
+
+#[test]
 fn settings_lock() {
     each(|app| {
         let _ = app.update(Message::Nav(Page::Settings));
@@ -331,7 +355,7 @@ fn with_session(app: &mut App) -> u64 {
     use nautile_app::sessions::{Tab, TabState};
     use nautile_app::term::Terminal;
     let host = app.hosts.iter().find(|h| h.alias == "docker-01").unwrap().clone();
-    let mut term = Terminal::new(132, 38, app.term_theme());
+    let mut term = Terminal::new(132, 38, app.term_theme(), app.cursor_shape());
     let p = "\x1b[1;32mmrd@docker-01\x1b[0m:\x1b[1;34m~\x1b[0m$ ";
     let demo = format!(
         "{p}uptime\r\n 14:02:11 up 41 days,  3:12,  1 user,  load average: 0.31, 0.27, 0.22\r\n\
@@ -360,6 +384,7 @@ fn with_session(app: &mut App) -> u64 {
         remote_title: Some("mrd@docker-01: ~".into()),
         files: None,
         remote: None,
+        log: None,
     });
     app.next_tab = 1;
     let _ = app.update(Message::SelectTab(Some(1)));
@@ -409,7 +434,7 @@ fn typing_in_the_terminal_sends_the_keys() {
     let mut app = demo(false, true);
     with_session(&mut app);
     let settings = iced_test::core::Settings {
-        fonts: vec![theme::FONT_UI.into(), theme::FONT_MONO.into(), theme::FONT_ICONS.into()],
+        fonts: test_fonts(),
         default_font: theme::UI,
         ..Default::default()
     };
@@ -647,7 +672,7 @@ fn vnc_desktop() {
             name: host.alias.clone(),
             color: host.color,
             protocol: host.protocol,
-            term: nautile_app::term::Terminal::new(10, 2, app.term_theme()),
+            term: nautile_app::term::Terminal::new(10, 2, app.term_theme(), app.cursor_shape()),
             input: None,
             state: TabState::Open,
             remote_title: Some("raspberry:0".into()),
@@ -659,6 +684,7 @@ fn vnc_desktop() {
                 size: (w, h),
                 cursor: None,
             })),
+            log: None,
         });
         let _ = app.update(Message::SelectTab(Some(7)));
         "vnc"

@@ -106,6 +106,16 @@ pub struct Settings {
     pub ai_urls: std::collections::HashMap<String, String>,
     /// A system prompt of the user's (the built-in one when empty).
     pub ai_prompt: Option<String>,
+    /// The terminal font (`TerminalFonts` ids: jetbrains, fira, hack, source, cascadia, system).
+    pub terminal_family: Option<String>,
+    /// The cursor: block, bar or underline.
+    pub terminal_cursor: Option<String>,
+    /// Ask before closing a connected session (on by default).
+    pub confirm_close: Option<bool>,
+    /// Keep a copy of each new session's output in `data/logs`.
+    pub session_logs: bool,
+    /// Ctrl+Shift+P types the host's password (on by default).
+    pub password_key: Option<bool>,
     /// The colour of the buttons.
     pub accent: crate::theme::Accent,
     pub button_style: crate::theme::ButtonStyle,
@@ -142,6 +152,22 @@ impl Settings {
 
     pub fn lock_after(&self) -> u32 {
         self.lock_after.unwrap_or(15)
+    }
+
+    pub fn terminal_family(&self) -> crate::term::fonts::TermFont {
+        crate::term::fonts::by_id(self.terminal_family.as_deref().unwrap_or("jetbrains"))
+    }
+
+    pub fn terminal_cursor(&self) -> &str {
+        self.terminal_cursor.as_deref().unwrap_or("block")
+    }
+
+    pub fn confirm_close(&self) -> bool {
+        self.confirm_close.unwrap_or(true)
+    }
+
+    pub fn password_key(&self) -> bool {
+        self.password_key.unwrap_or(true)
     }
 
     pub fn terminal_font(&self) -> f32 {

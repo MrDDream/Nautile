@@ -89,7 +89,7 @@ fn a_question_becomes_a_command() {
         Some(db),
         None,
     );
-    let mut term = Terminal::new(80, 24, app.term_theme());
+    let mut term = Terminal::new(80, 24, app.term_theme(), app.cursor_shape());
     term.feed(b"mrd@docker-01:~$ cp big.iso /\r\ncp: error writing '/big.iso': No space left on device\r\n");
     app.tabs.push(Tab {
         id: 1,
@@ -103,6 +103,7 @@ fn a_question_becomes_a_command() {
         remote_title: None,
         files: None,
         remote: None,
+        log: None,
     });
     let _ = app.update(Message::SelectTab(Some(1)));
     let _ = app.update(Message::Ai(AiMsg::Toggle));

@@ -89,8 +89,14 @@ pub(super) fn session<'a>(app: &'a App, t: &'a Tab) -> Element<'a, Message> {
         return remote_desktop(app, t, r);
     }
     let focused = app.prompts.is_empty() && app.editor.is_none();
-    let term: Element<Message> =
-        term_view::view(&t.term, MONO, app.settings.terminal_font(), focused, move |a| Message::Term(id, a)).into();
+    let term: Element<Message> = term_view::view(
+        &t.term,
+        app.settings.terminal_family().font,
+        app.settings.terminal_font(),
+        focused,
+        move |a| Message::Term(id, a),
+    )
+    .into();
     let bg = t.term.palette.background;
     let term = container(term).style(move |_| container::Style {
         background: Some(bg.into()),

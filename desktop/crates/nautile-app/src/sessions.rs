@@ -42,6 +42,8 @@ pub struct Tab {
     pub state: TabState,
     /// What the shell put in the title (`user@host: ~`).
     pub remote_title: Option<String>,
+    /// The copy of the output, when sessions are recorded.
+    pub log: Option<crate::logs::SessionLog>,
 }
 
 impl Tab {
@@ -97,6 +99,35 @@ impl App {
 
     pub fn term_theme(&self) -> themes::TermTheme {
         themes::by_id(self.settings.terminal_theme())
+    }
+
+    /// The password of [h]'s login: its identity's, else its own.
+    pub fn host_password(&self, h: &Host) -> Option<String> {
+        let identity = (h.auth_method == AuthMethod::Identity)
+            .then(|| h.identity_id.and_then(|i| self.identities.iter().find(|x| x.id == i)))
+            .flatten();
+        match identity {
+            Some(id) => id.password.clone(),
+            None => h.password.clone(),
+        }
+        .filter(|p| !p.is_empty())
+    }
+
+    /// Types the host's password and Enter in the active session (for a sudo prompt).
+    pub fn type_password(&mut self) {
+        let Some(t) = self.active_tab.and_then(|id| self.tab(id)) else {
+            return;
+        };
+        let Some(h) = t.host_id.and_then(|h| self.hosts.iter().find(|x| x.id == h)) else {
+            return;
+        };
+        if let Some(p) = self.host_password(h) {
+            t.send(Input::Data(format!("{p}\r").into_bytes()));
+        }
+    }
+
+    pub fn cursor_shape(&self) -> alacritty_terminal::vte::ansi::CursorShape {
+        crate::term::cursor_shape(self.settings.terminal_cursor())
     }
 
     /// The hops to [host]: outermost jump host first; and the host of the first hop.
@@ -230,12 +261,13 @@ impl App {
             name,
             color,
             protocol,
-            term: Terminal::new(cols, rows, self.term_theme()),
+            term: Terminal::new(cols, rows, self.term_theme(), self.cursor_shape()),
             input: None,
             state: TabState::Connecting(String::new()),
             remote_title: None,
             files: None,
             remote: None,
+            log: None,
         });
         self.active_tab = Some(self.next_tab);
         self.last_tab = self.active_tab;
@@ -321,13 +353,15 @@ impl App {
             return host.map(|h| self.open_files(h)).unwrap_or_else(Task::none);
         }
         let theme = self.term_theme();
+        let cursor = self.cursor_shape();
         let (cols, rows) = self.grid;
         if let Some(t) = self.tab_mut(id) {
             t.send(Input::Close);
             if let Some(r) = t.remote.take() {
                 let _ = r.input.send(nautile_remote::RemoteInput::Close);
             }
-            t.term = Terminal::new(cols, rows, theme);
+            t.term = Terminal::new(cols, rows, theme, cursor);
+            t.log = None;
             t.remote_title = None;
         }
         self.start(id)
@@ -397,9 +431,14 @@ impl App {
             }
             Event::Connected => {
                 let mut host = None;
+                let record = self.settings.session_logs;
+                let logs = self.paths.data.join("logs");
                 if let Some(t) = self.tab_mut(id) {
                     t.state = TabState::Open;
                     host = t.host_id;
+                    if record && t.log.is_none() && t.remote.is_none() && t.files.is_none() {
+                        t.log = crate::logs::SessionLog::start(&logs, &t.name);
+                    }
                 }
                 if let (Some(h), Some(db)) = (host.and_then(|h| self.hosts.iter_mut().find(|x| x.id == h)), &self.db) {
                     h.last_connected_at = Some(now_ms());
@@ -409,6 +448,9 @@ impl App {
             Event::Output(bytes) => {
                 let Some(t) = self.tab_mut(id) else { return Task::none() };
                 let fx = t.term.feed(&bytes);
+                if let Some(log) = &mut t.log {
+                    log.write(&bytes);
+                }
                 if !fx.reply.is_empty() {
                     t.send(Input::Data(fx.reply));
                 }

@@ -42,6 +42,17 @@ pub enum SettingsPage {
     Backup,
     Security,
     Data,
+    /// The recorded sessions (under Terminal).
+    Logs,
+}
+
+/// The tabs of the terminal settings (as on Android).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TermTab {
+    #[default]
+    Aspect,
+    Keyboard,
+    Sessions,
 }
 
 /// The tabs of the keychain page.
@@ -366,6 +377,20 @@ pub enum Message {
     SystemTheme(iced::theme::Mode),
     /// Does nothing (previews).
     Noop,
+    TermTab(TermTab),
+    TermFamily(String),
+    TermCursor(String),
+    FontLoaded,
+    ConfirmClose(bool),
+    SessionLogs(bool),
+    PasswordKey(bool),
+    /// « Fermer » (true) or « Annuler » for the session in [App::closing].
+    CloseAnswer(bool),
+    /// Ctrl+Shift+P: types the host's password in the active session.
+    TypePassword,
+    /// Opens a file or folder with the system.
+    OpenPath(std::path::PathBuf),
+    DeleteLog(std::path::PathBuf),
     Accent(crate::theme::Accent),
     ButtonStyle(crate::theme::ButtonStyle),
     SettingsPage(Option<SettingsPage>),
@@ -540,6 +565,11 @@ pub struct App {
     pub sidebar_drag: bool,
     /// The system is in dark mode (for « Système »).
     pub os_dark: bool,
+    pub term_tab: TermTab,
+    /// The terminal fonts already given to the renderer.
+    pub fonts_loaded: Vec<&'static str>,
+    /// A connected session waiting for « Fermer ? ».
+    pub closing: Option<u64>,
 }
 
 impl App {
@@ -563,7 +593,9 @@ impl App {
         };
         let backups = app.backup_boot();
         let os_theme = iced::system::theme().map(Message::SystemTheme);
-        (app, Task::batch([focus, backups, os_theme]))
+        let font = app.settings.terminal_family().id;
+        let font = app.load_font(font);
+        (app, Task::batch([focus, backups, os_theme, font]))
     }
 
     pub fn with(paths: Paths, settings: Settings, db: Option<Db>, fatal: Option<String>) -> App {
@@ -609,6 +641,9 @@ impl App {
             window: iced::Size::new(1280.0, 800.0),
             sidebar_drag: false,
             os_dark: true,
+            term_tab: TermTab::Aspect,
+            fonts_loaded: Vec::new(),
+            closing: None,
         };
         app.locked = app.settings.locks();
         app.lock_form.method = app.settings.lock_method;
@@ -745,6 +780,11 @@ impl App {
             Message::SettingsPage(p) => {
                 self.settings_page = p;
                 self.search.clear();
+                if p == Some(SettingsPage::Terminal) {
+                    // The fonts are shown in their own face.
+                    let ids: Vec<&str> = crate::term::fonts::ALL.iter().map(|f| f.id).collect();
+                    return Task::batch(ids.into_iter().map(|id| self.load_font(id)));
+                }
             }
             Message::Search(s) => self.search = s,
             Message::GroupFilter(g) => self.group_filter = g,
@@ -774,7 +814,9 @@ impl App {
                 }
             }
             Message::Escape => {
-                if self.snippet_run.is_some() {
+                if self.closing.is_some() {
+                    self.closing = None;
+                } else if self.snippet_run.is_some() {
                     self.snippet_run = None;
                 } else if self.editor.is_some() {
                     self.editor = None;
@@ -784,6 +826,54 @@ impl App {
             }
             Message::WindowResized(size) => self.window = size,
             Message::Noop => {}
+            Message::TermTab(t) => self.term_tab = t,
+            Message::TermFamily(id) => {
+                self.settings.terminal_family = Some(id.clone());
+                let _ = self.settings.save(&self.paths);
+                return self.load_font(&id);
+            }
+            Message::TermCursor(id) => {
+                let shape = crate::term::cursor_shape(&id);
+                self.settings.terminal_cursor = Some(id);
+                let _ = self.settings.save(&self.paths);
+                for t in &mut self.tabs {
+                    t.term.set_cursor(shape);
+                }
+            }
+            Message::FontLoaded => {}
+            Message::ConfirmClose(v) => {
+                self.settings.confirm_close = Some(v);
+                let _ = self.settings.save(&self.paths);
+            }
+            Message::SessionLogs(v) => {
+                self.settings.session_logs = v;
+                let _ = self.settings.save(&self.paths);
+            }
+            Message::PasswordKey(v) => {
+                self.settings.password_key = Some(v);
+                let _ = self.settings.save(&self.paths);
+            }
+            Message::CloseAnswer(yes) => {
+                if let Some(id) = self.closing.take() {
+                    if yes {
+                        self.close_tab(id);
+                    }
+                }
+            }
+            Message::TypePassword => {
+                if self.settings.password_key() {
+                    self.type_password();
+                }
+            }
+            Message::OpenPath(p) => {
+                let _ = opener::open(&p);
+            }
+            Message::DeleteLog(p) => {
+                // Only the recorded sessions, never anything else.
+                if p.parent() == Some(self.paths.data.join("logs").as_path()) {
+                    let _ = std::fs::remove_file(&p);
+                }
+            }
             Message::SystemTheme(mode) => match mode {
                 iced::theme::Mode::Dark => self.os_dark = true,
                 iced::theme::Mode::Light => self.os_dark = false,
@@ -1604,12 +1694,12 @@ impl App {
                 }
                 self.editor = None;
             }
-            Message::CloseTab(id) => self.close_tab(id),
+            Message::CloseTab(id) => self.ask_close(id),
             Message::Reconnect(id) => return self.reconnect(id),
             Message::NextTab(forward) => self.cycle_tab(forward),
             Message::CloseActiveTab => {
                 if let Some(id) = self.active_tab {
-                    self.close_tab(id);
+                    self.ask_close(id);
                 }
             }
             Message::Session(id, e) => return self.on_session(id, e),
@@ -1653,12 +1743,35 @@ fn shortcut(e: iced::keyboard::Event) -> Option<Message> {
         Key::Character("t" | "T") if m.control() && m.shift() => Some(Message::OpenLocal),
         Key::Character("w" | "W") if m.control() && m.shift() => Some(Message::CloseActiveTab),
         Key::Character("a" | "A") if m.control() && m.shift() => Some(Message::Ai(crate::assistant::AiMsg::Toggle)),
+        Key::Character("p" | "P") if m.control() && m.shift() => Some(Message::TypePassword),
         Key::Named(Named::Escape) => Some(Message::Escape),
         _ => None,
     }
 }
 
 impl App {
+    /// Gives a terminal font to the renderer, once.
+    fn load_font(&mut self, id: &str) -> Task<Message> {
+        let f = crate::term::fonts::by_id(id);
+        match f.bytes {
+            Some(bytes) if !self.fonts_loaded.contains(&f.id) => {
+                self.fonts_loaded.push(f.id);
+                iced::font::load(bytes).map(|_| Message::FontLoaded)
+            }
+            _ => Task::none(),
+        }
+    }
+
+    /// Closes a session, asking first when it is connected (« Confirmer la fermeture »).
+    fn ask_close(&mut self, id: u64) {
+        let open = self.tab(id).is_some_and(|t| t.state == crate::sessions::TabState::Open);
+        if open && self.settings.confirm_close() {
+            self.closing = Some(id);
+        } else {
+            self.close_tab(id);
+        }
+    }
+
     fn unlock(&mut self) -> Task<Message> {
         use nautile_core::lock;
         let now = nautile_core::model::now_ms();

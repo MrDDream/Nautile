@@ -58,6 +58,7 @@ const I_USB: char = '\u{E1E0}'; // usb
 const I_UP_ARROW: char = '\u{E5D8}'; // arrow_upward
 const I_DOWN_ARROW: char = '\u{E5DB}'; // arrow_downward
 const I_TUNE: char = '\u{E429}'; // tune
+const I_DESCRIPTION: char = '\u{E873}'; // description
 const I_PLUS: char = '\u{E145}'; // add
 
 pub fn icon<'a>(c: char) -> iced::widget::Text<'a> {
@@ -184,6 +185,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         (_, Some(e)) => layers = layers.push(kit::overlay(editor(app, e, max_h), None)),
         (Some(crate::app::Modal::NewHost), None) => layers = layers.push(new_host_modal(app, max_h)),
         (None, None) => {}
+    }
+    if let Some(id) = app.closing {
+        layers = layers.push(close_dialog(app, id));
     }
     if let Some(p) = app.prompts.first() {
         layers = layers.push(prompt_dialog(app, &p.prompt));
@@ -396,4 +400,28 @@ fn green<'a>(s: String) -> iced::widget::Text<'a> {
 
 fn am(m: crate::assistant::AiMsg) -> Message {
     Message::Ai(m)
+}
+
+/// « Fermer la session ? » for a connected one.
+fn close_dialog(app: &App, id: u64) -> Element<'_, Message> {
+    let name = app.tab(id).map(|t| t.name.clone()).unwrap_or_default();
+    let body = column![
+        text(trf("Fermer « %1$s » ?", &[&name])).size(20).font(BOLD),
+        soft(tr("La session est connectée : ce qui tourne au premier plan sera arrêté.")).size(14),
+        row![
+            Space::new().width(Fill),
+            secondary(tr("Annuler"), Message::CloseAnswer(false)),
+            button(text(tr("Fermer")).size(14).font(BOLD))
+                .padding([9, 18])
+                .style(theme::danger)
+                .on_press(Message::CloseAnswer(true)),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center),
+    ]
+    .spacing(14);
+    kit::overlay(
+        container(body).padding(24).max_width(480).style(theme::dialog),
+        Some(Message::CloseAnswer(false)),
+    )
 }

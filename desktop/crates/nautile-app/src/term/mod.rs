@@ -1,5 +1,6 @@
 //! The terminal of a session: alacritty's emulator fed with the connection's bytes, drawn by [widget].
 
+pub mod fonts;
 pub mod keys;
 pub mod themes;
 pub mod widget;
@@ -12,7 +13,7 @@ use alacritty_terminal::index::{Column, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{Config, Term, TermMode};
-use alacritty_terminal::vte::ansi::{Processor, Rgb, StdSyncHandler};
+use alacritty_terminal::vte::ansi::{CursorShape, CursorStyle, Processor, Rgb, StdSyncHandler};
 
 /// What the emulator asks of the app.
 #[derive(Clone, Default)]
@@ -46,20 +47,41 @@ pub struct Terminal {
 /// Lines kept above the screen (as on Android).
 pub const SCROLLBACK: usize = 5000;
 
+fn config(cursor: CursorShape) -> Config {
+    Config {
+        scrolling_history: SCROLLBACK,
+        default_cursor_style: CursorStyle {
+            shape: cursor,
+            blinking: false,
+        },
+        ..Config::default()
+    }
+}
+
+/// The cursor setting (`block`, `bar`, `underline`, as Android's Bloc / Barre / Souligné).
+pub fn cursor_shape(id: &str) -> CursorShape {
+    match id {
+        "bar" => CursorShape::Beam,
+        "underline" => CursorShape::Underline,
+        _ => CursorShape::Block,
+    }
+}
+
 impl Terminal {
-    pub fn new(cols: u16, rows: u16, palette: themes::TermTheme) -> Terminal {
+    pub fn new(cols: u16, rows: u16, palette: themes::TermTheme, cursor: CursorShape) -> Terminal {
         let listener = Listener::default();
-        let config = Config {
-            scrolling_history: SCROLLBACK,
-            ..Config::default()
-        };
         let size = TermSize::new(cols.max(2) as usize, rows.max(1) as usize);
         Terminal {
-            term: Term::new(config, &size, listener.clone()),
+            term: Term::new(config(cursor), &size, listener.clone()),
             parser: Processor::new(),
             listener,
             palette,
         }
+    }
+
+    /// The cursor's shape when programs do not ask for another one.
+    pub fn set_cursor(&mut self, cursor: CursorShape) {
+        self.term.set_options(config(cursor));
     }
 
     pub fn cols(&self) -> u16 {
@@ -195,7 +217,7 @@ mod tests {
 
     #[test]
     fn bytes_become_text_and_answers() {
-        let mut t = Terminal::new(40, 10, themes::by_id("nautile"));
+        let mut t = Terminal::new(40, 10, themes::by_id("nautile"), CursorShape::Block);
         let fx = t.feed(b"\x1b]0;mrd@docker-01\x07hello \x1b[1;32mworld\x1b[0m\r\n\x1b[6n");
         assert_eq!(fx.title.as_deref(), Some("mrd@docker-01"));
         assert_eq!(fx.reply, b"\x1b[2;1R", "cursor position report");
@@ -209,7 +231,7 @@ mod tests {
 
     #[test]
     fn selection_gives_the_text() {
-        let mut t = Terminal::new(40, 10, themes::by_id("nautile"));
+        let mut t = Terminal::new(40, 10, themes::by_id("nautile"), CursorShape::Block);
         t.feed(b"first line\r\nsecond line");
         t.select_start(SelectionType::Simple, 1, 0, Side::Left);
         t.select_update(1, 5, Side::Right);

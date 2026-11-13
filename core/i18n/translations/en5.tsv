@@ -174,3 +174,18 @@ Le shell de cet ordinateur (PowerShell, bash…)	This computer's shell (PowerShe
 Quel type de machine ?	What kind of machine?
 Aucun groupe pour l'instant : rangez vos hôtes par lieu, client ou usage.	No groups yet: sort your hosts by place, client or use.
 Tonal	Tonal
+Fermer « %1\$s » ?	Close “%1\$s”?
+La session est connectée : ce qui tourne au premier plan sera arrêté.	The session is connected: what runs in the foreground will be stopped.
+Copier la sélection	Copy the selection
+Clic droit	Right click
+Copier la sélection, ou coller	Copy the selection, or paste
+Nouveau terminal local	New local terminal
+Fermer l'onglet	Close the tab
+Onglet suivant (Maj : précédent)	Next tab (Shift: previous)
+Taper le mot de passe de l'hôte	Type the host's password
+Fermer la fenêtre ouverte	Close the open window
+Raccourci mot de passe	Password shortcut
+Ctrl+Maj+P tape le mot de passe de l'hôte à une invite sudo	Ctrl+Shift+P types the host's password at a sudo prompt
+Copie de la sortie de chaque nouvelle session, stockée sur cet ordinateur	A copy of each new session's output, stored on this computer
+Ouvrir le dossier	Open the folder
+Aucun journal. Activez « Enregistrer les sessions » dans Terminal › Sessions.	No logs. Turn on “Record sessions” in Terminal › Sessions.

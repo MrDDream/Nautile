@@ -70,7 +70,7 @@ pub fn view<'a, Message>(
 struct State {
     /// Measured size of a cell for the current font size.
     cell: Size,
-    measured_for: f32,
+    measured_for: Option<(f32, Font)>,
     /// The last size asked with [Action::Resize].
     reported: (u16, u16),
     selecting: bool,
@@ -199,7 +199,7 @@ where
 
     fn layout(&mut self, tree: &mut Tree, _renderer: &Renderer, limits: &layout::Limits) -> layout::Node {
         let state = tree.state.downcast_mut::<State>();
-        if state.measured_for != self.size {
+        if state.measured_for != Some((self.size, self.font)) {
             // The advance the renderer really uses (hinting may round it).
             let probe = "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM";
             let p = Renderer::Paragraph::with_text(Text {
@@ -215,7 +215,7 @@ where
             });
             let w = p.min_bounds().width / probe.len() as f32;
             state.cell = Size::new(if w > 0.0 { w } else { self.size * 0.6 }, (self.size * 1.3).round());
-            state.measured_for = self.size;
+            state.measured_for = Some((self.size, self.font));
         }
         layout::Node::new(limits.max())
     }

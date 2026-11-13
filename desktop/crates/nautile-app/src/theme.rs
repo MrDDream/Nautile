@@ -737,7 +737,10 @@ mod tests {
                 for style in [ButtonStyle::Plein, ButtonStyle::Tonal, ButtonStyle::Contour] {
                     let n = nt(&theme(base, accent, style));
                     let want = palette(base, accent, style);
-                    assert_eq!((n.bg, n.accent, n.on_accent, n.style), (want.bg, want.accent, want.on_accent, want.style));
+                    assert_eq!(
+                        (n.bg, n.accent, n.on_accent, n.style),
+                        (want.bg, want.accent, want.on_accent, want.style)
+                    );
                 }
             }
         }
