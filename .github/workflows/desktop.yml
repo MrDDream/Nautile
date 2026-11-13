@@ -34,3 +34,13 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Tests (including the Android compatibility files)
         run: cargo test --all
+      - name: Release build (to try the app)
+        run: cargo build --release -p nautile-app
+      - uses: actions/upload-artifact@v5
+        with:
+          name: nautile-desktop-${{ runner.os }}
+          path: |
+            desktop/target/release/nautile
+            desktop/target/release/nautile.exe
+          if-no-files-found: ignore
+          retention-days: 14

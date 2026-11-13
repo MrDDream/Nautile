@@ -24,3 +24,8 @@ sha2 = "0.10"
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
 # SQLCipher with OpenSSL built from source: same encrypted database on Windows and Linux.
 rusqlite = { version = "0.42", features = ["bundled-sqlcipher-vendored-openssl"] }
+
+# Smaller executables: no debug symbols, whole-program optimisation.
+[profile.release]
+strip = true
+lto = "thin"
