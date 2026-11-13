@@ -24,6 +24,17 @@ pub enum Page {
     Settings,
 }
 
+/// A sub-page of the settings (`None` in [App::settings_page]: their home).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsPage {
+    Appearance,
+    Terminal,
+    Ai,
+    Backup,
+    Security,
+    Data,
+}
+
 /// The tabs of the keychain page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeysTab {
@@ -93,7 +104,7 @@ impl std::fmt::Display for AuthChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&match self.0 {
             AuthMethod::Password | AuthMethod::Agent => tr("Mot de passe"),
-            AuthMethod::Key => tr("Clé SSH"),
+            AuthMethod::Key => tr("Clé"),
             AuthMethod::Identity => tr("Identité"),
         })
     }
@@ -158,7 +169,7 @@ impl HostForm {
     }
 
     pub fn valid(&self) -> bool {
-        !self.alias.trim().is_empty()
+        (!self.alias.trim().is_empty() || !self.hostname.trim().is_empty())
             && (self.protocol == Protocol::Local || !self.hostname.trim().is_empty())
             && self
                 .port
@@ -169,7 +180,11 @@ impl HostForm {
 
     fn host(&self) -> Host {
         let mut h = self.original.clone().unwrap_or_else(|| Host::new("", ""));
-        h.alias = self.alias.trim().to_owned();
+        // The display name is optional, as on Android: the address otherwise.
+        h.alias = Some(self.alias.trim())
+            .filter(|a| !a.is_empty())
+            .unwrap_or(self.hostname.trim())
+            .to_owned();
         h.hostname = self.hostname.trim().to_owned();
         h.port = self.port.trim().parse().unwrap_or(self.protocol.default_port());
         h.username = self.username.trim().to_owned();
@@ -328,12 +343,16 @@ pub enum HostField {
 #[derive(Debug, Clone)]
 pub enum Message {
     Nav(Page),
+    SettingsPage(Option<SettingsPage>),
     Search(String),
+    GroupFilter(Option<i64>),
+    SnippetFilter(Option<String>),
     CloseEditor,
     NewHost,
     EditHost(i64),
     Host(HostField),
     SaveHost,
+    SaveHostAndConnect,
     DeleteHost,
     NewGroup,
     EditGroup(i64),
@@ -480,6 +499,12 @@ pub struct App {
     pub last_activity: std::time::Instant,
     pub backup: crate::backup::BackupState,
     pub assistant: crate::assistant::AssistantState,
+    /// The group whose hosts are shown (`None`: all).
+    pub group_filter: Option<i64>,
+    /// The snippet tag shown (`None`: all).
+    pub snippet_tag: Option<String>,
+    /// The settings sub-page open (`None`: their home).
+    pub settings_page: Option<SettingsPage>,
 }
 
 impl App {
@@ -541,6 +566,9 @@ impl App {
             last_activity: std::time::Instant::now(),
             backup: Default::default(),
             assistant: Default::default(),
+            group_filter: None,
+            snippet_tag: None,
+            settings_page: None,
         };
         app.locked = app.settings.locks();
         app.lock_form.method = app.settings.lock_method;
@@ -657,8 +685,15 @@ impl App {
                 self.page = p;
                 self.editor = None;
                 self.search.clear();
+                self.settings_page = None;
+            }
+            Message::SettingsPage(p) => {
+                self.settings_page = p;
+                self.search.clear();
             }
             Message::Search(s) => self.search = s,
+            Message::GroupFilter(g) => self.group_filter = g,
+            Message::SnippetFilter(t) => self.snippet_tag = t,
             Message::CloseEditor => self.editor = None,
             Message::ToastClear => self.toast = None,
 
@@ -674,7 +709,23 @@ impl App {
                     f.confirm_delete = false;
                     match field {
                         HostField::Alias(v) => f.alias = v,
-                        HostField::Hostname(v) => f.hostname = v,
+                        HostField::Hostname(v) => {
+                            // « user@address:port » pasted in the address fills the three fields.
+                            let mut rest = v.trim().to_owned();
+                            if let Some((user, host)) = rest.clone().split_once('@') {
+                                if !user.is_empty() && !host.is_empty() {
+                                    f.username = user.to_owned();
+                                    rest = host.to_owned();
+                                }
+                            }
+                            if let Some((host, port)) = rest.clone().rsplit_once(':') {
+                                if !host.contains(':') && port.parse::<u16>().is_ok() {
+                                    f.port = port.to_owned();
+                                    rest = host.to_owned();
+                                }
+                            }
+                            f.hostname = if rest == v.trim() { v } else { rest };
+                        }
                         HostField::Port(v) => f.port = v.chars().filter(char::is_ascii_digit).take(5).collect(),
                         HostField::Username(v) => f.username = v,
                         HostField::Protocol(p) => {
@@ -717,6 +768,22 @@ impl App {
                         } else {
                             tr("Modifications enregistrées")
                         })
+                    }
+                    Err(e) => self.fail(e),
+                };
+            }
+            Message::SaveHostAndConnect => {
+                let (Some(Editor::Host(f)), Some(db)) = (&self.editor, &self.db) else {
+                    return Task::none();
+                };
+                if !f.valid() {
+                    return Task::none();
+                }
+                return match db.store().upsert(&f.host()) {
+                    Ok(id) => {
+                        self.editor = None;
+                        self.reload();
+                        self.connect(id)
                     }
                     Err(e) => self.fail(e),
                 };

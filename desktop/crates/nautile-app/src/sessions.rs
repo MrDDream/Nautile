@@ -494,6 +494,16 @@ impl App {
         let Some(sn) = self.snippets.iter().find(|s| s.id == snippet_id).cloned() else {
             return Task::none();
         };
+        // Counted as on Android: the most used come first.
+        if let Some(db) = &self.db {
+            let mut counted = sn.clone();
+            counted.run_count += 1;
+            if db.store().update(&counted).is_ok() {
+                if let Some(x) = self.snippets.iter_mut().find(|s| s.id == snippet_id) {
+                    x.run_count += 1;
+                }
+            }
+        }
         let vars = sn.variables();
         if !vars.is_empty() {
             self.snippet_run = Some((snippet_id, vars.into_iter().map(|v| (v, String::new())).collect()));

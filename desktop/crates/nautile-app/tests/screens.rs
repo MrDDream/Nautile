@@ -1,7 +1,7 @@
 //! Renders the screens without a display (iced_test, tiny-skia), in dark and light:
 //! `NAUTILE_SCREENSHOTS=1 cargo test -p nautile-app --test screens` writes them to desktop/screenshots.
 
-use nautile_app::app::{App, Message, Page};
+use nautile_app::app::{App, Message, Page, SettingsPage};
 use nautile_app::storage::{Appearance, Paths, Settings};
 use nautile_app::{theme, ui};
 use nautile_core::db::Db;
@@ -72,6 +72,22 @@ fn demo(english: bool, dark: bool) -> App {
         ),
         host("raspberry", "pi.lan", "", 5900, Protocol::Vnc, office, 0xFF5A6672, ""),
     ] {
+        // Same OS and last connections as the Android screenshots.
+        let now = nautile_core::model::now_ms();
+        let (os, ago) = match h.alias.as_str() {
+            "docker-01" => ("debian", 4),
+            "nas" => ("truenas", 60),
+            "pihole" => ("raspbian", 60 * 26),
+            "proxmox" => ("proxmox", 60 * 50),
+            "vps-paris" => ("ubuntu", 60 * 5),
+            "pc-bureau" => ("windows", 60 * 24 * 9),
+            _ => ("unknown", 0),
+        };
+        let h = Host {
+            os_id: Some(os.into()),
+            last_connected_at: (ago > 0).then(|| now - ago * 60_000),
+            ..h
+        };
         s.insert(&h).unwrap();
     }
     for (name, command, tag) in [
@@ -131,9 +147,9 @@ fn demo(english: bool, dark: bool) -> App {
 
 fn shoot(app: &App, name: &str) {
     // The settings page is long: shown whole.
-    let height = if name.ends_with("backups") { 2900.0 } else { 800.0 };
+    let height = if name.ends_with("backups") { 1600.0 } else { 800.0 };
     let settings = iced_test::core::Settings {
-        fonts: vec![theme::FONT_UI.into(), theme::FONT_MONO.into()],
+        fonts: vec![theme::FONT_UI.into(), theme::FONT_MONO.into(), theme::FONT_ICONS.into()],
         default_font: theme::UI,
         ..Default::default()
     };
@@ -222,6 +238,25 @@ fn settings() {
     each(|app| {
         let _ = app.update(Message::Nav(Page::Settings));
         "settings"
+    });
+}
+
+#[test]
+fn settings_terminal() {
+    each(|app| {
+        let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::Terminal)));
+        "settings-terminal"
+    });
+}
+
+#[test]
+fn settings_lock() {
+    each(|app| {
+        let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::Security)));
+        let _ = app.update(Message::LockPick(Some(nautile_core::lock::LockMethod::Pin)));
+        "settings-lock"
     });
 }
 
@@ -326,7 +361,7 @@ fn typing_in_the_terminal_sends_the_keys() {
     let mut app = demo(false, true);
     with_session(&mut app);
     let settings = iced_test::core::Settings {
-        fonts: vec![theme::FONT_UI.into(), theme::FONT_MONO.into()],
+        fonts: vec![theme::FONT_UI.into(), theme::FONT_MONO.into(), theme::FONT_ICONS.into()],
         default_font: theme::UI,
         ..Default::default()
     };
@@ -493,6 +528,7 @@ fn backups() {
             last: 1_794_560_000_000,
         }];
         let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::Backup)));
         "backups"
     });
 }

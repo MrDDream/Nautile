@@ -10,7 +10,30 @@ pub const BOLD: Font = Font {
     ..UI
 };
 
+/// Google's Material Icons, outlined: the same icons as the Android app (Compose `Icons.Outlined`).
+pub const ICONS: Font = Font::with_name("Material Icons Outlined");
+
 pub const FONT_UI: &[u8] = include_bytes!("../assets/fonts/Inter.ttf");
+pub const FONT_ICONS: &[u8] = include_bytes!("../assets/fonts/MaterialIconsOutlined.otf");
+
+/// The Nautile mark (spiral and cursor) shown before page titles, as on Android.
+pub fn mark() -> iced::widget::image::Handle {
+    static MARK: std::sync::OnceLock<iced::widget::image::Handle> = std::sync::OnceLock::new();
+    MARK.get_or_init(|| {
+        let decoder = png::Decoder::new(std::io::Cursor::new(include_bytes!("../assets/mark.png")));
+        let decoded = decoder.read_info().ok().and_then(|mut r| {
+            let mut buf = vec![0; r.output_buffer_size()];
+            let info = r.next_frame(&mut buf).ok()?;
+            buf.truncate(info.buffer_size());
+            Some((info.width, info.height, buf))
+        });
+        match decoded {
+            Some((w, h, rgba)) => iced::widget::image::Handle::from_rgba(w, h, rgba),
+            None => iced::widget::image::Handle::from_rgba(1, 1, vec![0u8; 4]),
+        }
+    })
+    .clone()
+}
 pub const FONT_MONO: &[u8] = include_bytes!("../assets/fonts/JetBrainsMonoNerd.ttf");
 
 const fn rgb(hex: u32) -> Color {
@@ -142,6 +165,49 @@ pub fn card(t: &Theme) -> container::Style {
         border: Border {
             color: n.border,
             width: 1.0,
+            radius: 16.0.into(),
+        },
+        ..Default::default()
+    }
+}
+
+/// A divider line inside a card, between two rows.
+pub fn divider(t: &Theme) -> container::Style {
+    container::Style {
+        background: Some(nt(t).border.into()),
+        ..Default::default()
+    }
+}
+
+/// A coloured square behind an icon (settings rows, host avatars).
+pub fn soft_tile(color: Color, radius: f32) -> impl Fn(&Theme) -> container::Style {
+    move |_| container::Style {
+        background: Some(alpha(color, 0.15).into()),
+        text_color: Some(color),
+        border: border::rounded(radius),
+        ..Default::default()
+    }
+}
+
+/// The darker block a snippet's command sits in.
+pub fn code_block(t: &Theme) -> container::Style {
+    let n = nt(t);
+    container::Style {
+        background: Some(n.bg.into()),
+        text_color: Some(n.text_soft),
+        border: border::rounded(12),
+        ..Default::default()
+    }
+}
+
+/// The panel around a segmented control.
+pub fn segmented_box(t: &Theme) -> container::Style {
+    let n = nt(t);
+    container::Style {
+        background: Some(n.surface.into()),
+        border: Border {
+            color: n.border,
+            width: 1.0,
             radius: 14.0.into(),
         },
         ..Default::default()
@@ -222,14 +288,80 @@ pub fn primary(t: &Theme, s: button::Status) -> button::Style {
         button::Status::Disabled => alpha(n.accent, 0.35),
         _ => n.accent,
     };
-    base(Some(bg), n.on_accent, Color::TRANSPARENT, 10.0)
+    base(Some(bg), n.on_accent, Color::TRANSPARENT, 14.0)
+}
+
+/// The round « + » of the lists (Android's floating action button).
+pub fn fab(t: &Theme, s: button::Status) -> button::Style {
+    let n = nt(t);
+    let mut st = primary(t, s);
+    st.border.radius = 30.0.into();
+    st.shadow = Shadow {
+        color: alpha(Color::BLACK, 0.35),
+        offset: Vector::new(0.0, 4.0),
+        blur_radius: 14.0,
+    };
+    st.text_color = n.on_accent;
+    st
+}
+
+/// A filter chip with its count (Android's `CountChip`); [tint]: a group's colour or the accent.
+pub fn count_chip(selected: bool, tint: Option<Color>) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |t, s| {
+        let n = nt(t);
+        let c = tint.unwrap_or(n.accent);
+        let bg = if selected {
+            Some(alpha(c, 0.16))
+        } else if matches!(s, button::Status::Hovered) {
+            Some(n.key_bg)
+        } else {
+            Some(n.surface)
+        };
+        base(
+            bg,
+            if selected { n.text } else { n.text_soft },
+            if selected { c } else { n.border },
+            12.0,
+        )
+    }
+}
+
+/// A square bordered icon button (beside the search field).
+pub fn square(t: &Theme, s: button::Status) -> button::Style {
+    let n = nt(t);
+    let bg = if matches!(s, button::Status::Hovered) {
+        n.key_bg
+    } else {
+        n.surface
+    };
+    base(Some(bg), n.text_soft, n.border, 14.0)
+}
+
+/// A row of a card that opens something (no own background).
+pub fn card_row(t: &Theme, s: button::Status) -> button::Style {
+    let n = nt(t);
+    let bg = matches!(s, button::Status::Hovered | button::Status::Pressed).then_some(alpha(n.text, 0.04));
+    base(bg, n.text, Color::TRANSPARENT, 0.0)
+}
+
+/// A row of a card that opens in the side panel: tinted while open.
+pub fn card_pick(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |t, s| {
+        let n = nt(t);
+        let bg = if selected {
+            Some(alpha(n.accent, 0.10))
+        } else {
+            matches!(s, button::Status::Hovered | button::Status::Pressed).then_some(alpha(n.text, 0.04))
+        };
+        base(bg, n.text, Color::TRANSPARENT, 0.0)
+    }
 }
 
 /// Secondary action: outlined.
 pub fn secondary(t: &Theme, s: button::Status) -> button::Style {
     let n = nt(t);
     let bg = matches!(s, button::Status::Hovered).then_some(n.key_bg);
-    base(bg, n.text, n.border, 10.0)
+    base(bg, n.text, n.border, 14.0)
 }
 
 pub fn danger(t: &Theme, s: button::Status) -> button::Style {
@@ -286,7 +418,7 @@ pub fn segment(active: bool) -> impl Fn(&Theme, button::Status) -> button::Style
         } else {
             None
         };
-        base(bg, if active { n.on_accent } else { n.text_soft }, Color::TRANSPARENT, 8.0)
+        base(bg, if active { n.on_accent } else { n.text_soft }, Color::TRANSPARENT, 10.0)
     }
 }
 
@@ -296,11 +428,11 @@ pub fn input(t: &Theme, s: text_input::Status) -> text_input::Style {
     let n = nt(t);
     let focused = matches!(s, text_input::Status::Focused { .. });
     text_input::Style {
-        background: Background::Color(n.bg),
+        background: Background::Color(n.surface),
         border: Border {
             color: if focused { n.accent } else { n.border },
             width: 1.0,
-            radius: 10.0.into(),
+            radius: 12.0.into(),
         },
         icon: n.muted,
         placeholder: n.placeholder,
@@ -316,11 +448,60 @@ pub fn select(t: &Theme, s: pick_list::Status) -> pick_list::Style {
         text_color: n.text,
         placeholder_color: n.placeholder,
         handle_color: n.muted,
-        background: Background::Color(n.bg),
+        background: Background::Color(n.surface),
         border: Border {
             color: if hovered { n.accent } else { n.border },
             width: 1.0,
-            radius: 10.0.into(),
+            radius: 12.0.into(),
         },
+    }
+}
+
+/// Inputs without their own border, inside a bordered box (the search field).
+pub fn bare_input(t: &Theme, _s: text_input::Status) -> text_input::Style {
+    let n = nt(t);
+    text_input::Style {
+        background: Background::Color(Color::TRANSPARENT),
+        border: Border::default(),
+        icon: n.muted,
+        placeholder: n.placeholder,
+        value: n.text,
+        selection: alpha(n.accent, 0.35),
+    }
+}
+
+/// The bordered box of a field (search, floating-label fields), accent when focused.
+pub fn field_box(focused: bool) -> impl Fn(&Theme) -> container::Style {
+    move |t| {
+        let n = nt(t);
+        container::Style {
+            background: Some(n.surface.into()),
+            border: Border {
+                color: if focused { n.accent } else { n.border },
+                width: 1.0,
+                radius: 14.0.into(),
+            },
+            ..Default::default()
+        }
+    }
+}
+
+/// Switches in the accent colour (Android's `Switch`).
+pub fn toggler(t: &Theme, s: iced::widget::toggler::Status) -> iced::widget::toggler::Style {
+    let n = nt(t);
+    let on = matches!(
+        s,
+        iced::widget::toggler::Status::Active { is_toggled: true } | iced::widget::toggler::Status::Hovered { is_toggled: true }
+    );
+    iced::widget::toggler::Style {
+        background: (if on { n.accent } else { n.key_bg }).into(),
+        background_border_width: 1.0,
+        background_border_color: if on { n.accent } else { n.border },
+        foreground: (if on { n.on_accent } else { n.muted }).into(),
+        foreground_border_width: 0.0,
+        foreground_border_color: Color::TRANSPARENT,
+        text_color: None,
+        border_radius: None,
+        padding_ratio: 0.1,
     }
 }

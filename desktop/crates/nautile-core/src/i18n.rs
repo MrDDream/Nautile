@@ -56,7 +56,7 @@ mod tests {
         assert!(count() > 1000);
         assert_eq!(tr("Connexions"), "Connections");
         assert_eq!(trf("%1$s (importée)", &[&"laptop"]), "laptop (imported)");
-        assert_eq!(tr("pas une clé connue"), "pas une clé connue");
+        assert_eq!(tr("texte absent du catalogue"), "texte absent du catalogue");
         set_english(false);
         assert_eq!(tr("Connexions"), "Connexions");
     }

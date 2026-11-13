@@ -1,11 +1,12 @@
 //! What the app looks like: a sidebar, the page, and an editing panel on the right.
 
-use iced::widget::{button, column, container, pick_list, row, scrollable, stack, text, text_editor, text_input, Column, Space};
+use iced::widget::{button, column, container, image, pick_list, row, scrollable, stack, text, text_editor, text_input, Column, Space};
 use iced::{Alignment, Color, Element, Fill, Length, Padding};
 use nautile_core::model::{AuthMethod, Host, Protocol};
 use nautile_core::{tr, trf};
 
 use crate::app::{App, AuthChoice, Choice, Editor, HostField, KeysTab, Message, Page, ProtocolChoice, COLORS};
+use crate::kit;
 use crate::sessions::{Tab, TabState, TunnelState};
 use crate::storage::{Appearance, Language};
 use crate::term::{themes, widget as term_view};
@@ -14,29 +15,36 @@ use nautile_core::model::ForwardKind;
 use nautile_net::Prompt;
 
 // Nerd Font (Material Design) icons.
-const I_HOSTS: char = '\u{F048B}';
-const I_SNIPPETS: char = '\u{F0169}';
-const I_KEYS: char = '\u{F0306}';
-const I_SETTINGS: char = '\u{F0493}';
-const I_ADD: char = '\u{F0415}';
-const I_EDIT: char = '\u{F03EB}';
-const I_SEARCH: char = '\u{F0349}';
-const I_TERMINAL: char = '\u{F018D}';
-const I_DESKTOP: char = '\u{F0379}';
-const I_COPY: char = '\u{F018F}';
-const I_FOLDER: char = '\u{F024B}';
-const I_CLOSE: char = '\u{F0156}';
-const I_TRASH: char = '\u{F0A7A}';
-const I_TUNNEL: char = '\u{F0318}';
-const I_PERSON: char = '\u{F0004}';
-const I_SHIELD: char = '\u{F0565}';
-const I_PLAY: char = '\u{F040A}';
-const I_STOP: char = '\u{F04DB}';
-const I_SEND: char = '\u{F048A}';
-const I_PLUS: char = '\u{F0415}';
+const I_HOSTS: char = '\u{E875}'; // dns
+const I_SNIPPETS: char = '\u{EB8E}'; // terminal
+const I_KEYS: char = '\u{E73C}'; // key
+const I_SETTINGS: char = '\u{E429}'; // tune
+const I_ADD: char = '\u{E145}'; // add
+const I_EDIT: char = '\u{E3C9}'; // edit
+const I_TERMINAL: char = '\u{EB8E}'; // terminal
+const I_DESKTOP: char = '\u{E30C}'; // desktop_windows
+const I_COPY: char = '\u{F08A}'; // content_copy
+const I_FOLDER: char = '\u{E2C7}'; // folder
+const I_CLOSE: char = '\u{E5CD}'; // close
+const I_TRASH: char = '\u{E872}'; // delete
+const I_TUNNEL: char = '\u{E8D4}'; // swap_horiz
+const I_PERSON: char = '\u{E7FD}'; // person
+const I_SHIELD: char = '\u{E8E8}'; // verified_user
+const I_PLAY: char = '\u{E037}'; // play_arrow
+const I_STOP: char = '\u{E047}'; // stop
+const I_LOCK: char = '\u{E897}'; // lock
+const I_CLOUD: char = '\u{E2BD}'; // cloud
+const I_PHONE: char = '\u{E324}'; // phone_android
+const I_PALETTE: char = '\u{E40A}'; // palette
+const I_CLOUD_SYNC: char = '\u{EB5A}'; // cloud_sync
+const I_FINGERPRINT: char = '\u{E90D}'; // fingerprint
+const I_BACKUP: char = '\u{E864}'; // backup
+const I_SPARKLE: char = '\u{E65F}'; // auto_awesome
+const I_STORAGE: char = '\u{E1DB}'; // storage
+const I_PLUS: char = '\u{E145}'; // add
 
 pub fn icon<'a>(c: char) -> iced::widget::Text<'a> {
-    text(c.to_string()).font(MONO).size(17)
+    text(c.to_string()).font(theme::ICONS).size(20).line_height(1.0)
 }
 
 fn soft<'a>(s: impl text::IntoFragment<'a>) -> iced::widget::Text<'a> {
@@ -80,16 +88,6 @@ fn secondary<'a>(label: String, on: Message) -> button::Button<'a, Message> {
 
 fn icon_button<'a>(c: char, on: Message) -> button::Button<'a, Message> {
     button(icon(c).size(16)).padding([6, 8]).style(theme::ghost).on_press(on)
-}
-
-fn count<'a>(n: usize) -> Element<'a, Message> {
-    container(text(n.to_string()).size(11).font(BOLD))
-        .padding([2, 8])
-        .style(|t: &iced::Theme| {
-            let c = theme::nt(t).muted;
-            theme::chip(c)(t)
-        })
-        .into()
 }
 
 fn color_dot<'a>(c: i64, size: f32) -> Element<'a, Message> {
@@ -185,110 +183,79 @@ pub fn view(app: &App) -> Element<'_, Message> {
 fn sidebar(app: &App) -> Element<'_, Message> {
     let item = |c: char, name: String, p: Page, n: Option<usize>| {
         let active = app.page == p && app.active_tab.is_none();
-        let mut r = row![icon(c), text(name).size(14)].spacing(12).align_y(Alignment::Center);
+        let mut r = row![icon(c).size(22), text(name).size(15).font(if active { BOLD } else { theme::UI })]
+            .spacing(14)
+            .align_y(Alignment::Center);
         if let Some(n) = n {
             r = r.push(Space::new().width(Fill)).push(text(n.to_string()).size(12));
         }
         button(r)
             .width(Fill)
-            .padding([10, 12])
+            .padding([11, 14])
             .style(theme::nav(active))
             .on_press(Message::Nav(p))
     };
-    let brand = row![
-        container(icon('\u{F1A44}').size(18))
-            .padding([4, 6])
-            .style(|t: &iced::Theme| theme::tile(theme::nt(t).accent)(t)),
-        text("Nautile").font(BOLD).size(19),
-    ]
-    .spacing(10)
-    .align_y(Alignment::Center);
+    let brand = row![iced::widget::image(theme::mark()).height(28), text("Nautile").font(BOLD).size(21)]
+        .spacing(12)
+        .align_y(Alignment::Center);
     let place = if app.paths.portable {
         tr("Mode portable")
     } else {
         tr("Données chiffrées sur cet ordinateur")
     };
-    container(
-        column![
-            brand,
-            Space::new().height(18),
-            item(I_HOSTS, tr("Hôtes"), Page::Hosts, Some(app.hosts.len())),
-            item(I_SNIPPETS, tr("Snippets"), Page::Snippets, Some(app.snippets.len())),
-            item(I_KEYS, tr("Clés"), Page::Keys, Some(app.keys.len())),
-            item(I_TUNNEL, tr("Tunnels"), Page::Tunnels, Some(app.forwards.len())),
-            Space::new().height(Fill),
-            item(I_SETTINGS, tr("Réglages"), Page::Settings, None),
-            {
-                let lock: Element<Message> = if app.settings.locks() {
-                    button(
-                        row![icon('\u{F033E}').size(15), text(tr("Verrouiller")).size(13)]
-                            .spacing(12)
-                            .align_y(Alignment::Center),
-                    )
-                    .width(Fill)
-                    .padding([8, 12])
-                    .style(theme::nav(false))
-                    .on_press(Message::LockNow)
-                    .into()
-                } else {
-                    Space::new().into()
-                };
-                lock
-            },
-            label(place).size(11),
-        ]
-        .spacing(4),
-    )
-    .width(230)
-    .height(Fill)
-    .padding(Padding {
-        top: 20.0,
-        right: 14.0,
-        bottom: 16.0,
-        left: 14.0,
-    })
-    .style(theme::sidebar)
-    .into()
+    let mut c = column![
+        container(brand).padding([0, 6]),
+        Space::new().height(20),
+        item(I_HOSTS, tr("Hôtes"), Page::Hosts, Some(app.hosts.len())),
+        item(I_SNIPPETS, tr("Snippets"), Page::Snippets, Some(app.snippets.len())),
+        item(I_KEYS, tr("Trousseau"), Page::Keys, Some(app.keys.len())),
+        item(I_TUNNEL, tr("Tunnels"), Page::Tunnels, Some(app.forwards.len())),
+        Space::new().height(Fill),
+    ]
+    .spacing(4);
+    if app.settings.locks() {
+        c = c.push(
+            button(
+                row![icon(I_LOCK).size(22), text(tr("Verrouiller")).size(15)]
+                    .spacing(14)
+                    .align_y(Alignment::Center),
+            )
+            .width(Fill)
+            .padding([11, 14])
+            .style(theme::nav(false))
+            .on_press(Message::LockNow),
+        );
+    }
+    c = c
+        .push(item(I_SETTINGS, tr("Réglages"), Page::Settings, None))
+        .push(container(label(place).size(11)).padding([6, 14]));
+    container(c)
+        .width(232)
+        .height(Fill)
+        .padding(Padding {
+            top: 22.0,
+            right: 12.0,
+            bottom: 14.0,
+            left: 12.0,
+        })
+        .style(theme::sidebar)
+        .into()
 }
 
+/// A page's top: the mark and its title, actions on the right, then its search field.
 fn header<'a>(
     name: String,
-    n: Option<usize>,
+    _n: Option<usize>,
     search: Option<(&'a str, String)>,
     actions: Vec<Element<'a, Message>>,
 ) -> Element<'a, Message> {
-    let mut r = row![title(name)].spacing(10).align_y(Alignment::Center);
-    if let Some(n) = n {
-        r = r.push(count(n));
-    }
-    r = r.push(Space::new().width(Fill));
+    let mut c = column![kit::page_header(name, None, actions)].spacing(14);
     if let Some((value, placeholder)) = search {
-        // Shrinks before the buttons do when the editing panel is open.
-        r = r.push(
-            container(
-                text_input(&placeholder, value)
-                    .on_input(Message::Search)
-                    .icon(text_input::Icon {
-                        font: MONO,
-                        code_point: I_SEARCH,
-                        size: Some(15.into()),
-                        spacing: 8.0,
-                        side: text_input::Side::Left,
-                    })
-                    .padding([8, 12])
-                    .size(14)
-                    .style(theme::input),
-            )
-            .max_width(300)
-            .width(Fill),
-        );
+        c = c.push(kit::search(value, placeholder, Message::Search, Message::Search(String::new())));
     }
-    for a in actions {
-        r = r.push(a);
-    }
-    container(r)
+    container(c)
         .padding(Padding {
-            top: 22.0,
+            top: 0.0,
             right: 28.0,
             bottom: 14.0,
             left: 28.0,
@@ -304,23 +271,31 @@ fn matches(h: &Host, q: &str) -> bool {
             .any(|s| s.to_lowercase().contains(&q))
 }
 
-fn protocol_icon(p: Protocol) -> char {
-    if p.is_desktop() {
-        I_DESKTOP
+fn host_count(n: usize) -> String {
+    if n == 1 {
+        tr("1 hôte")
     } else {
-        I_TERMINAL
+        trf("%1$s hôtes", &[&n])
     }
 }
 
 fn host_row<'a>(app: &'a App, h: &'a Host) -> Element<'a, Message> {
     let selected = matches!(&app.editor, Some(Editor::Host(f)) if f.original.as_ref().map(|o| o.id) == Some(h.id));
-    let col = argb(h.color);
     let address = match h.protocol {
         Protocol::Local => tr("cet ordinateur"),
         _ => h.address(),
     };
-    let mut info = column![text(&h.alias).font(BOLD).size(15), soft(address).font(MONO).size(12)].spacing(3);
+    let mut name = row![text(&h.alias).font(BOLD).size(16)].spacing(8).align_y(Alignment::Center);
+    if h.protocol != Protocol::Ssh {
+        name = name.push(
+            container(text(crate::app::protocol_label(h.protocol)).size(11).font(BOLD))
+                .padding([2, 7])
+                .style(|t: &iced::Theme| theme::chip(theme::nt(t).text_soft)(t)),
+        );
+    }
+    let mut info = column![name, soft(address).font(MONO).size(13)].spacing(4).width(Fill);
     if !h.tags.is_empty() {
+        let col = argb(h.color);
         info = info.push(
             row(h.tags.split(',').map(|t| {
                 container(text(t.to_owned()).size(11))
@@ -331,26 +306,38 @@ fn host_row<'a>(app: &'a App, h: &'a Host) -> Element<'a, Message> {
             .spacing(6),
         );
     }
-    let tile = container(icon(protocol_icon(h.protocol)).size(18))
-        .padding([7, 9])
-        .style(theme::tile(col));
-    let proto = container(text(crate::app::protocol_label(h.protocol)).size(11).font(BOLD))
-        .padding([3, 8])
-        .style(|t: &iced::Theme| theme::chip(theme::nt(t).text_soft)(t));
-    button({
-        let mut r = row![tile, info, Space::new().width(Fill), proto]
-            .spacing(14)
-            .align_y(Alignment::Center);
-        if matches!(h.protocol, Protocol::Ssh | Protocol::Mosh) {
-            r = r.push(icon_button(I_FOLDER, Message::OpenFiles(h.id)));
-        }
-        r.push(icon_button(I_EDIT, Message::EditHost(h.id)))
-    })
-    .width(Fill)
-    .padding([10, 12])
-    .style(theme::row_item(selected))
-    .on_press(Message::Connect(h.id))
-    .into()
+    let mut r = row![kit::host_avatar(h.os_id.as_deref(), &h.alias, argb(h.color), 48.0), info]
+        .spacing(16)
+        .align_y(Alignment::Center);
+    if let Some(at) = h.last_connected_at {
+        r = r.push(soft(kit::relative_time(at, nautile_core::model::now_ms())).size(13));
+    }
+    if matches!(h.protocol, Protocol::Ssh | Protocol::Mosh) {
+        r = r.push(
+            button(icon(I_FOLDER).size(24))
+                .padding(8)
+                .style(theme::ghost)
+                .on_press(Message::OpenFiles(h.id)),
+        );
+    }
+    r = r.push(
+        button(icon(I_EDIT).size(20))
+            .padding(8)
+            .style(theme::ghost)
+            .on_press(Message::EditHost(h.id)),
+    );
+    button(r)
+        .width(Fill)
+        .padding([14, 16])
+        .style(move |t: &iced::Theme, st| {
+            let mut b = theme::card_row(t, st);
+            if selected {
+                b.background = Some(theme::alpha(theme::nt(t).accent, 0.10).into());
+            }
+            b
+        })
+        .on_press(Message::Connect(h.id))
+        .into()
 }
 
 fn section<'a>(
@@ -361,30 +348,61 @@ fn section<'a>(
     edit: Option<Message>,
     items: Vec<&'a Host>,
 ) -> Element<'a, Message> {
-    let mut head = row![].spacing(10).align_y(Alignment::Center);
-    if let Some(c) = color {
-        head = head.push(color_dot(c, 10.0));
+    let action: Option<Element<'a, Message>> =
+        edit.map(|m| button(icon(I_EDIT).size(16)).padding(4).style(theme::ghost).on_press(m).into());
+    let mut c = column![kit::section_head(color.map(argb), name, host_count(n), action)].spacing(10);
+    if !items.is_empty() {
+        c = c.push(kit::card(items.into_iter().map(|h| host_row(app, h)).collect()));
     }
-    head = head.push(text(name).font(BOLD).size(13)).push(count(n));
-    if let Some(m) = edit {
-        head = head.push(Space::new().width(Fill)).push(icon_button(I_EDIT, m));
-    }
-    container(column![head, column(items.into_iter().map(|h| host_row(app, h))).spacing(4)].spacing(8))
-        .padding(12)
-        .style(theme::card)
-        .into()
+    c.into()
 }
 
 fn hosts(app: &App) -> Element<'_, Message> {
-    let shown: Vec<&Host> = app.hosts.iter().filter(|h| matches(h, &app.search)).collect();
-    let mut list = Column::new().spacing(18).padding(Padding {
+    let shown: Vec<&Host> = app
+        .hosts
+        .iter()
+        .filter(|h| matches(h, &app.search))
+        .filter(|h| app.group_filter.is_none_or(|g| h.group_id == Some(g)))
+        .collect();
+    let mut list = Column::new().spacing(22).padding(Padding {
         top: 4.0,
         right: 28.0,
-        bottom: 28.0,
+        bottom: 100.0,
         left: 28.0,
     });
 
+    // The groups as filters, with their number of hosts.
+    let mut chips = row![kit::count_chip(
+        tr("Tous"),
+        app.hosts.len(),
+        app.group_filter.is_none(),
+        None,
+        Message::GroupFilter(None)
+    )]
+    .spacing(8)
+    .align_y(Alignment::Center);
     for g in &app.groups {
+        let n = app.hosts.iter().filter(|h| h.group_id == Some(g.id)).count();
+        chips = chips.push(kit::count_chip(
+            g.name.clone(),
+            n,
+            app.group_filter == Some(g.id),
+            Some(argb(g.color)),
+            Message::GroupFilter(Some(g.id)),
+        ));
+    }
+    chips = chips.push(
+        button(container(icon(I_ADD).size(20)).center(Length::Fixed(22.0)))
+            .padding(9)
+            .style(theme::square)
+            .on_press(Message::NewGroup),
+    );
+    list = list.push(chips.wrap());
+
+    for g in &app.groups {
+        if app.group_filter.is_some_and(|f| f != g.id) {
+            continue;
+        }
         let items: Vec<&Host> = shown.iter().copied().filter(|h| h.group_id == Some(g.id)).collect();
         if items.is_empty() && !app.search.is_empty() {
             continue;
@@ -416,36 +434,26 @@ fn hosts(app: &App) -> Element<'_, Message> {
         list = list.push(soft(trf("Aucun hôte ne correspond à « %1$s ».", &[&app.search])));
     }
 
-    column![
-        header(
-            tr("Hôtes"),
-            Some(app.hosts.len()),
-            Some((&app.search, tr("Rechercher"))),
-            vec![
-                button(
-                    row![icon(I_TERMINAL).size(15), text(tr("Terminal local")).size(14)]
-                        .spacing(8)
-                        .align_y(Alignment::Center)
-                )
-                .padding([9, 14])
-                .style(theme::secondary)
-                .on_press(Message::OpenLocal)
-                .into(),
-                secondary(tr("Nouveau groupe"), Message::NewGroup).into(),
-                button(
-                    row![icon(I_ADD).size(15), text(tr("Nouvel hôte")).font(BOLD).size(14)]
-                        .spacing(6)
-                        .align_y(Alignment::Center)
-                )
-                .padding([9, 14])
-                .style(theme::primary)
-                .on_press(Message::NewHost)
-                .into(),
-            ],
-        ),
-        scrollable(list).height(Fill),
-    ]
-    .into()
+    let top = container(
+        column![
+            kit::page_header(tr("Hôtes"), None, vec![]),
+            row![
+                kit::search(&app.search, tr("Hôte ou user@ip"), Message::Search, Message::Search(String::new())),
+                kit::square(I_TERMINAL, Message::OpenLocal),
+                kit::square(I_KEYS, Message::Nav(Page::Keys)),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+        ]
+        .spacing(14),
+    )
+    .padding(Padding {
+        top: 0.0,
+        right: 28.0,
+        bottom: 14.0,
+        left: 28.0,
+    });
+    stack![column![top, scrollable(list).height(Fill)], kit::fab(Message::NewHost)].into()
 }
 
 fn empty<'a>(c: char, head: String, body: String) -> Element<'a, Message> {
@@ -462,48 +470,126 @@ fn empty<'a>(c: char, head: String, body: String) -> Element<'a, Message> {
 
 fn snippets(app: &App) -> Element<'_, Message> {
     let q = app.search.to_lowercase();
-    let shown = app
+    let mut shown: Vec<&nautile_core::model::Snippet> = app
         .snippets
         .iter()
-        .filter(|s| q.is_empty() || s.name.to_lowercase().contains(&q) || s.command.to_lowercase().contains(&q));
-    let mut list = Column::new().spacing(8).padding(Padding {
+        .filter(|s| q.is_empty() || s.name.to_lowercase().contains(&q) || s.command.to_lowercase().contains(&q))
+        .filter(|s| app.snippet_tag.as_ref().is_none_or(|t| &s.tag == t))
+        .collect();
+    shown.sort_by(|a, b| {
+        b.run_count
+            .cmp(&a.run_count)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    let can_run = app.target_tab().is_some();
+
+    let mut tags: Vec<&str> = app.snippets.iter().map(|s| s.tag.as_str()).filter(|t| !t.is_empty()).collect();
+    tags.sort_unstable();
+    tags.dedup();
+    let mut chips = row![kit::count_chip(
+        tr("Tous"),
+        app.snippets.len(),
+        app.snippet_tag.is_none(),
+        None,
+        Message::SnippetFilter(None)
+    )]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    for t in tags {
+        let n = app.snippets.iter().filter(|s| s.tag == t).count();
+        chips = chips.push(kit::count_chip(
+            t.to_owned(),
+            n,
+            app.snippet_tag.as_deref() == Some(t),
+            None,
+            Message::SnippetFilter(Some(t.to_owned())),
+        ));
+    }
+
+    let mut list = Column::new().spacing(12).padding(Padding {
         top: 4.0,
         right: 28.0,
-        bottom: 28.0,
+        bottom: 100.0,
         left: 28.0,
     });
+    list = list.push(chips.wrap()).push(Space::new().height(4));
+    if !shown.is_empty() {
+        list = list.push(kit::section_label(tr("Les plus utilisés d'abord")));
+    }
     for s in shown {
         let selected = matches!(&app.editor, Some(Editor::Snippet(f)) if f.original.as_ref().map(|o| o.id) == Some(s.id));
-        let first = s.command.lines().next().unwrap_or_default().to_owned();
-        let more = s.command.lines().count().saturating_sub(1);
-        let mut info = column![
-            {
-                let mut r = row![text(&s.name).font(BOLD).size(15)].spacing(8).align_y(Alignment::Center);
-                if !s.tag.is_empty() {
-                    r = r.push(
-                        container(text(s.tag.clone()).size(11))
-                            .padding([1, 7])
-                            .style(|t: &iced::Theme| theme::chip(theme::nt(t).blue)(t)),
-                    );
-                }
-                r
-            },
-            soft(first).font(MONO).size(12),
-        ]
-        .spacing(4);
-        if more > 0 {
-            info = info.push(label(trf("+ %1$s ligne(s)", &[&more])));
+        let one_line = s.command.lines().collect::<Vec<_>>().join(" ⏎ ");
+        let mut footer = row![label(
+            [
+                Some(s.tag.clone()).filter(|t| !t.is_empty()),
+                Some(if s.run_count > 0 {
+                    trf("%1$s exécution%2$s", &[&s.run_count, &if s.run_count > 1 { "s" } else { "" }])
+                } else {
+                    tr("jamais lancé")
+                }),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · ")
+        )
+        .size(12)]
+        .spacing(6)
+        .align_y(Alignment::Center);
+        for v in s.variables() {
+            footer = footer.push(
+                container(text(format!("${{{v}}}")).font(MONO).size(11))
+                    .padding([2, 6])
+                    .style(|t: &iced::Theme| theme::chip(theme::nt(t).accent)(t)),
+            );
         }
-        let mut body = row![info, Space::new().width(Fill)].spacing(10).align_y(Alignment::Center);
-        if app.target_tab().is_some() {
-            body = body.push(icon_button(I_SEND, Message::RunSnippet(s.id)));
-        }
-        body = body.push(icon_button(I_COPY, Message::CopySnippet(s.id)));
-        list = list.push(
-            button(body)
+        let body = column![
+            text(&s.name).font(BOLD).size(16),
+            container(text(one_line).font(MONO).size(13))
+                .padding([8, 12])
                 .width(Fill)
-                .padding([10, 14])
-                .style(theme::row_item(selected))
+                .style(theme::code_block),
+            footer,
+        ]
+        .spacing(8)
+        .width(Fill);
+        let play = button(container(text('\u{F040A}').font(MONO).size(28).line_height(1.0)).center(Length::Fixed(30.0)))
+            .padding(11)
+            .style(theme::fab)
+            .on_press_maybe(can_run.then_some(Message::RunSnippet(s.id)));
+        let copy = button(icon(I_COPY).size(18))
+            .padding(8)
+            .style(theme::ghost)
+            .on_press(Message::CopySnippet(s.id));
+        list = list.push(
+            button(row![body, copy, play].spacing(12).align_y(Alignment::Center))
+                .width(Fill)
+                .padding(Padding {
+                    top: 14.0,
+                    right: 12.0,
+                    bottom: 14.0,
+                    left: 16.0,
+                })
+                .style(move |t: &iced::Theme, st| {
+                    let n = theme::nt(t);
+                    button::Style {
+                        background: Some(
+                            if matches!(st, button::Status::Hovered) {
+                                n.key_bg
+                            } else {
+                                n.surface
+                            }
+                            .into(),
+                        ),
+                        text_color: n.text,
+                        border: iced::Border {
+                            color: if selected { n.accent } else { n.border },
+                            width: 1.0,
+                            radius: 16.0.into(),
+                        },
+                        ..Default::default()
+                    }
+                })
                 .on_press(Message::EditSnippet(s.id)),
         );
     }
@@ -513,15 +599,15 @@ fn snippets(app: &App) -> Element<'_, Message> {
             tr("Aucun snippet"),
             tr("Les variables comme ${SERVICE} sont demandées au lancement."),
         ));
+    } else if !can_run {
+        list = list.push(label(tr("Ouvrez une session pour exécuter un snippet.")));
     }
-    column![
-        header(
-            tr("Snippets"),
-            Some(app.snippets.len()),
-            Some((&app.search, tr("Rechercher un snippet"))),
-            vec![primary(tr("Nouveau snippet"), Some(Message::NewSnippet)).into()],
-        ),
-        scrollable(container(list).style(theme::page)).height(Fill),
+    stack![
+        column![
+            header(tr("Snippets"), None, Some((&app.search, tr("Rechercher un snippet"))), vec![]),
+            scrollable(list).height(Fill)
+        ],
+        kit::fab(Message::NewSnippet)
     ]
     .into()
 }
@@ -533,6 +619,7 @@ fn key_list(app: &App) -> Column<'_, Message> {
         bottom: 28.0,
         left: 28.0,
     });
+    let mut rows: Vec<Element<Message>> = vec![];
     for k in &app.keys {
         let used = app.hosts.iter().filter(|h| h.key_id == Some(k.id)).count();
         let row = row![
@@ -559,7 +646,10 @@ fn key_list(app: &App) -> Column<'_, Message> {
         ]
         .spacing(14)
         .align_y(Alignment::Center);
-        list = list.push(container(row).padding([10, 14]).style(theme::card));
+        rows.push(container(row).padding([12, 14]).into());
+    }
+    if !rows.is_empty() {
+        list = list.push(kit::card(rows));
     }
     if app.keys.is_empty() {
         list = list.push(empty(
@@ -621,6 +711,7 @@ fn pad() -> Padding {
 
 fn identity_list(app: &App) -> Column<'_, Message> {
     let mut list = Column::new().spacing(8).padding(pad());
+    let mut rows: Vec<Element<Message>> = vec![];
     for i in &app.identities {
         let selected = matches!(&app.editor, Some(Editor::Identity(f)) if f.original.as_ref().map(|o| o.id) == Some(i.id));
         let how = match (i.key_id.and_then(|k| app.keys.iter().find(|x| x.id == k)), i.password.is_some()) {
@@ -641,13 +732,17 @@ fn identity_list(app: &App) -> Column<'_, Message> {
         ]
         .spacing(14)
         .align_y(Alignment::Center);
-        list = list.push(
+        rows.push(
             button(body)
                 .width(Fill)
-                .padding([10, 14])
-                .style(theme::row_item(selected))
-                .on_press(Message::EditIdentity(i.id)),
+                .padding([12, 14])
+                .style(theme::card_pick(selected))
+                .on_press(Message::EditIdentity(i.id))
+                .into(),
         );
+    }
+    if !rows.is_empty() {
+        list = list.push(kit::card(rows));
     }
     if app.identities.is_empty() {
         list = list.push(empty(
@@ -661,6 +756,7 @@ fn identity_list(app: &App) -> Column<'_, Message> {
 
 fn known_list(app: &App) -> Column<'_, Message> {
     let mut list = Column::new().spacing(8).padding(pad());
+    let mut rows: Vec<Element<Message>> = vec![];
     for k in &app.known_hosts {
         let body = row![
             container(icon(I_SHIELD).size(18))
@@ -683,7 +779,10 @@ fn known_list(app: &App) -> Column<'_, Message> {
         ]
         .spacing(14)
         .align_y(Alignment::Center);
-        list = list.push(container(body).padding([10, 14]).style(theme::card));
+        rows.push(container(body).padding([12, 14]).into());
+    }
+    if !rows.is_empty() {
+        list = list.push(kit::card(rows));
     }
     if app.known_hosts.is_empty() {
         list = list.push(empty(
@@ -705,6 +804,7 @@ fn kind_label(k: ForwardKind) -> String {
 
 fn tunnels(app: &App) -> Element<'_, Message> {
     let mut list = Column::new().spacing(8).padding(pad());
+    let mut rows: Vec<Element<Message>> = vec![];
     for x in &app.forwards {
         let selected = matches!(&app.editor, Some(Editor::Forward(f)) if f.original.as_ref().map(|o| o.id) == Some(x.id));
         let via = app
@@ -772,13 +872,17 @@ fn tunnels(app: &App) -> Element<'_, Message> {
         ]
         .spacing(14)
         .align_y(Alignment::Center);
-        list = list.push(
+        rows.push(
             button(body)
                 .width(Fill)
-                .padding([10, 14])
-                .style(theme::row_item(selected))
-                .on_press(Message::EditForward(x.id)),
+                .padding([12, 14])
+                .style(theme::card_pick(selected))
+                .on_press(Message::EditForward(x.id))
+                .into(),
         );
+    }
+    if !rows.is_empty() {
+        list = list.push(kit::card(rows));
     }
     if app.forwards.is_empty() {
         list = list.push(empty(
@@ -802,9 +906,10 @@ fn tunnels(app: &App) -> Element<'_, Message> {
 fn segmented<'a, T: Copy + PartialEq + 'a>(options: Vec<(T, String)>, current: T, on: impl Fn(T) -> Message + 'a) -> Element<'a, Message> {
     container(
         row(options.into_iter().map(|(v, name)| {
-            button(text(name).size(13).font(BOLD).center())
+            button(text(name).size(14).font(BOLD).center().width(Fill).height(Fill))
                 .width(Fill)
-                .padding([7, 12])
+                .height(40)
+                .padding([0, 12])
                 .style(theme::segment(v == current))
                 .on_press(on(v))
                 .into()
@@ -812,58 +917,443 @@ fn segmented<'a, T: Copy + PartialEq + 'a>(options: Vec<(T, String)>, current: T
         .spacing(4),
     )
     .padding(4)
-    .style(|t: &iced::Theme| {
-        let n = theme::nt(t);
-        container::Style {
-            background: Some(n.bg.into()),
-            border: iced::Border {
-                color: n.border,
-                width: 1.0,
-                radius: 12.0.into(),
-            },
-            ..Default::default()
-        }
+    .style(theme::segmented_box)
+    .into()
+}
+
+/// A title and its switch (Android's `Switch` rows).
+fn switch<'a>(name: String, value: bool, on: impl Fn(bool) -> Message + 'a) -> Element<'a, Message> {
+    row![
+        text(name).size(14).width(Fill),
+        iced::widget::toggler(value).on_toggle(on).size(22).style(theme::toggler)
+    ]
+    .spacing(12)
+    .align_y(Alignment::Center)
+    .into()
+}
+
+/// A settings section: its uppercase label, then its card.
+fn settings_card<'a>(name: String, body: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    column![
+        container(kit::section_label(name)).padding([0, 4]),
+        container(body.into()).padding(18).width(Fill).style(theme::card),
+    ]
+    .spacing(10)
+    .into()
+}
+
+/// A settings page under its header, scrolled, at a readable width.
+fn settings_frame<'a>(head: Element<'a, Message>, body: Column<'a, Message>) -> Element<'a, Message> {
+    column![
+        head,
+        scrollable(container(body.spacing(18).max_width(760)).padding(Padding {
+            top: 4.0,
+            right: 28.0,
+            bottom: 28.0,
+            left: 28.0
+        }))
+        .height(Fill),
+    ]
+    .into()
+}
+
+/// How a protection stands: done, to do, or simply off.
+#[derive(Clone, Copy, PartialEq)]
+enum Standing {
+    Ok,
+    Todo,
+    Off,
+}
+
+fn standing_color(n: &theme::Nt, s: Standing) -> Color {
+    match s {
+        Standing::Ok => n.green,
+        Standing::Todo => n.accent,
+        Standing::Off => n.muted,
+    }
+}
+
+/// One status of the protection card: its icon, what it is, how it stands.
+fn status_tile<'a>(c: char, name: String, value: String, s: Standing) -> Element<'a, Message> {
+    container(
+        column![
+            kit::icon(c, 18.0).style(move |t: &iced::Theme| text::Style {
+                color: Some(standing_color(&theme::nt(t), s)),
+            }),
+            text(name).size(11).style(|t: &iced::Theme| text::Style {
+                color: Some(theme::nt(t).muted),
+            }),
+            text(value).size(13).font(BOLD).style(move |t: &iced::Theme| {
+                let n = theme::nt(t);
+                text::Style {
+                    color: Some(if s == Standing::Off { n.text_soft } else { standing_color(&n, s) }),
+                }
+            }),
+        ]
+        .spacing(4)
+        .align_x(Alignment::Center),
+    )
+    .padding([10, 4])
+    .width(Fill)
+    .center_x(Fill)
+    .style(move |t: &iced::Theme| container::Style {
+        background: Some(theme::alpha(standing_color(&theme::nt(t), s), 0.10).into()),
+        border: iced::border::rounded(10),
+        ..Default::default()
     })
     .into()
 }
 
-fn settings_card<'a>(name: String, body: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
-    container(column![text(name).font(BOLD).size(15), body.into()].spacing(14))
-        .padding(18)
+/// « 5 min », « 3 h », « 2 j »: how long ago, in few letters.
+fn short_ago(at: i64) -> String {
+    let min = ((nautile_core::model::now_ms() - at) / 60_000).max(0);
+    match min {
+        m if m < 1 => tr("à l'instant"),
+        m if m < 60 => trf("%1$s min", &[&m]),
+        m if m < 60 * 24 => trf("%1$s h", &[&(m / 60)]),
+        m => trf("%1$s j", &[&(m / (60 * 24))]),
+    }
+}
+
+/// When the data was last saved somewhere: the latest backup, or the latest synchronisation.
+fn last_saved(app: &App) -> Option<i64> {
+    let s = &app.settings;
+    let backup = s.targets.iter().filter_map(|t| t.last).max();
+    let sync = if s.sync_enabled { s.last_sync } else { None };
+    backup.max(sync)
+}
+
+/// What protects the data, and how many things are left to do (Android's `ProtectionCard`).
+fn protection_card(app: &App) -> Element<'_, Message> {
+    let s = &app.settings;
+    let lock_on = s.locks();
+    let sync_on = s.sync_enabled || s.lan_enabled;
+    let last = last_saved(app);
+    let stale = last.is_none_or(|l| nautile_core::model::now_ms() - l > 30 * 24 * 3600 * 1000);
+    let todo = [!lock_on, stale].iter().filter(|b| **b).count();
+    let mut head = row![
+        kit::icon(I_SHIELD, 18.0).style(move |t: &iced::Theme| {
+            let n = theme::nt(t);
+            text::Style {
+                color: Some(if todo > 0 { n.accent } else { n.green }),
+            }
+        }),
+        text(tr("Vos données restent sur l'appareil")).size(14).font(BOLD).width(Fill),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    if todo > 0 {
+        head = head.push(
+            text(if todo == 1 {
+                tr("1 à faire")
+            } else {
+                trf("%1$s à faire", &[&todo])
+            })
+            .size(12)
+            .font(BOLD)
+            .style(|t: &iced::Theme| text::Style {
+                color: Some(theme::nt(t).accent),
+            }),
+        );
+    }
+    let tiles = row![
+        status_tile(I_LOCK, tr("Base"), tr("Chiffrée"), Standing::Ok),
+        status_tile(
+            I_FINGERPRINT,
+            tr("Verrou"),
+            if lock_on { tr("Actif") } else { tr("Inactif") },
+            if lock_on { Standing::Ok } else { Standing::Todo }
+        ),
+        status_tile(
+            I_CLOUD_SYNC,
+            tr("Synchro"),
+            if sync_on { tr("Active") } else { tr("Inactive") },
+            if sync_on { Standing::Ok } else { Standing::Off }
+        ),
+        status_tile(
+            I_BACKUP,
+            tr("Sauvegarde"),
+            last.map(short_ago).unwrap_or_else(|| tr("Jamais")),
+            if stale { Standing::Todo } else { Standing::Ok }
+        ),
+    ]
+    .spacing(6);
+    container(column![head, tiles].spacing(12))
+        .padding([12, 14])
         .width(Fill)
-        .style(theme::card)
+        .style(move |t: &iced::Theme| {
+            let n = theme::nt(t);
+            container::Style {
+                background: Some(n.surface.into()),
+                border: iced::Border {
+                    color: if todo > 0 { theme::alpha(n.accent, 0.45) } else { n.border },
+                    width: 1.0,
+                    radius: 16.0.into(),
+                },
+                ..Default::default()
+            }
+        })
         .into()
 }
 
-fn settings(app: &App) -> Element<'_, Message> {
-    let s = &app.settings;
-    let look = settings_card(
-        tr("Apparence"),
-        column![
-            field(
-                tr("Langue"),
-                segmented(
-                    vec![
-                        (Language::System, tr("Système")),
-                        (Language::Fr, "Français".into()),
-                        (Language::En, "English".into())
-                    ],
-                    s.language,
-                    Message::Language
-                )
-            ),
-            field(
-                tr("Thème"),
-                segmented(
-                    vec![(Appearance::Dark, tr("Sombre")), (Appearance::Light, tr("Clair"))],
-                    s.appearance,
-                    Message::Appearance
-                )
-            ),
-        ]
-        .spacing(14),
-    );
+/// One row of the settings home, and the words it is found by.
+struct Entry {
+    icon: char,
+    tint: Color,
+    title: String,
+    detail: String,
+    words: &'static str,
+    dot: Option<Color>,
+    page: crate::app::SettingsPage,
+}
 
+fn fold(s: &str) -> String {
+    s.to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'à' | 'â' | 'ä' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'î' | 'ï' => 'i',
+            'ô' | 'ö' => 'o',
+            'ù' | 'û' | 'ü' => 'u',
+            'ç' => 'c',
+            c => c,
+        })
+        .collect()
+}
+
+fn entry_card<'a>(entries: Vec<Entry>) -> Element<'a, Message> {
+    kit::card(
+        entries
+            .into_iter()
+            .map(|e| {
+                kit::nav_row(
+                    e.icon,
+                    e.tint,
+                    e.title,
+                    e.detail,
+                    e.dot.map(|c| kit::dot(c, 8.0)),
+                    Message::SettingsPage(Some(e.page)),
+                )
+            })
+            .collect(),
+    )
+}
+
+/// The settings' home: what protects the data, then one row per sub-page (as on Android).
+fn settings_home(app: &App) -> Element<'_, Message> {
+    use crate::app::SettingsPage as P;
+    let s = &app.settings;
+    let n = if s.appearance == Appearance::Dark {
+        theme::DARK
+    } else {
+        theme::LIGHT
+    };
+    let lavender = if n.dark {
+        Color::from_rgb8(0xB3, 0x9D, 0xFF)
+    } else {
+        Color::from_rgb8(0x5B, 0x3F, 0xC4)
+    };
+    let teal = if n.dark {
+        Color::from_rgb8(0x3D, 0xD6, 0xC6)
+    } else {
+        Color::from_rgb8(0x0F, 0x76, 0x6E)
+    };
+
+    let language = match s.language {
+        Language::System => tr("Système"),
+        Language::Fr => "Français".into(),
+        Language::En => "English".into(),
+    };
+    let look = if s.appearance == Appearance::Dark {
+        tr("Sombre")
+    } else {
+        tr("Clair")
+    };
+    let term = themes::by_id(s.terminal_theme());
+    let personal = vec![
+        Entry {
+            icon: I_PALETTE,
+            tint: n.accent,
+            title: tr("Apparence"),
+            detail: format!("{look} · {language}"),
+            words: "theme sombre clair dark light couleur color langue language",
+            dot: None,
+            page: P::Appearance,
+        },
+        Entry {
+            icon: I_TERMINAL,
+            tint: n.blue,
+            title: tr("Terminal"),
+            detail: format!("JetBrains Mono {} · {}", s.terminal_font(), tr(term.name)),
+            words: "police font taille size couleurs colors raccourcis shortcuts clavier keyboard copier coller",
+            dot: None,
+            page: P::Terminal,
+        },
+    ];
+
+    let kind = app.ai_provider();
+    let ai_ready = s.ai_provider.is_some() && (!kind.needs_key() || app.ai_config(kind).api_key.is_some());
+    let backup_detail = if s.sync_enabled {
+        s.last_sync
+            .map(|l| trf("Synchro %1$s", &[&kit::relative_time(l, nautile_core::model::now_ms())]))
+            .unwrap_or_else(|| tr("Synchro activée"))
+    } else if s.targets.iter().any(|t| t.auto) {
+        tr("Sauvegarde automatique")
+    } else {
+        last_saved(app)
+            .map(|l| trf("Sauvegarde %1$s", &[&kit::relative_time(l, nautile_core::model::now_ms())]))
+            .unwrap_or_else(|| tr("Jamais sauvegardé"))
+    };
+    let services = vec![
+        Entry {
+            icon: I_SPARKLE,
+            tint: lavender,
+            title: tr("Assistant IA"),
+            detail: if ai_ready {
+                format!("{} · {}", kind.label(), app.ai_config(kind).model)
+            } else {
+                tr("À configurer")
+            },
+            words: "ia ai intelligence claude anthropic openai gemini mistral deepseek ollama cle key api modele model",
+            dot: Some(if ai_ready { n.green } else { n.accent }),
+            page: P::Ai,
+        },
+        Entry {
+            icon: I_CLOUD_SYNC,
+            tint: n.blue,
+            title: tr("Sauvegarde et synchro"),
+            detail: backup_detail,
+            words: "sauvegarde backup export import drive onedrive nextcloud webdav s3 cloud restaurer restore synchronisation sync appareils devices wi-fi wifi",
+            dot: None,
+            page: P::Backup,
+        },
+        Entry {
+            icon: I_LOCK,
+            tint: n.green,
+            title: tr("Sécurité"),
+            detail: if s.locks() { tr("Verrouillage activé") } else { tr("Verrouillage désactivé") },
+            words: "securite security pin code mot de passe password verrou lock inactivite",
+            dot: None,
+            page: P::Security,
+        },
+        Entry {
+            icon: I_STORAGE,
+            tint: teal,
+            title: tr("Données"),
+            detail: tr("Base SQLCipher chiffrée, sans compte ni serveur."),
+            words: "donnees data base database sqlcipher dossier folder portable trousseau keyring",
+            dot: None,
+            page: P::Data,
+        },
+    ];
+
+    let q = fold(app.search.trim());
+    let keep = |e: &Entry| q.is_empty() || fold(&e.title).contains(&q) || fold(&e.detail).contains(&q) || e.words.contains(&q);
+    let personal: Vec<Entry> = personal.into_iter().filter(keep).collect();
+    let services: Vec<Entry> = services.into_iter().filter(keep).collect();
+
+    let mut body = column![kit::search(
+        &app.search,
+        tr("Rechercher"),
+        Message::Search,
+        Message::Search(String::new())
+    )];
+    if q.is_empty() {
+        body = body.push(protection_card(app));
+    }
+    let nothing = personal.is_empty() && services.is_empty();
+    if !personal.is_empty() {
+        body = body.push(
+            column![
+                container(kit::section_label(tr("Personnalisation"))).padding([0, 4]),
+                entry_card(personal)
+            ]
+            .spacing(10),
+        );
+    }
+    if !services.is_empty() {
+        body = body.push(
+            column![
+                container(kit::section_label(tr("Services et données"))).padding([0, 4]),
+                entry_card(services)
+            ]
+            .spacing(10),
+        );
+    }
+    if nothing {
+        body = body.push(
+            container(soft(trf("Aucun réglage pour « %1$s »", &[&app.search.trim()])).size(14))
+                .padding([24, 0])
+                .center_x(Fill),
+        );
+    }
+    body = body.push(
+        column![
+            row![image(theme::mark()).height(22), text("Nautile").size(20).font(BOLD)]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            soft(trf("Version %1$s · client SSH et RDP libre (GPLv3)", &[&env!("CARGO_PKG_VERSION")])).size(12),
+        ]
+        .spacing(4)
+        .padding(Padding {
+            top: 12.0,
+            ..Padding::ZERO
+        }),
+    );
+    settings_frame(header(tr("Réglages"), None, None, vec![]), body)
+}
+
+fn settings(app: &App) -> Element<'_, Message> {
+    use crate::app::SettingsPage as P;
+    let Some(page) = app.settings_page else {
+        return settings_home(app);
+    };
+    let (name, body) = match page {
+        P::Appearance => (tr("Apparence"), appearance_settings(app)),
+        P::Terminal => (tr("Terminal"), terminal_settings(app)),
+        P::Ai => (tr("Assistant IA"), column![settings_card(tr("Fournisseur"), ai_settings(app))]),
+        P::Backup => (tr("Sauvegarde et synchro"), backup_settings(app)),
+        P::Security => (tr("Sécurité"), column![settings_card(tr("Verrouillage"), lock_settings(app))]),
+        P::Data => (tr("Données"), data_settings(app)),
+    };
+    let head = container(kit::page_header(name, Some(Message::SettingsPage(None)), vec![])).padding(Padding {
+        top: 0.0,
+        right: 28.0,
+        bottom: 14.0,
+        left: 20.0,
+    });
+    settings_frame(head.into(), body)
+}
+
+fn appearance_settings(app: &App) -> Column<'_, Message> {
+    let s = &app.settings;
+    column![
+        settings_card(
+            tr("Thème"),
+            segmented(
+                vec![(Appearance::Dark, tr("Sombre")), (Appearance::Light, tr("Clair"))],
+                s.appearance,
+                Message::Appearance
+            )
+        ),
+        settings_card(
+            tr("Langue"),
+            segmented(
+                vec![
+                    (Language::System, tr("Système")),
+                    (Language::Fr, "Français".into()),
+                    (Language::En, "English".into())
+                ],
+                s.language,
+                Message::Language
+            )
+        ),
+    ]
+}
+
+fn terminal_settings(app: &App) -> Column<'_, Message> {
+    let s = &app.settings;
     let current = themes::by_id(s.terminal_theme());
     let swatches = row(themes::all().into_iter().map(|t| {
         let selected = t.id == current.id;
@@ -893,43 +1383,51 @@ fn settings(app: &App) -> Element<'_, Message> {
     .spacing(8)
     .wrap();
     let size = s.terminal_font();
-    let terminal = settings_card(
-        tr("Terminal"),
-        column![
-            field(trf("Thème · %1$s", &[&tr(current.name)]), swatches),
-            field(
-                trf("Taille du texte · %1$spx", &[&size]),
-                row![
-                    secondary("A−".into(), Message::TermFont(size - 1.0)),
-                    secondary("A+".into(), Message::TermFont(size + 1.0)),
+    column![
+        settings_card(trf("Couleurs · %1$s", &[&tr(current.name)]), swatches),
+        settings_card(
+            tr("Police"),
+            row![
+                column![
+                    text("JetBrains Mono").size(15).font(BOLD),
+                    soft(trf("Taille du texte · %1$spx", &[&size])),
                 ]
-                .spacing(8)
-            ),
-            soft(tr("Ctrl+Maj+C / Ctrl+Maj+V pour copier-coller, clic droit pour copier la sélection ou coller. Ctrl+Maj+T ouvre un terminal local, Ctrl+Tab change d'onglet.")),
-        ]
-        .spacing(14),
-    );
+                .spacing(3)
+                .width(Fill),
+                secondary("A−".into(), Message::TermFont(size - 1.0)),
+                secondary("A+".into(), Message::TermFont(size + 1.0)),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center)
+        ),
+        settings_card(
+            tr("Raccourcis"),
+            soft(tr("Ctrl+Maj+C / Ctrl+Maj+V pour copier-coller, clic droit pour copier la sélection ou coller. Ctrl+Maj+T ouvre un terminal local, Ctrl+Tab change d'onglet.")).size(14)
+        ),
+    ]
+}
 
+fn lock_settings(app: &App) -> Column<'_, Message> {
+    let s = &app.settings;
     let lf = &app.lock_form;
-    let mut lock_body = column![segmented(
-        vec![
-            (None, tr("Aucun")),
-            (Some(nautile_core::lock::LockMethod::Pin), tr("Code PIN")),
-            (Some(nautile_core::lock::LockMethod::Password), tr("Mot de passe")),
-        ],
-        lf.method,
-        Message::LockPick
-    )]
-    .spacing(12);
+    let mut lock_body = column![
+        soft(tr(
+            "Nautile demande ce code à l'ouverture et après une inactivité. Il ne sert qu'à cet ordinateur."
+        )),
+        segmented(
+            vec![
+                (None, tr("Aucun")),
+                (Some(nautile_core::lock::LockMethod::Pin), tr("Code PIN")),
+                (Some(nautile_core::lock::LockMethod::Password), tr("Mot de passe")),
+            ],
+            lf.method,
+            Message::LockPick
+        )
+    ]
+    .spacing(14);
     let changing = lf.method != s.lock_method || lf.method.is_some() && !s.locks();
     let secure = |ph: String, v: &str, on: fn(String) -> Message| {
-        text_input(&ph, v)
-            .on_input(on)
-            .on_submit(Message::LockSave)
-            .secure(true)
-            .padding([9, 12])
-            .size(14)
-            .style(theme::input)
+        kit::float_field(ph, text_input("", v).on_input(on).on_submit(Message::LockSave).secure(true))
     };
     if s.locks() {
         lock_body = lock_body.push(secure(tr("Code actuel"), &lf.current, Message::LockCurrent));
@@ -969,15 +1467,17 @@ fn settings(app: &App) -> Element<'_, Message> {
             ),
         ));
     }
-    let lock_card = settings_card(tr("Verrouillage"), lock_body);
+    lock_body
+}
 
+fn backup_settings(app: &App) -> Column<'_, Message> {
     let imp = &app.import;
     let mut restore = column![soft(tr(
         "Un fichier nautile.backup de votre téléphone ou d'un autre ordinateur : tout est fusionné, rien n'est effacé ici."
     ))]
     .spacing(12);
     match &imp.file {
-        None => restore = restore.push(secondary(tr("Choisir le fichier…"), Message::ImportPick)),
+        None => restore = restore.push(row![secondary(tr("Choisir le fichier…"), Message::ImportPick)]),
         Some((name, _)) => {
             restore = restore
                 .push(
@@ -987,19 +1487,20 @@ fn settings(app: &App) -> Element<'_, Message> {
                 )
                 .push(
                     row![
-                        text_input(&tr("Mot de passe de la sauvegarde"), &imp.password)
-                            .on_input(Message::ImportPassword)
-                            .on_submit(Message::ImportRun)
-                            .secure(true)
-                            .padding([9, 12])
-                            .size(14)
-                            .style(theme::input),
+                        kit::float_field(
+                            tr("Mot de passe de la sauvegarde"),
+                            text_input("", &imp.password)
+                                .on_input(Message::ImportPassword)
+                                .on_submit(Message::ImportRun)
+                                .secure(true)
+                        ),
                         primary(
                             if imp.busy { tr("Déchiffrement…") } else { tr("Restaurer") },
                             (!imp.busy && !imp.password.is_empty()).then_some(Message::ImportRun)
                         ),
                     ]
-                    .spacing(10),
+                    .spacing(10)
+                    .align_y(Alignment::End),
                 );
         }
     }
@@ -1011,48 +1512,43 @@ fn settings(app: &App) -> Element<'_, Message> {
             "Un fichier chiffré (Argon2id + AES-256), à rouvrir sur un autre appareil avec ce mot de passe."
         )),
         row![
-            text_input(&tr("Mot de passe (8 caractères minimum)"), &ex.password)
-                .on_input(Message::ExportPassword)
-                .secure(true)
-                .padding([9, 12])
-                .size(14)
-                .style(theme::input),
-            text_input(&tr("Confirmer"), &ex.confirm)
-                .on_input(Message::ExportConfirm)
-                .on_submit(Message::ExportRun)
-                .secure(true)
-                .padding([9, 12])
-                .size(14)
-                .style(theme::input),
+            kit::float_field(
+                tr("Mot de passe (8 caractères minimum)"),
+                text_input("", &ex.password).on_input(Message::ExportPassword).secure(true)
+            ),
+            kit::float_field(
+                tr("Confirmer"),
+                text_input("", &ex.confirm)
+                    .on_input(Message::ExportConfirm)
+                    .on_submit(Message::ExportRun)
+                    .secure(true)
+            ),
             primary(
                 if ex.busy { tr("Chiffrement…") } else { tr("Exporter…") },
                 ok.then_some(Message::ExportRun)
             ),
         ]
-        .spacing(10),
+        .spacing(10)
+        .align_y(Alignment::End),
     ]
     .spacing(12);
 
-    let backup = settings_card(
-        tr("Sauvegarde"),
-        column![
-            backup_places(app),
-            Space::new().height(4),
-            label(tr("RESTAURER")),
-            restore,
-            Space::new().height(4),
-            label(tr("EXPORTER")),
-            export
-        ]
-        .spacing(10),
-    );
+    column![
+        settings_card(tr("Synchronisation"), sync_settings(app)),
+        settings_card(tr("Synchronisation Wi-Fi"), lan_settings(app)),
+        settings_card(tr("Sauvegarde"), backup_places(app)),
+        settings_card(tr("Restaurer"), restore),
+        settings_card(tr("Exporter"), export),
+    ]
+}
 
-    let key_place = match s.key_store.as_deref() {
+fn data_settings(app: &App) -> Column<'_, Message> {
+    let key_place = match app.settings.key_store.as_deref() {
         Some("keyring") => tr("Clé de la base dans le trousseau du système"),
         _ if app.paths.portable => tr("Mode portable : la clé voyage avec le dossier data"),
         _ => tr("Clé de la base dans un fichier réservé à votre compte (pas de trousseau disponible)"),
     };
-    let data = settings_card(
+    column![settings_card(
         tr("Données"),
         column![
             soft(tr("Base SQLCipher chiffrée, sans compte ni serveur.")),
@@ -1060,33 +1556,7 @@ fn settings(app: &App) -> Element<'_, Message> {
             label(app.paths.data.display().to_string()).font(MONO),
         ]
         .spacing(8),
-    );
-
-    column![
-        header(tr("Réglages"), None, None, vec![]),
-        scrollable(
-            column![
-                look,
-                terminal,
-                lock_card,
-                backup,
-                settings_card(tr("Synchronisation"), sync_settings(app)),
-                settings_card(tr("Synchronisation Wi-Fi"), lan_settings(app)),
-                settings_card(tr("Assistant IA"), ai_settings(app)),
-                data
-            ]
-            .spacing(16)
-            .max_width(760)
-            .padding(Padding {
-                top: 4.0,
-                right: 28.0,
-                bottom: 28.0,
-                left: 28.0
-            })
-        )
-        .height(Fill),
-    ]
-    .into()
+    )]
 }
 
 /// The panel's title, form, save action and delete action (with its « confirm » state).
@@ -1137,129 +1607,175 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
             let pick = |list: &[Choice], id: Option<i64>| list.iter().find(|c| c.id == id).cloned();
 
             let network = f.protocol != Protocol::Local;
-            let mut form = column![
-                field(
-                    tr("Type"),
+            let select = |p: iced::widget::PickList<'a, Choice, Vec<Choice>, Choice, Message>| {
+                p.width(Fill).padding([14, 14]).text_size(15).style(theme::select)
+            };
+            // The host as it will look in the list, with its type.
+            let shown_name = if f.alias.trim().is_empty() {
+                f.hostname.trim().to_owned()
+            } else {
+                f.alias.trim().to_owned()
+            };
+            let address = match (f.username.trim(), f.hostname.trim()) {
+                (_, "") => tr("Adresse ou nom"),
+                ("", h) => h.to_owned(),
+                (u, h) => format!("{u}@{h}"),
+            };
+            let mut who = column![
+                text(if shown_name.is_empty() {
+                    tr("Nouvel hôte")
+                } else {
+                    shown_name.clone()
+                })
+                .font(BOLD)
+                .size(16),
+                soft(address).font(MONO).size(13)
+            ]
+            .spacing(3)
+            .width(Fill);
+            if let Some(g) = f.group.and_then(|g| app.groups.iter().find(|x| x.id == g)) {
+                who = who.push(
+                    row![kit::dot(argb(g.color), 8.0), label(g.name.clone())]
+                        .spacing(6)
+                        .align_y(Alignment::Center),
+                );
+            }
+            let os = f.original.as_ref().and_then(|o| o.os_id.clone());
+            let head = container(
+                row![
+                    kit::host_avatar(os.as_deref(), &shown_name, argb(f.color), 48.0),
+                    who,
                     pick_list(&ProtocolChoice::ALL[..], Some(ProtocolChoice(f.protocol)), |p| Message::Host(
                         HostField::Protocol(p)
                     ))
-                    .width(Fill)
                     .padding([8, 12])
-                    .style(theme::select)
-                ),
-                field(tr("Nom"), input("docker-01", &f.alias, |v| Message::Host(HostField::Alias(v)))),
-            ]
-            .spacing(14);
+                    .text_size(14)
+                    .style(theme::select),
+                ]
+                .spacing(14)
+                .align_y(Alignment::Center),
+            )
+            .padding(14)
+            .style(theme::card);
+            let mut form = column![head].spacing(14);
             if network {
-                form = form.push(
+                form = form.push(kit::section_label(tr("Adresse"))).push(
                     row![
-                        field(
+                        kit::float_field(
                             tr("Adresse ou nom"),
-                            input("10.0.0.20", &f.hostname, |v| Message::Host(HostField::Hostname(v)))
+                            input("10.0.0.20", &f.hostname, |v| Message::Host(HostField::Hostname(v))).font(MONO)
                         )
                         .width(Length::FillPortion(3)),
-                        field(tr("Port"), input("22", &f.port, |v| Message::Host(HostField::Port(v)))).width(Length::FillPortion(1)),
+                        kit::float_field(tr("Port"), input("22", &f.port, |v| Message::Host(HostField::Port(v))).font(MONO))
+                            .width(Length::FillPortion(1)),
                     ]
                     .spacing(10),
                 );
                 if f.protocol != Protocol::Vnc {
-                    form = form.push(field(
+                    form = form.push(kit::float_field(
                         tr("Utilisateur"),
-                        input("root", &f.username, |v| Message::Host(HostField::Username(v))),
-                    ));
-                }
-                form = form.push(field(
-                    tr("Authentification"),
-                    pick_list(&AuthChoice::ALL[..], Some(AuthChoice(f.auth)), |a| {
-                        Message::Host(HostField::Auth(a))
-                    })
-                    .width(Fill)
-                    .padding([8, 12])
-                    .style(theme::select),
-                ));
-                match f.auth {
-                    AuthMethod::Key => {
-                        form = form.push(field(
-                            tr("Clé SSH"),
-                            pick_list(keys.clone(), pick(&keys, f.key), |c| Message::Host(HostField::Key(c)))
-                                .width(Fill)
-                                .padding([8, 12])
-                                .style(theme::select),
-                        ))
-                    }
-                    AuthMethod::Identity => {
-                        form = form.push(field(
-                            tr("Identité"),
-                            pick_list(ids.clone(), pick(&ids, f.identity), |c| Message::Host(HostField::Identity(c)))
-                                .width(Fill)
-                                .padding([8, 12])
-                                .style(theme::select),
-                        ))
-                    }
-                    _ => {
-                        form = form.push(field(
-                            tr("Mot de passe"),
-                            text_input(&tr("Demandé à la connexion si vide"), &f.password)
-                                .on_input(|v| Message::Host(HostField::Password(v)))
-                                .secure(true)
-                                .padding([9, 12])
-                                .size(14)
-                                .style(theme::input),
-                        ))
-                    }
-                }
-                if matches!(f.protocol, Protocol::Ssh | Protocol::Mosh | Protocol::Rdp | Protocol::Vnc) {
-                    form = form.push(field(
-                        tr("Rebond SSH"),
-                        pick_list(jumps.clone(), pick(&jumps, f.jump), |c| Message::Host(HostField::Jump(c)))
-                            .width(Fill)
-                            .padding([8, 12])
-                            .style(theme::select),
+                        input("root", &f.username, |v| Message::Host(HostField::Username(v))).font(MONO),
                     ));
                 }
             }
-            form = form
-                .push(field(
-                    tr("Groupe"),
-                    pick_list(groups.clone(), pick(&groups, f.group), |c| Message::Host(HostField::Group(c)))
-                        .width(Fill)
-                        .padding([8, 12])
-                        .style(theme::select),
-                ))
-                .push(field(tr("Couleur"), color_picker(f.color, |c| Message::Host(HostField::Color(c)))))
-                .push(field(
-                    tr("Tags (séparés par des virgules)"),
-                    input("prod, docker", &f.tags, |v| Message::Host(HostField::Tags(v))),
-                ));
+            form = form.push(kit::float_field(
+                tr("Nom affiché (facultatif)"),
+                input("docker-01", &f.alias, |v| Message::Host(HostField::Alias(v))),
+            ));
+            if network {
+                form = form
+                    .push(label(tr("Astuce : collez « user@adresse:port » dans Adresse pour tout remplir.")))
+                    .push(kit::section_label(tr("Authentification")))
+                    .push(segmented(
+                        AuthChoice::ALL.iter().map(|a| (a.0, a.to_string())).collect(),
+                        if f.auth == AuthMethod::Agent {
+                            AuthMethod::Password
+                        } else {
+                            f.auth
+                        },
+                        |a| Message::Host(HostField::Auth(AuthChoice(a))),
+                    ));
+                match f.auth {
+                    AuthMethod::Key => {
+                        form = form.push(kit::float_box(
+                            tr("Clé"),
+                            select(pick_list(keys.clone(), pick(&keys, f.key), |c| Message::Host(HostField::Key(c)))),
+                        ));
+                        if app.keys.is_empty() {
+                            form = form.push(label(tr(
+                                "Trousseau vide : générez une clé dans le Trousseau ou importez un fichier.",
+                            )));
+                        }
+                    }
+                    AuthMethod::Identity => {
+                        form = form.push(kit::float_box(
+                            tr("Identité"),
+                            select(pick_list(ids.clone(), pick(&ids, f.identity), |c| {
+                                Message::Host(HostField::Identity(c))
+                            })),
+                        ))
+                    }
+                    _ => {
+                        form = form.push(kit::float_field(
+                            tr("Mot de passe"),
+                            text_input(&tr("Demandé à la connexion si vide"), &f.password)
+                                .on_input(|v| Message::Host(HostField::Password(v)))
+                                .secure(true),
+                        ))
+                    }
+                }
+                form = form.push(kit::section_label(tr("Connexion")));
+                if matches!(f.protocol, Protocol::Ssh | Protocol::Mosh | Protocol::Rdp | Protocol::Vnc) {
+                    form = form.push(kit::float_box(
+                        tr("Rebond SSH"),
+                        select(pick_list(jumps.clone(), pick(&jumps, f.jump), |c| {
+                            Message::Host(HostField::Jump(c))
+                        })),
+                    ));
+                }
+            }
             if f.protocol == Protocol::Rdp {
                 form = form
-                    .push(field(
+                    .push(kit::float_field(
                         tr("Domaine (optionnel)"),
                         input("CORP", &f.rdp_domain, |v| Message::Host(HostField::RdpDomain(v))),
                     ))
                     .push(
                         row![
-                            field(
+                            kit::float_field(
                                 tr("Résolution"),
                                 input("1600x900", &f.rdp_resolution, |v| Message::Host(HostField::RdpResolution(v))).font(MONO)
                             ),
-                            field(
+                            kit::float_field(
                                 tr("Échelle (%)"),
                                 input("100", &f.rdp_scale, |v| Message::Host(HostField::RdpScale(v)))
                             )
-                            .width(120),
+                            .width(130),
                         ]
                         .spacing(10),
                     );
             }
             if !f.protocol.is_desktop() {
-                form = form.push(field(
+                form = form.push(kit::float_field(
                     tr("Commande au démarrage"),
                     input("htop", &f.startup, |v| Message::Host(HostField::Startup(v))).font(MONO),
                 ));
             }
+            form = form
+                .push(kit::section_label(tr("Organisation")))
+                .push(kit::float_box(
+                    tr("Groupe"),
+                    select(pick_list(groups.clone(), pick(&groups, f.group), |c| {
+                        Message::Host(HostField::Group(c))
+                    })),
+                ))
+                .push(field(tr("Couleur"), color_picker(f.color, |c| Message::Host(HostField::Color(c)))))
+                .push(kit::float_field(
+                    tr("Tags (séparés par des virgules)"),
+                    input("prod, docker", &f.tags, |v| Message::Host(HostField::Tags(v))),
+                ));
             let heading = if f.original.is_some() {
-                f.alias.clone()
+                tr("Modifier l'hôte")
             } else {
                 tr("Nouvel hôte")
             };
@@ -1272,7 +1788,7 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
         }
         Editor::Group(f) => {
             let form = column![
-                field(
+                kit::float_field(
                     tr("Nom"),
                     input("Homelab", &f.name, Message::GroupName).on_submit(Message::SaveGroup)
                 ),
@@ -1297,7 +1813,7 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
             )
         }
         Editor::Key(f) => {
-            let mut form = column![field(tr("Nom"), input("laptop", &f.name, Message::KeyName))].spacing(14);
+            let mut form = column![kit::float_field(tr("Nom"), input("laptop", &f.name, Message::KeyName))].spacing(14);
             if f.generate {
                 form = form.push(field(
                     tr("Type"),
@@ -1322,7 +1838,7 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
                     .spacing(8),
                 ));
             }
-            form = form.push(field(
+            form = form.push(kit::float_field(
                 if f.generate {
                     tr("Phrase de passe (recommandée)")
                 } else {
@@ -1337,13 +1853,7 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
                     .style(theme::input),
             ));
             if !f.generate {
-                form = form.push(
-                    iced::widget::checkbox(f.remember)
-                        .label(tr("Mémoriser la phrase de passe"))
-                        .on_toggle(Message::KeyRemember)
-                        .size(16)
-                        .text_size(13),
-                );
+                form = form.push(switch(tr("Mémoriser la phrase de passe"), f.remember, Message::KeyRemember));
             }
             if f.busy {
                 form = form.push(soft(if f.generate {
@@ -1381,8 +1891,8 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
             .collect();
             let current = keys.iter().find(|c| c.id == f.key).cloned();
             let form = column![
-                field(tr("Nom"), input("admin", &f.name, Message::IdentityName)),
-                field(tr("Utilisateur"), input("root", &f.username, Message::IdentityUser)),
+                kit::float_field(tr("Nom"), input("admin", &f.name, Message::IdentityName)),
+                kit::float_field(tr("Utilisateur"), input("root", &f.username, Message::IdentityUser)),
                 field(
                     tr("Clé SSH"),
                     pick_list(keys, current, Message::IdentityKey)
@@ -1390,7 +1900,7 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
                         .padding([8, 12])
                         .style(theme::select)
                 ),
-                field(
+                kit::float_field(
                     tr("Mot de passe"),
                     text_input(&tr("Demandé à la connexion si vide"), &f.password)
                         .on_input(Message::IdentityPassword)
@@ -1431,7 +1941,7 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
                 ForwardKind::Dynamic => tr("Proxy SOCKS5 sur cet ordinateur : les applis qui le configurent sortent par le serveur."),
             };
             let mut form = column![
-                field(tr("Nom"), input("Jellyfin", &f.name, Message::ForwardName)),
+                kit::float_field(tr("Nom"), input("Jellyfin", &f.name, Message::ForwardName)),
                 segmented(
                     vec![
                         (ForwardKind::Local, tr("Locale")),
@@ -1451,7 +1961,7 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
                         .style(theme::select)
                 ),
                 row![
-                    field(
+                    kit::float_field(
                         if f.kind == ForwardKind::Remote {
                             tr("Écoute (serveur)")
                         } else {
@@ -1460,7 +1970,8 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
                         input("127.0.0.1", &f.bind_host, Message::ForwardBindHost).font(MONO)
                     )
                     .width(Length::FillPortion(2)),
-                    field(tr("Port"), input("8080", &f.bind_port, Message::ForwardBindPort).font(MONO)).width(Length::FillPortion(1)),
+                    kit::float_field(tr("Port"), input("8080", &f.bind_port, Message::ForwardBindPort).font(MONO))
+                        .width(Length::FillPortion(1)),
                 ]
                 .spacing(10),
             ]
@@ -1468,23 +1979,22 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
             if f.kind != ForwardKind::Dynamic {
                 form = form.push(
                     row![
-                        field(
+                        kit::float_field(
                             "Destination".into(),
                             input("127.0.0.1", &f.dest_host, Message::ForwardDestHost).font(MONO)
                         )
                         .width(Length::FillPortion(2)),
-                        field(tr("Port"), input("80", &f.dest_port, Message::ForwardDestPort).font(MONO)).width(Length::FillPortion(1)),
+                        kit::float_field(tr("Port"), input("80", &f.dest_port, Message::ForwardDestPort).font(MONO))
+                            .width(Length::FillPortion(1)),
                     ]
                     .spacing(10),
                 );
             }
-            form = form.push(
-                iced::widget::checkbox(f.auto_start)
-                    .label(tr("Démarrer avec chaque session sur cet hôte"))
-                    .on_toggle(Message::ForwardAuto)
-                    .size(18)
-                    .text_size(14),
-            );
+            form = form.push(switch(
+                tr("Démarrer avec chaque session sur cet hôte"),
+                f.auto_start,
+                Message::ForwardAuto,
+            ));
             let heading = if f.original.is_some() {
                 tr("Modifier la règle")
             } else {
@@ -1499,7 +2009,7 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
         }
         Editor::Snippet(f) => {
             let form = column![
-                field(tr("Nom"), input(&tr("Espace disque"), &f.name, Message::SnippetName)),
+                kit::float_field(tr("Nom"), input(&tr("Espace disque"), &f.name, Message::SnippetName)),
                 field(
                     tr("Commande"),
                     text_editor(&f.command)
@@ -1527,7 +2037,7 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
                 soft(tr(
                     "Astuce : ${NOM} devient une valeur demandée à chaque exécution. Plusieurs lignes = plusieurs commandes."
                 )),
-                field(tr("Tag"), input("Docker", &f.tag, Message::SnippetTag)),
+                kit::float_field(tr("Tag"), input("Docker", &f.tag, Message::SnippetTag)),
             ]
             .spacing(14);
             let heading = if f.original.is_some() {
@@ -1554,14 +2064,29 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
                 .on_press(m),
         );
     }
-    actions = actions
-        .push(Space::new().width(Fill))
-        .push(secondary(tr("Annuler"), Message::CloseEditor))
-        .push(primary(tr("Enregistrer"), save));
+    actions = actions.push(Space::new().width(Fill));
+    let big = |b: button::Button<'a, Message>| b.padding([13, 22]);
+    if let Editor::Host(f) = e {
+        actions = actions
+            .push(big(button(text(tr("Enregistrer")).size(15).font(BOLD))
+                .style(theme::secondary)
+                .on_press_maybe(save)))
+            .push(big(button(text(tr("Connecter")).size(15).font(BOLD))
+                .style(theme::primary)
+                .on_press_maybe(f.valid().then_some(Message::SaveHostAndConnect))));
+    } else {
+        actions = actions
+            .push(big(button(text(tr("Annuler")).size(15))
+                .style(theme::secondary)
+                .on_press(Message::CloseEditor)))
+            .push(big(button(text(tr("Enregistrer")).size(15).font(BOLD))
+                .style(theme::primary)
+                .on_press_maybe(save)));
+    }
 
     column![
         row![
-            text(heading).font(BOLD).size(18),
+            text(heading).font(BOLD).size(22),
             Space::new().width(Fill),
             icon_button(I_CLOSE, Message::CloseEditor)
         ]
@@ -1875,7 +2400,7 @@ fn snippet_dialog<'a>(app: &'a App, id: i64, vars: &'a [(String, String)]) -> El
 fn lock_screen(app: &App) -> Element<'_, Message> {
     let pin = app.settings.lock_method == Some(nautile_core::lock::LockMethod::Pin);
     let mut c = column![
-        container(icon('\u{F033E}').size(30))
+        container(icon(I_LOCK).size(30))
             .padding([10, 14])
             .style(|t: &iced::Theme| theme::tile(theme::nt(t).accent)(t)),
         text(tr("Nautile est verrouillé")).size(20).font(BOLD),
@@ -1903,14 +2428,14 @@ fn lock_screen(app: &App) -> Element<'_, Message> {
     container(c).center(Fill).style(theme::page).into()
 }
 
-const I_UP: char = '\u{F0143}';
-const I_REFRESH: char = '\u{F0450}';
-const I_HOME: char = '\u{F02DC}';
-const I_FOLDER_PLUS: char = '\u{F0257}';
-const I_FILE: char = '\u{F0214}';
-const I_DOWNLOAD: char = '\u{F01DA}';
-const I_UPLOAD: char = '\u{F0552}';
-const I_RENAME: char = '\u{F0CB6}';
+const I_UP: char = '\u{E5D8}'; // arrow_upward
+const I_REFRESH: char = '\u{E5D5}'; // refresh
+const I_HOME: char = '\u{E88A}'; // home
+const I_FOLDER_PLUS: char = '\u{E2CC}'; // create_new_folder
+const I_FILE: char = '\u{E24D}'; // insert_drive_file
+const I_DOWNLOAD: char = '\u{F090}'; // download
+const I_UPLOAD: char = '\u{F09B}'; // upload
+const I_RENAME: char = '\u{E9A2}'; // drive_file_rename_outline
 
 /// The SFTP tab: this computer | the server, then the transfers.
 fn files_view<'a>(app: &'a App, t: &'a Tab, f: &'a crate::files::Files) -> Element<'a, Message> {
@@ -2212,7 +2737,7 @@ fn green<'a>(s: String) -> iced::widget::Text<'a> {
 fn place_icon(d: &nautile_net::store::Dest) -> char {
     match d {
         nautile_net::store::Dest::Folder { .. } => I_FOLDER,
-        _ => '\u{F015F}',
+        _ => I_CLOUD,
     }
 }
 
@@ -2291,14 +2816,10 @@ fn backup_places(app: &App) -> Element<'_, Message> {
         .align_y(Alignment::Center);
         let mut card = column![head].spacing(12);
         if open {
-            let mut opts = column![iced::widget::checkbox(t.auto)
-                .label(tr("Sauvegarde automatique (tant que Nautile est ouvert)"))
-                .on_toggle({
-                    let id = id.clone();
-                    move |v| bm(B::Auto(id.clone(), v))
-                })
-                .size(16)
-                .text_size(13)]
+            let mut opts = column![switch(tr("Sauvegarde automatique (tant que Nautile est ouvert)"), t.auto, {
+                let id = id.clone();
+                move |v| bm(B::Auto(id.clone(), v))
+            })]
             .spacing(10);
             if t.auto {
                 let idf = id.clone();
@@ -2495,11 +3016,7 @@ fn sync_settings(app: &App) -> Element<'_, Message> {
     let st = &app.backup;
     let mut c = column![
         soft(tr("Vos appareils partagent un même fichier chiffré : chacun y fusionne ses modifications (la plus récente l'emporte, suppressions comprises).")),
-        iced::widget::checkbox(s.sync_enabled)
-            .label(tr("Synchroniser avec mes autres appareils"))
-            .on_toggle(|v| bm(B::SyncEnabled(v)))
-            .size(16)
-            .text_size(14),
+        switch(tr("Synchroniser mes appareils"), s.sync_enabled, |v| bm(B::SyncEnabled(v))),
     ]
     .spacing(12);
     if s.sync_enabled {
@@ -2551,7 +3068,7 @@ fn sync_settings(app: &App) -> Element<'_, Message> {
             let this = *id == me;
             c = c.push(
                 row![
-                    icon(if this { I_DESKTOP } else { '\u{F011C}' }).size(15),
+                    icon(if this { I_DESKTOP } else { I_PHONE }).size(15),
                     text(if this {
                         trf("%1$s (cet ordinateur)", &[name])
                     } else {
@@ -2577,11 +3094,7 @@ fn lan_settings(app: &App) -> Element<'_, Message> {
         soft(tr(
             "Sans cloud : vos appareils associés se synchronisent directement quand ils sont sur le même réseau."
         )),
-        iced::widget::checkbox(s.lan_enabled)
-            .label(tr("Synchronisation Wi-Fi"))
-            .on_toggle(|v| bm(B::LanEnabled(v)))
-            .size(16)
-            .text_size(14),
+        switch(tr("Sur le Wi-Fi, sans cloud"), s.lan_enabled, |v| bm(B::LanEnabled(v))),
     ]
     .spacing(12);
     if !s.lan_enabled {
@@ -2668,7 +3181,7 @@ fn lan_settings(app: &App) -> Element<'_, Message> {
 
 // --- AI assistant ---
 
-const I_SPARKLES: char = '\u{F0E8D}';
+const I_SPARKLES: char = '\u{E65F}'; // auto_awesome
 
 fn am(m: crate::assistant::AiMsg) -> Message {
     Message::Ai(m)
@@ -2878,7 +3391,7 @@ fn ai_settings(app: &App) -> Element<'_, Message> {
         c = c.push(field(tr("Clé API"), r));
     }
     if kind.editable_url() {
-        c = c.push(field(
+        c = c.push(kit::float_field(
             tr("Adresse"),
             text_input(kind.default_url().unwrap_or_default(), &st.url_input)
                 .on_input(|v| am(A::Url(v)))

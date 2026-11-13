@@ -11,6 +11,7 @@ fn main() -> iced::Result {
         .subscription(App::subscription)
         .font(theme::FONT_UI)
         .font(theme::FONT_MONO)
+        .font(theme::FONT_ICONS)
         .default_font(theme::UI)
         .window(iced::window::Settings {
             size: iced::Size::new(1280.0, 800.0),

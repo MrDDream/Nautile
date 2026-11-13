@@ -163,3 +163,9 @@ Commande copiée	Command copied
 Assistant enregistré	Assistant saved
 %1\$s modèle(s)	%1\$s model(s)
 Rectangle VNC hors de l'écran	VNC rectangle outside the screen
+Ouvrez une session pour exécuter un snippet.	Open a session to run a snippet.
+Couleurs · %1\$s	Colors · %1\$s
+Raccourcis	Shortcuts
+Nautile demande ce code à l'ouverture et après une inactivité. Il ne sert qu'à cet ordinateur.	Nautile asks for this code at startup and after a period of inactivity. It only applies to this computer.
+Trousseau vide : générez une clé dans le Trousseau ou importez un fichier.	Empty keychain: generate a key in the Keychain or import a file.
+pas une clé connue	not a known key
