@@ -96,3 +96,53 @@ Cet ordinateur	This computer
 Nom du dossier	Folder name
 Les fichiers passent par SSH	Files go through SSH
 %1\$s — fichiers	%1\$s — files
+Dossier introuvable : %1\$s	Folder not found: %1\$s
+Toutes les 6 h	Every 6 h
+Toutes les 12 h	Every 12 h
+Chaque jour	Every day
+Chaque semaine	Every week
+Chaque mois	Every month
+Mot de passe de sauvegarde enregistré	Backup password saved
+Dossier de sauvegarde	Backup folder
+Emplacement ajouté	Place added
+Sauvegarde effectuée	Backup done
+Code refusé ou appareil injoignable	Code refused or device unreachable
+Synchronisation Wi-Fi	Wi-Fi sync
+Le mot de passe de sauvegarde est enregistré sur cet ordinateur : les sauvegardes automatiques et la synchronisation s'en servent.	The backup password is saved on this computer: automatic backups and sync use it.
+Choisissez le mot de passe des sauvegardes (le même que sur vos autres appareils pour la synchronisation).	Choose the backup password (the same as on your other devices for sync).
+EMPLACEMENTS	PLACES
+En cours…	In progress…
+Dernière sauvegarde : %1\$s	Last backup: %1\$s
+Jamais sauvegardé ici	Never backed up here
+Synchronisé avec vos autres appareils	Synced with your other devices
+%1\$s · prochaine : %2\$s	%1\$s · next: %2\$s
+Sauvegarde automatique (tant que Nautile est ouvert)	Automatic backup (while Nautile is open)
+À	At
+lundi	Monday
+mardi	Tuesday
+mercredi	Wednesday
+jeudi	Thursday
+vendredi	Friday
+samedi	Saturday
+dimanche	Sunday
++ Dossier	+ Folder
+Dossier : celui de Google Drive, OneDrive, Nextcloud ou Syncthing sur cet ordinateur convient aussi.	Folder: the Google Drive, OneDrive, Nextcloud or Syncthing folder on this computer works too.
+Clé d'accès	Access key
+Vérification…	Checking…
+Vérifier et ajouter	Check and add
+COPIES SUR CET ORDINATEUR	COPIES ON THIS COMPUTER
+Vos appareils partagent un même fichier chiffré : chacun y fusionne ses modifications (la plus récente l'emporte, suppressions comprises).	Your devices share one encrypted file: each merges its changes into it (the latest wins, deletions included).
+Synchroniser avec mes autres appareils	Sync with my other devices
+Ajoutez d'abord un emplacement de sauvegarde.	Add a backup place first.
+Dernière synchronisation : %1\$s	Last sync: %1\$s
+%1\$s (cet ordinateur)	%1\$s (this computer)
+Sans cloud : vos appareils associés se synchronisent directement quand ils sont sur le même réseau.	No cloud: your paired devices sync directly when they are on the same network.
+Tapez ce code sur l'autre appareil	Type this code on the other device
+Associer : afficher un code	Pair: show a code
+À PROXIMITÉ	NEARBY
+Code affiché	Code shown
+Associer…	Pair…
+APPAREILS ASSOCIÉS	PAIRED DEVICES
+synchronisé %1\$s	synced %1\$s
+jamais synchronisé	never synced
+à portée · %1\$s	in range · %1\$s

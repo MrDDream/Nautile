@@ -13,6 +13,8 @@ russh = { version = "0.65", default-features = false, features = ["ring", "flate
 tokio = { version = "1", features = ["net", "io-util", "rt-multi-thread", "sync", "time", "macros", "fs"] }
 portable-pty = "0.9"
 thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 base64.workspace = true
 sha2.workspace = true
 rand.workspace = true
@@ -27,6 +29,11 @@ md5 = "0.8"
 ocb3 = "0.2"
 flate2 = "1"
 russh-sftp = "3"
+# Backup places (WebDAV, S3) and AI providers: rustls + ring, the system's certificates.
+ureq = { version = "3", features = ["platform-verifier"] }
+hmac.workspace = true
+# Wi-Fi synchronisation: finds the other devices (« _nautile._tcp »).
+mdns-sd = "0.21"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

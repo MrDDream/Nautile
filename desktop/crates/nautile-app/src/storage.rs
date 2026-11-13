@@ -80,6 +80,22 @@ pub struct Settings {
     pub lock_until: i64,
     /// Locks again after this many idle minutes (0: never).
     pub lock_after: Option<u32>,
+    /// This computer in the synchronisation (UUID).
+    pub device_id: Option<String>,
+    /// The backup places, in the order they were added.
+    pub targets: Vec<crate::backup::Target>,
+    pub sync_enabled: bool,
+    /// The place whose file the synchronisation shares.
+    pub sync_target: Option<String>,
+    pub sync_minutes: Option<u32>,
+    /// The last local change already synchronised.
+    pub synced_change: i64,
+    pub last_sync: Option<i64>,
+    pub sync_error: Option<String>,
+    /// The devices sharing the file: (id, name, last seen).
+    pub devices: Vec<(String, String, i64)>,
+    pub lan_enabled: bool,
+    pub lan_peers: Vec<crate::backup::Peer>,
 }
 
 impl Settings {
@@ -97,6 +113,10 @@ impl Settings {
 
     pub fn terminal_theme(&self) -> &str {
         self.terminal_theme.as_deref().unwrap_or("nautile")
+    }
+
+    pub fn sync_minutes(&self) -> u32 {
+        self.sync_minutes.unwrap_or(15)
     }
 
     pub fn locks(&self) -> bool {

@@ -395,6 +395,8 @@ pub enum Message {
     LockSave,
     LockAfter(u32),
     Tick,
+    BackupTick,
+    Backup(crate::backup::BackupMsg),
     // --- Sessions ---
     Connect(i64),
     OpenFiles(i64),
@@ -459,6 +461,7 @@ pub struct App {
     pub lock_error: Option<String>,
     pub lock_form: LockForm,
     pub last_activity: std::time::Instant,
+    pub backup: crate::backup::BackupState,
 }
 
 impl App {
@@ -474,13 +477,14 @@ impl App {
             Ok(db) => (Some(db), None),
             Err(e) => (None, Some(e)),
         };
-        let app = App::with(paths, settings, db, fatal);
+        let mut app = App::with(paths, settings, db, fatal);
         let focus = if app.locked {
             iced::widget::operation::focus("lock")
         } else {
             Task::none()
         };
-        (app, focus)
+        let backups = app.backup_boot();
+        (app, Task::batch([focus, backups]))
     }
 
     pub fn with(paths: Paths, settings: Settings, db: Option<Db>, fatal: Option<String>) -> App {
@@ -517,6 +521,7 @@ impl App {
             lock_error: None,
             lock_form: LockForm::default(),
             last_activity: std::time::Instant::now(),
+            backup: Default::default(),
         };
         app.locked = app.settings.locks();
         app.lock_form.method = app.settings.lock_method;
@@ -536,6 +541,7 @@ impl App {
         let mut subs = vec![
             iced::keyboard::listen().filter_map(shortcut),
             iced::event::listen_with(dropped_file),
+            iced::time::every(std::time::Duration::from_secs(30)).map(|_| Message::BackupTick),
         ];
         if self.settings.locks() && !self.locked && self.settings.lock_after() > 0 {
             subs.push(iced::time::every(std::time::Duration::from_secs(20)).map(|_| Message::Tick));
@@ -584,7 +590,19 @@ impl App {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         if !matches!(
             message,
-            Message::Session(..) | Message::Tunnel(..) | Message::Sftp(..) | Message::Tick | Message::ToastClear
+            Message::Session(..)
+                | Message::Tunnel(..)
+                | Message::Sftp(..)
+                | Message::Tick
+                | Message::ToastClear
+                | Message::BackupTick
+                | Message::Backup(
+                    crate::backup::BackupMsg::Lan(_)
+                        | crate::backup::BackupMsg::Fetched(_)
+                        | crate::backup::BackupMsg::Written(..)
+                        | crate::backup::BackupMsg::Done(..)
+                        | crate::backup::BackupMsg::LanRound(_)
+                )
         ) {
             self.last_activity = std::time::Instant::now();
         }
@@ -599,6 +617,14 @@ impl App {
                     | Message::Sftp(..)
                     | Message::ToastClear
                     | Message::Tick
+                    | Message::BackupTick
+                    | Message::Backup(
+                        crate::backup::BackupMsg::Lan(_)
+                            | crate::backup::BackupMsg::Fetched(_)
+                            | crate::backup::BackupMsg::Written(..)
+                            | crate::backup::BackupMsg::Done(..)
+                            | crate::backup::BackupMsg::LanRound(_)
+                    )
             )
         {
             return Task::none();
@@ -1315,6 +1341,8 @@ impl App {
             Message::LockNew(v) => self.lock_form.new = v,
             Message::LockConfirm(v) => self.lock_form.confirm = v,
             Message::LockSave => return self.save_lock(),
+            Message::BackupTick => return self.backup_tick(),
+            Message::Backup(m) => return self.backup_update(m),
             Message::LockAfter(m) => {
                 self.settings.lock_after = Some(m);
                 let _ = self.settings.save(&self.paths);

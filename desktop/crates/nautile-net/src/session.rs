@@ -97,7 +97,7 @@ impl<T> fmt::Debug for Reply<T> {
 }
 
 impl<T> Reply<T> {
-    fn new() -> (Reply<T>, oneshot::Receiver<T>) {
+    pub(crate) fn new() -> (Reply<T>, oneshot::Receiver<T>) {
         let (tx, rx) = oneshot::channel();
         (Reply(Arc::new(Mutex::new(Some(tx)))), rx)
     }

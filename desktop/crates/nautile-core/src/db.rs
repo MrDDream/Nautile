@@ -264,7 +264,28 @@ impl Db {
         for s in sync_statements() {
             conn.execute_batch(&s)?;
         }
+        // This computer's secrets (backup password, keys of the backup places): encrypted with the rest, never synchronised.
+        conn.execute_batch("CREATE TABLE IF NOT EXISTS desktop_secret (name TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")?;
         Ok(Db { conn })
+    }
+
+    /// A secret of this computer (not part of the backups).
+    pub fn secret(&self, name: &str) -> Option<String> {
+        self.conn
+            .query_row("SELECT value FROM desktop_secret WHERE name = ?1", [name], |r| r.get(0))
+            .ok()
+    }
+
+    /// Saves (or with `None` forgets) a secret of this computer.
+    pub fn set_secret(&self, name: &str, value: Option<&str>) -> Result<()> {
+        match value {
+            Some(v) => self.conn.execute(
+                "INSERT INTO desktop_secret (name, value) VALUES (?1, ?2) ON CONFLICT(name) DO UPDATE SET value = ?2",
+                [name, v],
+            )?,
+            None => self.conn.execute("DELETE FROM desktop_secret WHERE name = ?1", [name])?,
+        };
+        Ok(())
     }
 
     pub fn store(&self) -> Store<'_> {
@@ -473,6 +494,17 @@ impl<'a> Store<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secrets_stay_on_this_computer() {
+        let db = Db::in_memory().unwrap();
+        assert_eq!(db.secret("backup-password"), None);
+        db.set_secret("backup-password", Some("s3cret")).unwrap();
+        db.set_secret("backup-password", Some("other")).unwrap();
+        assert_eq!(db.secret("backup-password").as_deref(), Some("other"));
+        db.set_secret("backup-password", None).unwrap();
+        assert_eq!(db.secret("backup-password"), None);
+    }
 
     #[test]
     fn encrypted_file_needs_its_key() {

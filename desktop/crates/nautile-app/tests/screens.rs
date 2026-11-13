@@ -130,12 +130,14 @@ fn demo(english: bool, dark: bool) -> App {
 }
 
 fn shoot(app: &App, name: &str) {
+    // The settings page is long: shown whole.
+    let height = if name.ends_with("backups") { 2900.0 } else { 800.0 };
     let settings = iced_test::core::Settings {
         fonts: vec![theme::FONT_UI.into(), theme::FONT_MONO.into()],
         default_font: theme::UI,
         ..Default::default()
     };
-    let mut ui = iced_test::simulator::Simulator::with_size(settings, (1280.0, 800.0), ui::view(app));
+    let mut ui = iced_test::simulator::Simulator::with_size(settings, (1280.0, height), ui::view(app));
     let snapshot = ui.snapshot(&app.theme()).expect("renders");
     if std::env::var_os("NAUTILE_SCREENSHOTS").is_some() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../screenshots");
@@ -440,5 +442,56 @@ fn files() {
         t.name = "docker-01 — fichiers".into();
         t.files = Some(Box::new(f));
         "files"
+    });
+}
+
+#[test]
+fn backups() {
+    each(|app| {
+        use nautile_app::backup::{Frequency, Peer, Target};
+        use nautile_net::store::Dest;
+        app.settings.targets = vec![
+            Target {
+                id: "nc".into(),
+                dest: Dest::WebDav {
+                    url: "https://cloud.example.org/remote.php/dav/files/mrd/Nautile/".into(),
+                    username: "mrd".into(),
+                },
+                auto: false,
+                frequency: Frequency::Week,
+                time: 180,
+                weekday: 7,
+                last: Some(1_794_570_000_000),
+                error: None,
+            },
+            Target {
+                id: "usb".into(),
+                dest: Dest::Folder {
+                    path: PathBuf::from("/media/mrd/USB/Sauvegardes"),
+                },
+                auto: true,
+                frequency: Frequency::Week,
+                time: 180,
+                weekday: 7,
+                last: Some(1_794_000_000_000),
+                error: None,
+            },
+        ];
+        app.settings.sync_enabled = true;
+        app.settings.sync_target = Some("nc".into());
+        app.settings.last_sync = Some(1_794_578_000_000);
+        app.settings.device_id = Some("me".into());
+        app.settings.devices = vec![
+            ("phone".into(), "Pixel 8".into(), 1_794_577_000_000),
+            ("me".into(), "pc-bureau".into(), 1_794_578_000_000),
+        ];
+        app.settings.lan_enabled = true;
+        app.settings.lan_peers = vec![Peer {
+            id: "phone".into(),
+            name: "Pixel 8".into(),
+            last: 1_794_560_000_000,
+        }];
+        let _ = app.update(Message::Nav(Page::Settings));
+        "backups"
     });
 }
