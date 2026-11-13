@@ -1231,6 +1231,27 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
                     tr("Tags (séparés par des virgules)"),
                     input("prod, docker", &f.tags, |v| Message::Host(HostField::Tags(v))),
                 ));
+            if f.protocol == Protocol::Rdp {
+                form = form
+                    .push(field(
+                        tr("Domaine (optionnel)"),
+                        input("CORP", &f.rdp_domain, |v| Message::Host(HostField::RdpDomain(v))),
+                    ))
+                    .push(
+                        row![
+                            field(
+                                tr("Résolution"),
+                                input("1600x900", &f.rdp_resolution, |v| Message::Host(HostField::RdpResolution(v))).font(MONO)
+                            ),
+                            field(
+                                tr("Échelle (%)"),
+                                input("100", &f.rdp_scale, |v| Message::Host(HostField::RdpScale(v)))
+                            )
+                            .width(120),
+                        ]
+                        .spacing(10),
+                    );
+            }
             if !f.protocol.is_desktop() {
                 form = form.push(field(
                     tr("Commande au démarrage"),
@@ -1614,7 +1635,10 @@ fn tab_bar(app: &App) -> Element<'_, Message> {
     )))
     .width(Fill)]
     .align_y(Alignment::Center);
-    let shows_terminal = app.active_tab.and_then(|id| app.tab(id)).is_some_and(|t| t.files.is_none());
+    let shows_terminal = app
+        .active_tab
+        .and_then(|id| app.tab(id))
+        .is_some_and(|t| t.files.is_none() && t.remote.is_none());
     if shows_terminal {
         bar = bar.push(
             button(
@@ -1635,6 +1659,9 @@ fn session<'a>(app: &'a App, t: &'a Tab) -> Element<'a, Message> {
     let id = t.id;
     if let Some(f) = &t.files {
         return files_view(app, t, f);
+    }
+    if let Some(r) = &t.remote {
+        return remote_desktop(app, t, r);
     }
     let focused = app.prompts.is_empty() && app.editor.is_none();
     let term: Element<Message> =
@@ -2893,4 +2920,59 @@ fn ai_settings(app: &App) -> Element<'_, Message> {
         None => {}
     }
     c.into()
+}
+
+/// A VNC or RDP tab: the desktop, and what is happening when it is not shown.
+fn remote_desktop<'a>(app: &'a App, t: &'a Tab, r: &'a crate::sessions::RemoteTab) -> Element<'a, Message> {
+    let id = t.id;
+    let focused = app.prompts.is_empty() && app.editor.is_none();
+    let screen: Element<Message> = crate::remote_view::view(r.image.as_ref(), r.size, r.cursor.as_ref(), focused, move |a| {
+        Message::RemoteAction(id, a)
+    })
+    .into();
+    let banner = |body: Element<'a, Message>| -> Element<'a, Message> {
+        container(container(body).padding([14, 18]).max_width(560).style(theme::card))
+            .center_x(Fill)
+            .align_bottom(Fill)
+            .padding(24)
+            .into()
+    };
+    match &t.state {
+        TabState::Open => screen,
+        TabState::Connecting(step) => stack![
+            screen,
+            banner(
+                row![
+                    icon(I_DESKTOP),
+                    text(if step.is_empty() {
+                        trf("Connexion à %1$s…", &[&t.name])
+                    } else {
+                        step.clone()
+                    })
+                    .size(14),
+                    Space::new().width(Fill),
+                    secondary(tr("Annuler"), Message::CloseTab(id))
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center)
+                .into()
+            )
+        ]
+        .into(),
+        TabState::Closed(reason) => stack![
+            screen,
+            banner(
+                row![
+                    text(reason.clone().unwrap_or_else(|| tr("Session terminée"))).size(14),
+                    Space::new().width(Fill),
+                    primary(tr("Reconnecter"), Some(Message::Reconnect(id))),
+                    secondary(tr("Fermer"), Message::CloseTab(id)),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center)
+                .into()
+            )
+        ]
+        .into(),
+    }
 }

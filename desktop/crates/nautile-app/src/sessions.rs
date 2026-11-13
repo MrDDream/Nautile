@@ -28,6 +28,8 @@ pub enum TabState {
 
 pub struct Tab {
     pub id: u64,
+    /// The remote desktop of a VNC or RDP tab (no terminal then).
+    pub remote: Option<Box<RemoteTab>>,
     /// The file browser of an SFTP tab (no terminal then).
     pub files: Option<Box<crate::files::Files>>,
     /// `None` for a local terminal opened without a saved host.
@@ -48,6 +50,16 @@ impl Tab {
             let _ = tx.send(i);
         }
     }
+}
+
+/// A remote desktop being shown.
+pub struct RemoteTab {
+    pub input: std::sync::mpsc::Sender<nautile_remote::RemoteInput>,
+    pub frame: nautile_remote::SharedFrame,
+    pub image: Option<iced::widget::image::Handle>,
+    pub size: (u32, u32),
+    /// The server's pointer: image, width, height, hot spot.
+    pub cursor: Option<(iced::widget::image::Handle, u32, u32, u32, u32)>,
 }
 
 /// A question waiting for the user, from a tab or a tunnel.
@@ -223,6 +235,7 @@ impl App {
             state: TabState::Connecting(String::new()),
             remote_title: None,
             files: None,
+            remote: None,
         });
         self.active_tab = Some(self.next_tab);
         self.last_tab = self.active_tab;
@@ -234,6 +247,30 @@ impl App {
         let Some(tab) = self.tab(id) else { return Task::none() };
         let (cols, rows) = (tab.term.cols(), tab.term.rows());
         let host = tab.host_id.and_then(|h| self.hosts.iter().find(|x| x.id == h).cloned());
+        if let (Protocol::Vnc | Protocol::Rdp, Some(h)) = (tab.protocol, host.clone()) {
+            let r = if h.protocol == Protocol::Vnc {
+                nautile_remote::vnc::spawn(
+                    h.hostname.clone(),
+                    h.port.clamp(1, 65535) as u16,
+                    h.alias.clone(),
+                    h.password.clone().filter(|p| !p.is_empty()),
+                )
+            } else {
+                nautile_remote::rdp::spawn(self.rdp_params(&h))
+            };
+            if let Some(t) = self.tab_mut(id) {
+                t.state = TabState::Connecting(String::new());
+                t.remote = Some(Box::new(RemoteTab {
+                    input: r.input,
+                    frame: r.frame,
+                    image: None,
+                    size: (0, 0),
+                    cursor: None,
+                }));
+            }
+            let stream = stream::unfold(r.events, |mut rx| async move { rx.recv().await.map(|e| (e, rx)) });
+            return Task::run(stream, move |e| Message::Remote(id, e));
+        }
         let session = match (tab.protocol, host) {
             (Protocol::Local, _) => nautile_net::local::spawn(None, cols, rows),
             (Protocol::Telnet, Some(h)) => nautile_net::telnet::spawn(h.hostname.clone(), h.port.clamp(1, 65535) as u16, cols, rows),
@@ -266,9 +303,6 @@ impl App {
         let Some(h) = self.hosts.iter().find(|h| h.id == host_id).cloned() else {
             return Task::none();
         };
-        if h.protocol.is_desktop() {
-            return self.say(tr("Le bureau à distance (RDP, VNC) arrive bientôt sur ordinateur"));
-        }
         self.editor = None;
         let id = self.open_tab(Some(h.id), h.alias.clone(), h.color, h.protocol);
         self.start(id)
@@ -290,6 +324,9 @@ impl App {
         let (cols, rows) = self.grid;
         if let Some(t) = self.tab_mut(id) {
             t.send(Input::Close);
+            if let Some(r) = t.remote.take() {
+                let _ = r.input.send(nautile_remote::RemoteInput::Close);
+            }
             t.term = Terminal::new(cols, rows, theme);
             t.remote_title = None;
         }
@@ -299,6 +336,9 @@ impl App {
     pub fn close_tab(&mut self, id: u64) {
         if let Some(t) = self.tab(id) {
             t.send(Input::Close);
+            if let Some(r) = &t.remote {
+                let _ = r.input.send(nautile_remote::RemoteInput::Close);
+            }
         }
         self.prompts.retain(|p| {
             let mine = p.tab == Some(id);
@@ -564,6 +604,116 @@ impl App {
                 if f.bind_host.is_empty() { "127.0.0.1" } else { &f.bind_host },
                 f.bind_port
             )),
+        }
+    }
+}
+
+impl App {
+    pub fn on_remote(&mut self, id: u64, e: nautile_remote::RemoteEvent) -> Task<Message> {
+        use nautile_remote::RemoteEvent as E;
+        match e {
+            E::Status(s) => {
+                if let Some(t) = self.tab_mut(id) {
+                    t.state = TabState::Connecting(s);
+                }
+            }
+            E::Ready(name) => {
+                if let Some(t) = self.tab_mut(id) {
+                    t.state = TabState::Open;
+                    t.remote_title = Some(name).filter(|n| !n.is_empty());
+                }
+            }
+            E::Frame => {
+                if let Some(r) = self.tab_mut(id).and_then(|t| t.remote.as_mut()) {
+                    let f = r.frame.lock().unwrap_or_else(|e| e.into_inner());
+                    if f.width > 0 && f.height > 0 {
+                        r.size = (f.width, f.height);
+                        r.image = Some(iced::widget::image::Handle::from_rgba(f.width, f.height, f.rgba.clone()));
+                    }
+                }
+            }
+            E::Cursor(c) => {
+                if let Some(r) = self.tab_mut(id).and_then(|t| t.remote.as_mut()) {
+                    r.cursor = c.map(|c| {
+                        (
+                            iced::widget::image::Handle::from_rgba(c.width, c.height, c.rgba),
+                            c.width,
+                            c.height,
+                            c.hot_x,
+                            c.hot_y,
+                        )
+                    });
+                }
+            }
+            E::Clipboard(text) => return iced::clipboard::write(text),
+            E::Trust(info) => self.trust(info),
+            E::Prompt(p) => {
+                self.prompts.push(PendingPrompt {
+                    tab: Some(id),
+                    forward: None,
+                    prompt: p,
+                });
+                if self.prompts.len() == 1 {
+                    return iced::widget::operation::focus("prompt-secret");
+                }
+            }
+            E::Closed(reason) => {
+                if let Some(t) = self.tab_mut(id) {
+                    t.state = TabState::Closed(reason);
+                }
+            }
+        }
+        Task::none()
+    }
+
+    pub fn on_remote_action(&mut self, id: u64, a: crate::remote_view::RemoteAction) {
+        let Some(r) = self.tab(id).and_then(|t| t.remote.as_ref()) else {
+            return;
+        };
+        let _ = r.input.send(match a {
+            crate::remote_view::RemoteAction::Input(i) => i,
+            crate::remote_view::RemoteAction::Paste(text) => nautile_remote::RemoteInput::Clipboard(text),
+        });
+    }
+}
+
+impl App {
+    /// The RDP settings of [h]: its own or its identity's credentials, resolution, scale, domain.
+    fn rdp_params(&self, h: &Host) -> nautile_remote::rdp::RdpParams {
+        let identity = (h.auth_method == AuthMethod::Identity)
+            .then(|| h.identity_id.and_then(|i| self.identities.iter().find(|x| x.id == i)))
+            .flatten();
+        let (username, password) = match identity {
+            Some(id) => (id.username.clone(), id.password.clone()),
+            None => (h.username.clone(), h.password.clone()),
+        };
+        let size = h
+            .rdp_resolution
+            .as_deref()
+            .and_then(|r| {
+                let (w, hh) = r.trim().split_once(['x', 'X', '×'])?;
+                Some((w.trim().parse().ok()?, hh.trim().parse().ok()?))
+            })
+            .unwrap_or((1600, 900));
+        nautile_remote::rdp::RdpParams {
+            host: h.hostname.clone(),
+            port: h.port.clamp(1, 65535) as u16,
+            label: h.alias.clone(),
+            username,
+            password: password.filter(|p| !p.is_empty()),
+            domain: h.rdp_domain.clone(),
+            size,
+            scale: h.rdp_scale.map(|s| s.clamp(100, 500) as u32),
+            known: self
+                .known_hosts
+                .iter()
+                .filter(|k| k.host == h.hostname && k.port == h.port)
+                .map(|k| KnownKey {
+                    key_type: k.key_type.clone(),
+                    public_key: k.public_key.clone(),
+                    fingerprint: k.fingerprint.clone(),
+                })
+                .collect(),
         }
     }
 }

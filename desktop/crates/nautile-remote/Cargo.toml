@@ -1,0 +1,27 @@
+[package]
+name = "nautile-remote"
+description = "Nautile's remote desktops: VNC (RFB 3.3 to 3.8) and RDP"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+nautile-core = { path = "../nautile-core" }
+nautile-net = { path = "../nautile-net" }
+tokio = { version = "1", features = ["sync"] }
+des = "0.9"
+flate2 = "1"
+# RDP: IronRDP (Rust, no FreeRDP to build), TLS with rustls + ring, NLA (CredSSP) through sspi.
+ironrdp-connector = "0.12"
+ironrdp-session = "0.13"
+ironrdp-graphics = "0.11"
+ironrdp-input = "0.9"
+ironrdp-pdu = "0.11"
+ironrdp-blocking = "0.12"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+x509-cert = { version = "0.2", default-features = false, features = ["std"] }
+sha2.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "time", "macros"] }

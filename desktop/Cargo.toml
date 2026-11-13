@@ -1,7 +1,7 @@
 # Nautile Desktop (Windows, Linux, later macOS): a separate app that speaks the Android app's formats.
 [workspace]
 resolver = "2"
-members = ["crates/nautile-core", "crates/nautile-net", "crates/nautile-app"]
+members = ["crates/nautile-core", "crates/nautile-net", "crates/nautile-remote", "crates/nautile-app"]
 
 [workspace.package]
 version = "0.4.0"
@@ -29,3 +29,10 @@ rusqlite = { version = "0.42", features = ["bundled-sqlcipher-vendored-openssl"]
 [profile.release]
 strip = true
 lto = "thin"
+
+# Debug builds: line numbers for our code, no debug info for the dependencies (tens of GB otherwise).
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

@@ -13,9 +13,10 @@ path = "src/main.rs"
 [dependencies]
 nautile-core = { path = "../nautile-core" }
 nautile-net = { path = "../nautile-net" }
+nautile-remote = { path = "../nautile-remote" }
 alacritty_terminal = "0.26"
 # CPU rendering (tiny-skia) only: ~30 MB of RAM instead of ~160 MB with wgpu, no Vulkan/GL needed.
-iced = { version = "0.14", default-features = false, features = ["tiny-skia", "crisp", "web-colors", "thread-pool", "linux-theme-detection", "x11", "wayland", "advanced", "tokio", "markdown"] }
+iced = { version = "0.14", default-features = false, features = ["tiny-skia", "crisp", "web-colors", "thread-pool", "linux-theme-detection", "x11", "wayland", "advanced", "tokio", "markdown", "image-without-codecs"] }
 rfd = "0.18"
 dirs = "7"
 keyring = "4"

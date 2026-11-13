@@ -117,6 +117,9 @@ pub struct HostForm {
     pub color: i64,
     pub tags: String,
     pub startup: String,
+    pub rdp_domain: String,
+    pub rdp_resolution: String,
+    pub rdp_scale: String,
     pub confirm_delete: bool,
 }
 
@@ -146,6 +149,9 @@ impl HostForm {
             color: base.color,
             tags: base.tags.clone(),
             startup: base.startup_command.clone().unwrap_or_default(),
+            rdp_domain: base.rdp_domain.clone().unwrap_or_default(),
+            rdp_resolution: base.rdp_resolution.clone().unwrap_or_default(),
+            rdp_scale: base.rdp_scale.map(|s| s.to_string()).unwrap_or_default(),
             confirm_delete: false,
             original: h,
         }
@@ -183,6 +189,11 @@ impl HostForm {
             .collect::<Vec<_>>()
             .join(",");
         h.startup_command = Some(self.startup.trim().to_owned()).filter(|s| !s.is_empty());
+        if self.protocol == Protocol::Rdp {
+            h.rdp_domain = Some(self.rdp_domain.trim().to_owned()).filter(|s| !s.is_empty());
+            h.rdp_resolution = Some(self.rdp_resolution.trim().to_owned()).filter(|s| !s.is_empty());
+            h.rdp_scale = self.rdp_scale.trim().parse().ok();
+        }
         h
     }
 }
@@ -309,6 +320,9 @@ pub enum HostField {
     Color(i64),
     Tags(String),
     Startup(String),
+    RdpDomain(String),
+    RdpResolution(String),
+    RdpScale(String),
 }
 
 #[derive(Debug, Clone)]
@@ -403,6 +417,8 @@ pub enum Message {
     OpenFiles(i64),
     Files(u64, crate::files::FilesMsg),
     Sftp(u64, nautile_net::sftp::Update),
+    Remote(u64, nautile_remote::RemoteEvent),
+    RemoteAction(u64, crate::remote_view::RemoteAction),
     FileDropped(std::path::PathBuf),
     OpenLocal,
     SelectTab(Option<u64>),
@@ -596,6 +612,7 @@ impl App {
             Message::Session(..)
                 | Message::Tunnel(..)
                 | Message::Sftp(..)
+                | Message::Remote(..)
                 | Message::Tick
                 | Message::ToastClear
                 | Message::BackupTick
@@ -618,6 +635,7 @@ impl App {
                     | Message::Session(..)
                     | Message::Tunnel(..)
                     | Message::Sftp(..)
+                    | Message::Remote(..)
                     | Message::ToastClear
                     | Message::Tick
                     | Message::BackupTick
@@ -675,6 +693,9 @@ impl App {
                         HostField::Color(c) => f.color = c,
                         HostField::Tags(v) => f.tags = v,
                         HostField::Startup(v) => f.startup = v,
+                        HostField::RdpDomain(v) => f.rdp_domain = v,
+                        HostField::RdpResolution(v) => f.rdp_resolution = v,
+                        HostField::RdpScale(v) => f.rdp_scale = v.chars().filter(char::is_ascii_digit).take(3).collect(),
                     }
                 }
             }
@@ -1358,6 +1379,8 @@ impl App {
             Message::OpenFiles(id) => return self.open_files(id),
             Message::Files(id, m) => self.on_files(id, m),
             Message::Sftp(id, u) => return self.on_sftp(id, u),
+            Message::Remote(id, e) => return self.on_remote(id, e),
+            Message::RemoteAction(id, a) => self.on_remote_action(id, a),
             Message::FileDropped(p) => return self.dropped(p),
             Message::OpenLocal => return self.open_local(),
             Message::SelectTab(id) => {

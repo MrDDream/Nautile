@@ -968,6 +968,7 @@ internal object EnStrings {
         "Rechercher un snippet" to "Search snippets",
         "Reconnecter" to "Reconnect",
         "Reconnexion…" to "Reconnecting…",
+        "Rectangle VNC hors de l'écran" to "VNC rectangle outside the screen",
         "Redemander après" to "Ask again after",
         "Redémarrer" to "Restart",
         "Redémarrer un service" to "Restart a service",

@@ -276,6 +276,7 @@ fn with_session(app: &mut App) -> u64 {
         state: TabState::Open,
         remote_title: Some("mrd@docker-01: ~".into()),
         files: None,
+        remote: None,
     });
     app.next_tab = 1;
     let _ = app.update(Message::SelectTab(Some(1)));
@@ -528,5 +529,54 @@ fn assistant() {
         // What the terminal asks once laid out beside the panel.
         let _ = app.update(Message::Term(id, nautile_app::term::widget::Action::Resize(73, 38)));
         "assistant"
+    });
+}
+
+#[test]
+fn vnc_desktop() {
+    each(|app| {
+        use nautile_app::sessions::{RemoteTab, Tab, TabState};
+        let host = app.hosts.iter().find(|h| h.alias == "raspberry").unwrap().clone();
+        // A desktop: a blue gradient, a window with a title bar.
+        let (w, h) = (1024u32, 640u32);
+        let mut rgba = vec![0u8; (w * h * 4) as usize];
+        for y in 0..h {
+            for x in 0..w {
+                let i = ((y * w + x) * 4) as usize;
+                let inside = (180..760).contains(&x) && (120..500).contains(&y);
+                let bar = inside && y < 150;
+                let (r, g, b) = if bar {
+                    (60, 64, 72)
+                } else if inside {
+                    (246, 244, 239)
+                } else {
+                    (20 + (y * 30 / h) as u8, 60 + (y * 60 / h) as u8, 120 + (x * 80 / w) as u8)
+                };
+                rgba[i..i + 4].copy_from_slice(&[r, g, b, 255]);
+            }
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::mem::forget(rx);
+        app.tabs.push(Tab {
+            id: 7,
+            host_id: Some(host.id),
+            name: host.alias.clone(),
+            color: host.color,
+            protocol: host.protocol,
+            term: nautile_app::term::Terminal::new(10, 2, app.term_theme()),
+            input: None,
+            state: TabState::Open,
+            remote_title: Some("raspberry:0".into()),
+            files: None,
+            remote: Some(Box::new(RemoteTab {
+                input: tx,
+                frame: Default::default(),
+                image: Some(iced::widget::image::Handle::from_rgba(w, h, rgba)),
+                size: (w, h),
+                cursor: None,
+            })),
+        });
+        let _ = app.update(Message::SelectTab(Some(7)));
+        "vnc"
     });
 }

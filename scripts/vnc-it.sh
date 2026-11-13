@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Starts a throwaway VNC server (Xvfb + x11vnc + xterm) in Docker and runs the core:vnc integration test.
+# `--desktop`: runs the desktop app's one instead (desktop/crates/nautile-remote/tests/vnc_it.rs).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 NAME=nautile-vnc
@@ -18,6 +19,11 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 sleep 2
+if [ "${1:-}" = "--desktop" ]; then
+  shift
+  (cd desktop && IT_VNC_PORT=25900 cargo test -p nautile-remote --test vnc_it "$@" -- --nocapture)
+  exit
+fi
 IT_VNC_PORT=25900 ./gradlew --console=plain :core:vnc:test -PvncIT --rerun-tasks "$@"
 # The app's remote desktop screen on that server (capture in app/build/check-vnc.png).
 ./gradlew --console=plain :app:testDebugUnitTest --tests '*ScreenshotTest.vncDesktop' -PnautileScreenshots=fr -PvncPort=25900 "$@"

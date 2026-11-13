@@ -102,6 +102,7 @@ fn a_question_becomes_a_command() {
         state: TabState::Open,
         remote_title: None,
         files: None,
+        remote: None,
     });
     let _ = app.update(Message::SelectTab(Some(1)));
     let _ = app.update(Message::Ai(AiMsg::Toggle));
