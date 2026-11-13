@@ -1,46 +1,45 @@
 package com.termux.terminal;
 
-import android.util.Log;
-
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 
+/** Nautile: falls back to stderr without a client (no android.util.Log, so the emulator runs on any JVM). */
 public class Logger {
 
     public static void logError(TerminalSessionClient client, String logTag, String message) {
         if (client != null)
             client.logError(logTag, message);
         else
-            Log.e(logTag, message);
+            System.err.println("E/" + logTag + ": " + message);
     }
 
     public static void logWarn(TerminalSessionClient client, String logTag, String message) {
         if (client != null)
             client.logWarn(logTag, message);
         else
-            Log.w(logTag, message);
+            System.err.println("W/" + logTag + ": " + message);
     }
 
     public static void logInfo(TerminalSessionClient client, String logTag, String message) {
         if (client != null)
             client.logInfo(logTag, message);
         else
-            Log.i(logTag, message);
+            { /* Nautile: no client, no verbose log. */ }
     }
 
     public static void logDebug(TerminalSessionClient client, String logTag, String message) {
         if (client != null)
             client.logDebug(logTag, message);
         else
-            Log.d(logTag, message);
+            { /* Nautile: no client, no verbose log. */ }
     }
 
     public static void logVerbose(TerminalSessionClient client, String logTag, String message) {
         if (client != null)
             client.logVerbose(logTag, message);
         else
-            Log.v(logTag, message);
+            { /* Nautile: no client, no verbose log. */ }
     }
 
     public static void logStackTraceWithMessage(TerminalSessionClient client, String tag, String message, Throwable throwable) {

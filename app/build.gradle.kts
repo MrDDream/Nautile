@@ -100,6 +100,7 @@ dependencies {
     implementation(project(":core:rdp"))
     implementation(project(":core:vnc"))
     implementation(project(":third_party:terminal-view"))
+    implementation(project(":third_party:terminal-pty-android"))
     implementation(libs.usb.serial)
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.material3)

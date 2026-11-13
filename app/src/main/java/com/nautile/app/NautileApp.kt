@@ -53,8 +53,16 @@ open class NautileApp : Application() {
         SessionManager(this, hostRepository, keyRepository, database.toolsDao(), database.knownHostDao(), terminalPrefs, appScope)
     }
 
+    /** The terminal emulator is plain JVM code: give it Android's main thread and local PTY. */
+    protected fun setUpTerminal() {
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        com.termux.terminal.TerminalSession.setMainThread { main.post(it) }
+        com.termux.terminal.TerminalSession.setPtyFactory(com.termux.terminal.AndroidPty.FACTORY)
+    }
+
     override fun onCreate() {
         super.onCreate()
+        setUpTerminal()
         // Before anything builds a label: English unless the app (or, by default, the phone) is in French.
         com.nautile.i18n.I18n.english = when (getSharedPreferences("nautile_appearance", MODE_PRIVATE).getString("language", "SYSTEM")) {
             "FR" -> false

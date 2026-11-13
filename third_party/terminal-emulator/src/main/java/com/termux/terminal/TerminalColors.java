@@ -1,6 +1,6 @@
 package com.termux.terminal;
 
-import android.graphics.Color;
+
 
 /** Current terminal colors (if different from default). */
 public final class TerminalColors {
@@ -87,9 +87,9 @@ public final class TerminalColors {
     public static int getPerceivedBrightnessOfColor(int color) {
         return (int)
             Math.floor(Math.sqrt(
-                Math.pow(Color.red(color), 2) * 0.241 +
-                    Math.pow(Color.green(color), 2) * 0.691 +
-                    Math.pow(Color.blue(color), 2) * 0.068
+                Math.pow(((color >> 16) & 0xff), 2) * 0.241 +
+                    Math.pow(((color >> 8) & 0xff), 2) * 0.691 +
+                    Math.pow((color & 0xff), 2) * 0.068
             ));
     }
 

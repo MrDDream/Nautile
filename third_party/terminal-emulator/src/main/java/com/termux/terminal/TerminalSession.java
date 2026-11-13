@@ -1,21 +1,12 @@
 package com.termux.terminal;
 
-import android.annotation.SuppressLint;
-import android.os.Handler;
-import android.os.Message;
-import android.system.ErrnoException;
-import android.system.Os;
-import android.system.OsConstants;
-
 import java.io.File;
-import java.io.FileDescriptor;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.Field;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 
 /**
  * A terminal session, consisting of a process coupled to a terminal interface.
@@ -51,6 +42,25 @@ public final class TerminalSession extends TerminalOutput {
 
     private final Backend mBackend;
 
+    /**
+     * Nautile: the UI thread, where the emulator runs and the client is called
+     * (Android's main looper, the desktop's event thread). Set once by the app at startup.
+     */
+    private static volatile Executor sMainThread;
+
+    /** Nautile: starts local shells (platform code). Set once by the app at startup. */
+    private static volatile Pty.Factory sPtyFactory;
+
+    public static void setMainThread(Executor mainThread) { sMainThread = mainThread; }
+
+    public static void setPtyFactory(Pty.Factory factory) { sPtyFactory = factory; }
+
+    private static Executor mainThread() {
+        Executor e = sMainThread;
+        if (e == null) throw new IllegalStateException("TerminalSession.setMainThread() was not called");
+        return e;
+    }
+
     /** Nautile: observes what the user types (main thread), e.g. for command history. */
     public interface InputListener {
         void onInput(byte[] data, int offset, int count);
@@ -70,7 +80,7 @@ public final class TerminalSession extends TerminalOutput {
     final ByteQueue mProcessToTerminalIOQueue = new ByteQueue(4096);
     /**
      * A queue written to from the main thread due to user interaction, and read by another thread which forwards by
-     * writing to the {@link #mTerminalFileDescriptor}.
+     * writing to the pseudo-terminal or the backend.
      */
     final ByteQueue mTerminalToProcessIOQueue = new ByteQueue(4096);
     /** Buffer to write translate code points into utf8 before writing to mTerminalToProcessIOQueue */
@@ -85,16 +95,13 @@ public final class TerminalSession extends TerminalOutput {
     /** The exit status of the shell process. Only valid if ${@link #mShellPid} is -1. */
     int mShellExitStatus;
 
-    /**
-     * The file descriptor referencing the master half of a pseudo-terminal pair, resulting from calling
-     * {@link JNI#createSubprocess(String, String, String[], String[], int[], int, int)}.
-     */
-    private int mTerminalFileDescriptor;
+    /** The pseudo-terminal of a local shell (null for a backend session or before the start). */
+    private Pty mPty;
 
     /** Set by the application for user identification of session, not by terminal. */
     public String mSessionName;
 
-    final Handler mMainThreadHandler = new MainThreadHandler();
+    final MainThreadHandler mMainThreadHandler = new MainThreadHandler();
 
     private final String mShellPath;
     private final String mCwd;
@@ -135,7 +142,7 @@ public final class TerminalSession extends TerminalOutput {
 
     /** Nautile: report that the backend ended. Safe to call from any thread. */
     public void remoteExited(String message) {
-        mMainThreadHandler.sendMessage(mMainThreadHandler.obtainMessage(MSG_REMOTE_EXITED, message));
+        mMainThreadHandler.sendMessage(MSG_REMOTE_EXITED, message);
     }
 
     /**
@@ -155,7 +162,7 @@ public final class TerminalSession extends TerminalOutput {
             initializeEmulator(columns, rows);
         } else {
             if (mBackend != null) mBackend.resize(columns, rows);
-            else JNI.setPtyWindowSize(mTerminalFileDescriptor, rows, columns);
+            else if (mPty != null) mPty.setWindowSize(columns, rows);
             mEmulator.resize(columns, rows);
         }
     }
@@ -194,16 +201,25 @@ public final class TerminalSession extends TerminalOutput {
             return;
         }
 
-        int[] processId = new int[1];
-        mTerminalFileDescriptor = JNI.createSubprocess(mShellPath, mCwd, mArgs, mEnv, processId, rows, columns);
-        mShellPid = processId[0];
-
-        final FileDescriptor terminalFileDescriptorWrapped = wrapFileDescriptor(mTerminalFileDescriptor, mClient);
+        Pty.Factory factory = sPtyFactory;
+        if (factory == null) throw new IllegalStateException("TerminalSession.setPtyFactory() was not called");
+        try {
+            mPty = factory.spawn(mShellPath, mCwd, mArgs, mEnv, columns, rows);
+        } catch (IOException e) {
+            Logger.logStackTraceWithMessage(mClient, LOG_TAG, "Failed starting " + mShellPath, e);
+            mShellPid = -1;
+            byte[] bytes = ("[" + e.getMessage() + "]").getBytes(StandardCharsets.UTF_8);
+            mEmulator.append(bytes, bytes.length);
+            mClient.onSessionFinished(this);
+            return;
+        }
+        mShellPid = mPty.getPid();
+        final Pty pty = mPty;
 
         new Thread("TermSessionInputReader[pid=" + mShellPid + "]") {
             @Override
             public void run() {
-                try (InputStream termIn = new FileInputStream(terminalFileDescriptorWrapped)) {
+                try (InputStream termIn = pty.getInputStream()) {
                     final byte[] buffer = new byte[4096];
                     while (true) {
                         int read = termIn.read(buffer);
@@ -221,7 +237,7 @@ public final class TerminalSession extends TerminalOutput {
             @Override
             public void run() {
                 final byte[] buffer = new byte[4096];
-                try (FileOutputStream termOut = new FileOutputStream(terminalFileDescriptorWrapped)) {
+                try (OutputStream termOut = pty.getOutputStream()) {
                     while (true) {
                         int bytesToWrite = mTerminalToProcessIOQueue.read(buffer, true);
                         if (bytesToWrite == -1) return;
@@ -236,8 +252,13 @@ public final class TerminalSession extends TerminalOutput {
         new Thread("TermSessionWaiter[pid=" + mShellPid + "]") {
             @Override
             public void run() {
-                int processExitCode = JNI.waitFor(mShellPid);
-                mMainThreadHandler.sendMessage(mMainThreadHandler.obtainMessage(MSG_PROCESS_EXITED, processExitCode));
+                int processExitCode;
+                try {
+                    processExitCode = pty.waitFor();
+                } catch (InterruptedException e) {
+                    processExitCode = -9;
+                }
+                mMainThreadHandler.sendMessage(MSG_PROCESS_EXITED, processExitCode);
             }
         }.start();
 
@@ -308,13 +329,7 @@ public final class TerminalSession extends TerminalOutput {
             if (mBackendRunning) mBackend.close();
             return;
         }
-        if (isRunning()) {
-            try {
-                Os.kill(mShellPid, OsConstants.SIGKILL);
-            } catch (ErrnoException e) {
-                Logger.logWarn(mClient, LOG_TAG, "Failed sending SIGKILL: " + e.getMessage());
-            }
-        }
+        if (isRunning() && mPty != null) mPty.kill();
     }
 
     /** Cleanup resources when the process exits. */
@@ -327,7 +342,7 @@ public final class TerminalSession extends TerminalOutput {
         // Stop the reader and writer threads, and close the I/O streams
         mTerminalToProcessIOQueue.close();
         mProcessToTerminalIOQueue.close();
-        if (mBackend == null) JNI.close(mTerminalFileDescriptor);
+        if (mBackend == null && mPty != null) mPty.close();
     }
 
     @Override
@@ -390,44 +405,32 @@ public final class TerminalSession extends TerminalOutput {
         return null;
     }
 
-    private static FileDescriptor wrapFileDescriptor(int fileDescriptor, TerminalSessionClient client) {
-        FileDescriptor result = new FileDescriptor();
-        try {
-            Field descriptorField;
-            try {
-                descriptorField = FileDescriptor.class.getDeclaredField("descriptor");
-            } catch (NoSuchFieldException e) {
-                // For desktop java:
-                descriptorField = FileDescriptor.class.getDeclaredField("fd");
-            }
-            descriptorField.setAccessible(true);
-            descriptorField.set(result, fileDescriptor);
-        } catch (NoSuchFieldException | IllegalAccessException | IllegalArgumentException e) {
-            Logger.logStackTraceWithMessage(client, LOG_TAG, "Error accessing FileDescriptor#descriptor private field", e);
-            System.exit(1);
-        }
-        return result;
-    }
-
-    @SuppressLint("HandlerLeak")
-    class MainThreadHandler extends Handler {
+    /** Nautile: what Android's Handler did, on any platform's UI thread. */
+    final class MainThreadHandler {
 
         final byte[] mReceiveBuffer = new byte[4 * 1024];
 
-        @Override
-        public void handleMessage(Message msg) {
+        void sendEmptyMessage(int what) {
+            sendMessage(what, null);
+        }
+
+        void sendMessage(int what, Object obj) {
+            mainThread().execute(() -> handleMessage(what, obj));
+        }
+
+        void handleMessage(int what, Object obj) {
             int bytesRead = mProcessToTerminalIOQueue.read(mReceiveBuffer, false);
             if (bytesRead > 0) {
                 mEmulator.append(mReceiveBuffer, bytesRead);
                 notifyScreenUpdate();
             }
 
-            if (msg.what == MSG_REMOTE_EXITED) {
+            if (what == MSG_REMOTE_EXITED) {
                 if (!mBackendRunning) return;
                 mBackendRunning = false;
                 cleanupResources(0);
                 if (mEmulator != null) {
-                    byte[] bytes = ("\r\n[" + msg.obj + "]").getBytes(StandardCharsets.UTF_8);
+                    byte[] bytes = ("\r\n[" + obj + "]").getBytes(StandardCharsets.UTF_8);
                     mEmulator.append(bytes, bytes.length);
                     notifyScreenUpdate();
                 }
@@ -435,8 +438,8 @@ public final class TerminalSession extends TerminalOutput {
                 return;
             }
 
-            if (msg.what == MSG_PROCESS_EXITED) {
-                int exitCode = (Integer) msg.obj;
+            if (what == MSG_PROCESS_EXITED) {
+                int exitCode = (Integer) obj;
                 cleanupResources(exitCode);
 
                 String exitDescription = "\r\n[Process completed";

@@ -34,5 +34,6 @@ class ScreenshotApp : NautileApp() {
 
     override fun onCreate() {
         // NautileApp.onCreate is skipped on purpose: the tests set the language themselves.
+        setUpTerminal()
     }
 }
