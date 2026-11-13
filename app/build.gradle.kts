@@ -77,6 +77,8 @@ android {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
             it.systemProperty("nautile.screenshots", project.findProperty("nautileScreenshots")?.toString().orEmpty())
+            // Compatibility files for the desktop app: -PnautileFixtures writes them to desktop/tests/fixtures.
+            it.systemProperty("nautile.fixtures", if (project.hasProperty("nautileFixtures")) rootProject.file("desktop/tests/fixtures").path else "")
             // scripts/vnc-it.sh server, for the screenshot of a real VNC desktop.
             it.systemProperty("nautile.vncPort", project.findProperty("vncPort")?.toString().orEmpty())
             // scripts/s3-it.sh MinIO, for the S3 backup store test.

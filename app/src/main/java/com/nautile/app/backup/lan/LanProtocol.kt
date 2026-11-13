@@ -64,10 +64,10 @@ object LanProtocol {
         private fun nonce(n: Long) = ByteBuffer.allocate(12).putInt(0).putLong(n).array()
     }
 
-    /** Initiator side: [mode] and the secret both sides must share. */
-    fun connect(input: InputStream, output: OutputStream, mode: Int, auth: ByteArray): Channel {
+    /** Initiator side: [mode] and the secret both sides must share. [rng] is only replaced by the compatibility tests. */
+    fun connect(input: InputStream, output: OutputStream, mode: Int, auth: ByteArray, rng: SecureRandom = random): Channel {
         val out = DataOutputStream(output); val inp = DataInputStream(input)
-        val priv = ByteArray(X25519.SCALAR_SIZE).also { X25519.generatePrivateKey(random, it) }
+        val priv = ByteArray(X25519.SCALAR_SIZE).also { X25519.generatePrivateKey(rng, it) }
         val pub = ByteArray(X25519.POINT_SIZE).also { X25519.generatePublicKey(priv, 0, it, 0) }
         out.write(MAGIC); out.writeByte(VERSION); out.writeByte(mode); out.write(pub); out.flush()
         val peer = ByteArray(X25519.POINT_SIZE).also { inp.readFully(it) }
@@ -89,10 +89,10 @@ object LanProtocol {
     }
 
     /** Responder side, after [readMode]. */
-    fun accept(input: InputStream, output: OutputStream, mode: Int, auth: ByteArray): Channel {
+    fun accept(input: InputStream, output: OutputStream, mode: Int, auth: ByteArray, rng: SecureRandom = random): Channel {
         val out = DataOutputStream(output); val inp = DataInputStream(input)
         val peer = ByteArray(X25519.POINT_SIZE).also { inp.readFully(it) }
-        val priv = ByteArray(X25519.SCALAR_SIZE).also { X25519.generatePrivateKey(random, it) }
+        val priv = ByteArray(X25519.SCALAR_SIZE).also { X25519.generatePrivateKey(rng, it) }
         val pub = ByteArray(X25519.POINT_SIZE).also { X25519.generatePublicKey(priv, 0, it, 0) }
         out.write(pub); out.flush()
         val k = keys(priv, peer, pub, mode, auth, initiator = false)

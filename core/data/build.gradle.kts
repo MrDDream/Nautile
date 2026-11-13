@@ -14,7 +14,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    testOptions { unitTests.isIncludeAndroidResources = true }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        // Compatibility files for the desktop app: -PnautileFixtures writes them to desktop/tests/fixtures.
+        unitTests.all { it.systemProperty("nautile.fixtures", if (project.hasProperty("nautileFixtures")) rootProject.file("desktop/tests/fixtures").path else "") }
+    }
 }
 
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
