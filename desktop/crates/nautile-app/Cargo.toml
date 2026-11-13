@@ -50,7 +50,7 @@ license-file = ["../../../LICENSE", "0"]
 extended-description = "SSH, Mosh, Telnet, SFTP, RDP and VNC client with tunnels, snippets, an AI assistant, encrypted backups and synchronisation with the Nautile Android app."
 section = "net"
 priority = "optional"
-depends = "libc6 (>= 2.31), libxkbcommon0"
+depends = "$auto, libxkbcommon0"
 recommends = "libwayland-client0 | libx11-6, xdg-desktop-portal, gnome-keyring | kwalletmanager"
 assets = [
     ["target/release/nautile", "usr/bin/", "755"],
