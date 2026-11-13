@@ -32,7 +32,7 @@ impl QuickTarget {
 
     /// A host that is never saved.
     pub fn to_host(&self) -> Host {
-        let mut h = Host::new(&self.label(), &self.hostname);
+        let mut h = Host::new(self.label(), &self.hostname);
         h.port = self.port;
         h.username = self.username.clone();
         h.protocol = self.protocol;
