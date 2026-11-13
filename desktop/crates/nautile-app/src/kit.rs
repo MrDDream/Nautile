@@ -50,6 +50,7 @@ pub fn search<'a>(value: &str, placeholder: String, on: impl Fn(String) -> Messa
     let mut r = row![
         icon('\u{E8B6}', 22.0).style(muted_style),
         text_input(&placeholder, value)
+            .id("search")
             .on_input(on)
             .size(15)
             .padding([12, 0])
@@ -441,5 +442,16 @@ pub fn kind_row<'a>(c: char, tint: Color, title: String, detail: String, on: Mes
     .padding([10, 12])
     .style(theme::card_pick(false))
     .on_press(on)
+    .into()
+}
+
+/// A hint shown when the pointer rests on [content] (with its shortcut).
+pub fn tip<'a>(content: impl Into<Element<'a, Message>>, hint: String) -> Element<'a, Message> {
+    iced::widget::tooltip(
+        content,
+        container(text(hint).size(12)).padding([5, 9]).style(theme::toast),
+        iced::widget::tooltip::Position::Bottom,
+    )
+    .gap(6)
     .into()
 }

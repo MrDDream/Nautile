@@ -251,9 +251,17 @@ where
             Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, text, .. }) if self.focused => {
                 let (ctrl, shift) = (modifiers.control(), modifiers.shift());
                 // Left to the window: tabs and the app's own shortcuts.
-                if ctrl
+                let digit =
+                    matches!(key.as_ref(), Key::Character(c) if c.len() == 1 && ('1'..='9').contains(&c.chars().next().unwrap_or(' ')));
+                if (ctrl
                     && (matches!(key, Key::Named(Named::Tab))
-                        || (shift && matches!(key.as_ref(), Key::Character("t" | "T" | "w" | "W" | "a" | "A"))))
+                        || (shift
+                            && matches!(
+                                key.as_ref(),
+                                Key::Character("t" | "T" | "w" | "W" | "a" | "A" | "p" | "P" | "k" | "K")
+                            ))
+                        || (!shift && digit)))
+                    || matches!(key, Key::Named(Named::F11))
                 {
                     return;
                 }

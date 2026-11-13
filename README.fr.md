@@ -95,6 +95,8 @@ com.nautile
 - `Nautile-X.Y.Z-portable.zip` : Windows, tout (données chiffrées comprises) reste dans le dossier, par exemple sur une clé USB ;
 - `nautile_X.Y.Z_amd64.deb` (Debian, Ubuntu), `nautile-X.Y.Z.x86_64.rpm` (Fedora, openSUSE), `nautile-X.Y.Z-linux-x86_64.tar.gz` (les autres).
 
+Elle reprend l'interface du téléphone (mêmes réglages, mêmes thèmes) et y ajoute ce qui sert sur un PC : icône dans la zone de notification (fermer la fenêtre la garde ouverte), lancement au démarrage, recherche universelle Ctrl+K, clic droit sur les hôtes, glisser-déposer, moniteur de serveur, éditeur de fichiers SFTP, import de `~/.ssh/config`, synchro qui attend le VPN et mises à jour depuis l'appli.
+
 Les fichiers Windows ne sont pas encore signés : SmartScreen affiche « Windows a protégé votre ordinateur » → *Informations complémentaires* → *Exécuter quand même*. Les sommes de contrôle sont dans `SHA256SUMS-desktop.txt`.
 
 ## 🛠️ Compiler depuis les sources

@@ -73,6 +73,10 @@ const I_CHEVRON_RIGHT: char = '\u{E5CC}'; // chevron_right
 const I_KEYBOARD: char = '\u{E312}'; // keyboard
 const I_FILE_OPEN: char = '\u{EAF3}'; // file_open
 const I_MONITOR: char = '\u{EAA2}'; // monitor_heart
+const I_EXPAND_LESS: char = '\u{E5CE}'; // expand_less
+const I_FOLDER_MOVE: char = '\u{E675}'; // drive_file_move
+const I_CHECK: char = '\u{E5CA}'; // check
+const I_SEARCH: char = '\u{E8B6}'; // search
 const I_PLUS: char = '\u{E145}'; // add
 
 pub fn icon<'a>(c: char) -> iced::widget::Text<'a> {
@@ -215,6 +219,24 @@ pub fn view(app: &App) -> Element<'_, Message> {
     }
     if app.import.file.is_some() {
         layers = layers.push(restore_modal(app, max_h));
+    }
+    if let Some((id, at)) = app.menu {
+        layers = layers.push(host_menu(app, id, at));
+    }
+    if let Some(p) = &app.palette {
+        layers = layers.push(palette(app, p));
+    }
+    if matches!(app.drag, Some(crate::app::Drag::Host(_))) {
+        layers = layers.push(
+            container(
+                container(text(tr("Déposez l'hôte sur un groupe pour l'y ranger")).size(14))
+                    .padding([10, 16])
+                    .style(theme::toast),
+            )
+            .align_bottom(Fill)
+            .center_x(Fill)
+            .padding(24),
+        );
     }
     if let Some(id) = app.closing {
         layers = layers.push(close_dialog(app, id));
@@ -460,4 +482,221 @@ fn close_dialog(app: &App, id: u64) -> Element<'_, Message> {
         container(body).padding(24).max_width(480).style(theme::dialog),
         Some(Message::CloseAnswer(false)),
     )
+}
+
+/// The menu of a host, where it was right-clicked.
+fn host_menu(app: &App, id: i64, at: iced::Point) -> Element<'_, Message> {
+    let Some(h) = app.hosts.iter().find(|h| h.id == id) else {
+        return Space::new().into();
+    };
+    let ssh = matches!(h.protocol, nautile_core::model::Protocol::Ssh | nautile_core::model::Protocol::Mosh);
+    let item = |c: char, name: String, on: Message| -> Element<'_, Message> {
+        button(row![icon(c).size(18), text(name).size(14)].spacing(12).align_y(Alignment::Center))
+            .width(Fill)
+            .padding([8, 12])
+            .style(theme::card_pick(false))
+            .on_press(on)
+            .into()
+    };
+    let mut c = column![
+        container(text(h.alias.clone()).size(13).font(BOLD)).padding(Padding {
+            top: 6.0,
+            right: 12.0,
+            bottom: 4.0,
+            left: 12.0,
+        }),
+        item(I_TERMINAL, tr("Connecter"), Message::Connect(id)),
+    ]
+    .spacing(0);
+    if ssh {
+        c = c.push(item(I_FOLDER, tr("Fichiers SFTP"), Message::OpenFiles(id))).push(item(
+            I_MONITOR,
+            tr("Moniteur"),
+            Message::OpenMonitor(id),
+        ));
+    }
+    c = c
+        .push(container(Space::new().height(1)).width(Fill).style(theme::divider))
+        .push(item(
+            I_EDIT,
+            tr("Modifier"),
+            Message::Batch(vec![Message::CloseMenu, Message::EditHost(id)]),
+        ))
+        .push(item(I_COPY, tr("Dupliquer"), Message::DuplicateHost(id)))
+        .push(item(
+            if app.menu_move { I_EXPAND_LESS } else { I_FOLDER_MOVE },
+            tr("Déplacer vers…"),
+            Message::MenuMove,
+        ));
+    if app.menu_move {
+        let mut groups = column![].spacing(0);
+        for g in &app.groups {
+            let here = h.group_id == Some(g.id);
+            groups = groups.push(
+                button(
+                    row![
+                        kit::dot(argb(g.color), 9.0),
+                        text(g.name.clone()).size(13).width(Fill),
+                        icon(if here { I_CHECK } else { ' ' }).size(16)
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                )
+                .width(Fill)
+                .padding(Padding {
+                    top: 6.0,
+                    right: 12.0,
+                    bottom: 6.0,
+                    left: 34.0,
+                })
+                .style(theme::card_pick(here))
+                .on_press(Message::MoveHost(id, Some(g.id))),
+            );
+        }
+        groups = groups.push(
+            button(text(tr("Sans groupe")).size(13))
+                .width(Fill)
+                .padding(Padding {
+                    top: 6.0,
+                    right: 12.0,
+                    bottom: 6.0,
+                    left: 34.0,
+                })
+                .style(theme::card_pick(h.group_id.is_none()))
+                .on_press(Message::MoveHost(id, None)),
+        );
+        c = c.push(groups);
+    }
+    c = c.push(container(Space::new().height(1)).width(Fill).style(theme::divider)).push(
+        button(
+            row![
+                icon(I_TRASH).size(18),
+                text(if app.menu_confirm {
+                    tr("Confirmer la suppression")
+                } else {
+                    tr("Supprimer")
+                })
+                .size(14)
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .width(Fill)
+        .padding([8, 12])
+        .style(|t: &iced::Theme, s| {
+            let mut b = theme::card_pick(false)(t, s);
+            b.text_color = theme::nt(t).pink;
+            b
+        })
+        .on_press(Message::DeleteHostNow(id)),
+    );
+    // Kept inside the window.
+    let items = if ssh { 7.0 } else { 5.0 };
+    let groups = if app.menu_move { (app.groups.len() + 1) as f32 * 34.0 } else { 0.0 };
+    let (w, height) = (250.0, 50.0 + items * 38.0 + groups);
+    let x = at.x.min(app.window.width - w - 12.0).max(8.0);
+    let y = at.y.min(app.window.height - height - 12.0).max(8.0);
+    let card = container(c).width(w).padding(6).style(theme::dialog);
+    iced::widget::mouse_area(
+        container(iced::widget::opaque(card))
+            .padding(Padding {
+                top: y,
+                left: x,
+                ..Padding::ZERO
+            })
+            .width(Fill)
+            .height(Fill),
+    )
+    .on_press(Message::CloseMenu)
+    .on_right_press(Message::CloseMenu)
+    .into()
+}
+
+/// « Ctrl+K »: the search and its results, chosen with the arrows and Enter.
+fn palette<'a>(app: &'a App, p: &'a crate::palette::PaletteState) -> Element<'a, Message> {
+    let results = crate::palette::results(app, &p.query);
+    let input = row![
+        icon(I_SEARCH).size(22),
+        text_input(&tr("Hôte, snippet, réglage, action…"), &p.query)
+            .id("palette")
+            .on_input(Message::PaletteQuery)
+            .on_submit(Message::PaletteEnter)
+            .size(17)
+            .padding([14, 0])
+            .style(theme::bare_input),
+        container(text("Échap").size(11).font(MONO))
+            .padding([3, 7])
+            .style(|t: &iced::Theme| container::Style {
+                background: Some(theme::nt(t).key_bg.into()),
+                border: iced::border::rounded(6),
+                ..Default::default()
+            }),
+    ]
+    .spacing(12)
+    .padding([0, 18])
+    .align_y(Alignment::Center);
+    let mut list = column![].spacing(2).padding(8);
+    if results.is_empty() {
+        list = list.push(container(soft(tr("Rien ne correspond."))).padding(12));
+    }
+    for (i, it) in results.into_iter().enumerate() {
+        let selected = i == p.selected;
+        let mut r = row![
+            icon(it.icon).size(18),
+            column![text(it.title).size(14).font(BOLD), soft(it.detail).size(12)]
+                .spacing(1)
+                .width(Fill),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center);
+        if let Some(k) = it.keys {
+            r = r.push(
+                text(k.replace("Maj", &tr("Maj")))
+                    .font(MONO)
+                    .size(11)
+                    .style(|t: &iced::Theme| text::Style {
+                        color: Some(theme::nt(t).muted),
+                    }),
+            );
+        }
+        list = list.push(
+            button(r)
+                .width(Fill)
+                .padding([8, 12])
+                .style(move |t: &iced::Theme, s| {
+                    let mut b = theme::card_pick(selected)(t, s);
+                    b.border.radius = 10.0.into();
+                    b
+                })
+                .on_press(Message::PaletteRun(i)),
+        );
+    }
+    let card = container(column![
+        input,
+        container(Space::new().height(1)).width(Fill).style(theme::divider),
+        list,
+        container(label(tr("↑ ↓ pour choisir · Entrée pour lancer"))).padding(Padding {
+            top: 0.0,
+            right: 18.0,
+            bottom: 12.0,
+            left: 18.0,
+        }),
+    ])
+    .width(640)
+    .style(theme::dialog);
+    iced::widget::mouse_area(
+        container(iced::widget::opaque(card))
+            .center_x(Fill)
+            .padding(Padding {
+                top: 80.0,
+                ..Padding::ZERO
+            })
+            .height(Fill)
+            .style(|_| container::Style {
+                background: Some(Color { a: 0.45, ..Color::BLACK }.into()),
+                ..Default::default()
+            }),
+    )
+    .on_press(Message::Palette(false))
+    .into()
 }

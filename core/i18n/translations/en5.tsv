@@ -338,3 +338,23 @@ VNC : le texte copié sur le bureau distant arrive dans le presse-papier de cet 
 Police trop lourde (30 Mo au plus)	Font too heavy (30 MB at most)
 Ce fichier n'est pas une police TrueType ou OpenType	This file is not a TrueType or OpenType font
 Cette police n'est pas à chasse fixe : les colonnes du terminal risquent d'être décalées.	This font is not monospaced: the terminal's columns may be off.
+Action	Action
+~/.ssh/config ou CSV	~/.ssh/config or CSV
+Vérifier les mises à jour	Check for updates
+Onglet ouvert	Open tab
+Se connecter · %1\$s	Connect · %1\$s
+Lancer le snippet · %1\$s	Run the snippet · %1\$s
+Page	Page
+Déposez l'hôte sur un groupe pour l'y ranger	Drop the host on a group to file it there
+Moniteur	Monitor
+Déplacer vers…	Move to…
+Hôte, snippet, réglage, action…	Host, snippet, setting, action…
+Rien ne correspond.	Nothing matches.
+↑ ↓ pour choisir · Entrée pour lancer	↑ ↓ to choose · Enter to run
+Rechercher partout (hôtes, snippets, réglages, actions) ; Ctrl+Maj+K dans un terminal	Search everything (hosts, snippets, settings, actions); Ctrl+Shift+K in a terminal
+Aller à la recherche	Go to the search
+Aller à l'onglet 1 à 9	Go to tab 1 to 9
+Enregistrer le fichier distant ouvert	Save the open remote file
+Clic droit sur un hôte	Right click on a host
+Menu : connecter, fichiers, moniteur, dupliquer, déplacer, supprimer	Menu: connect, files, monitor, duplicate, move, delete
+Terminal local (Ctrl+Maj+T)	Local terminal (Ctrl+Shift+T)

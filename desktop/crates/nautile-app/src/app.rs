@@ -26,6 +26,22 @@ pub enum Page {
     Settings,
 }
 
+/// What is being dragged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Drag {
+    Host(i64),
+    Tab(u64),
+}
+
+/// Where it would be dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Drop {
+    /// A group (`None`: « Sans groupe »).
+    Group(Option<i64>),
+    /// Before this tab.
+    Tab(u64),
+}
+
 /// A pop-up that is not an editor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Modal {
@@ -443,6 +459,25 @@ pub enum Message {
     FontFile(Option<(String, Vec<u8>)>),
     DeleteFont(String),
     HistorySuggestions(bool),
+    HostMenu(i64, iced::Point),
+    CloseMenu,
+    MenuMove,
+    DuplicateHost(i64),
+    MoveHost(i64, Option<i64>),
+    DeleteHostNow(i64),
+    DragStart(Drag),
+    DragEnd,
+    DropOver(Option<Drop>),
+    /// Opens (true) or closes « Ctrl+K ».
+    Palette(bool),
+    PaletteQuery(String),
+    PaletteMove(i32),
+    PaletteEnter,
+    PaletteRun(usize),
+    /// Ctrl+F: the search field of the page.
+    FocusSearch,
+    /// Ctrl+1…9.
+    SelectTabIndex(usize),
     RemoteNoUpscale(bool),
     RdpWindowSize(bool),
     RemoteClipboard(bool),
@@ -657,6 +692,15 @@ pub struct App {
     pub host_import: Vec<nautile_core::import::ImportedHost>,
     /// The commands typed before, by host (loaded when a session opens).
     pub history: std::collections::HashMap<i64, Vec<(String, i64)>>,
+    /// The menu of a host (right click) and where it opens.
+    pub menu: Option<(i64, iced::Point)>,
+    /// The menu shows the groups (« Déplacer vers »), or asks to confirm the removal.
+    pub menu_move: bool,
+    pub menu_confirm: bool,
+    pub drag: Option<Drag>,
+    pub drop: Option<Drop>,
+    /// « Ctrl+K ».
+    pub palette: Option<crate::palette::PaletteState>,
 }
 
 impl App {
@@ -753,6 +797,12 @@ impl App {
             quick: Vec::new(),
             host_import: Vec::new(),
             history: Default::default(),
+            menu: None,
+            menu_move: false,
+            menu_confirm: false,
+            drag: None,
+            drop: None,
+            palette: None,
         };
         // Before several providers could be on, the chosen one was the only one.
         if app.settings.ai_enabled.is_empty() {
@@ -974,7 +1024,11 @@ impl App {
                 }
             }
             Message::Escape => {
-                if self.import.file.is_some() {
+                if self.palette.is_some() {
+                    self.palette = None;
+                } else if self.menu.is_some() {
+                    self.menu = None;
+                } else if self.import.file.is_some() {
                     self.import = ImportState::default();
                 } else if self.modal.is_some() && self.editor.is_none() {
                     return self.update(Message::OpenModal(None));
@@ -1179,6 +1233,121 @@ impl App {
                         )
                     })
                 });
+            }
+            Message::HostMenu(id, p) => {
+                self.menu = Some((id, p));
+                self.menu_move = false;
+                self.menu_confirm = false;
+            }
+            Message::CloseMenu => self.menu = None,
+            Message::MenuMove => self.menu_move = !self.menu_move,
+            Message::DuplicateHost(id) => {
+                self.menu = None;
+                if let (Some(h), Some(db)) = (self.hosts.iter().find(|h| h.id == id).cloned(), &self.db) {
+                    let mut copy = h.clone();
+                    copy.id = 0;
+                    copy.alias = trf("%1$s (copie)", &[&h.alias]);
+                    // A new record for the synchronisation.
+                    copy.sync_id = String::new();
+                    copy.last_connected_at = None;
+                    if let Ok(new) = db.store().insert(&copy) {
+                        self.reload();
+                        return self.update(Message::EditHost(new));
+                    }
+                }
+            }
+            Message::MoveHost(id, group) => {
+                self.menu = None;
+                if let (Some(h), Some(db)) = (self.hosts.iter_mut().find(|h| h.id == id), &self.db) {
+                    h.group_id = group;
+                    let _ = db.store().update(&*h);
+                }
+                self.reload();
+            }
+            Message::DeleteHostNow(id) => {
+                if !self.menu_confirm {
+                    self.menu_confirm = true;
+                    return Task::none();
+                }
+                self.menu = None;
+                if let (Some(h), Some(db)) = (self.hosts.iter().find(|h| h.id == id).cloned(), &self.db) {
+                    let _ = db.store().delete::<Host>(h.id);
+                    self.reload();
+                    return self.say(trf("« %1$s » supprimé", &[&h.alias]));
+                }
+            }
+            Message::DragStart(d) => {
+                self.drag = Some(d);
+                self.drop = None;
+                self.menu = None;
+            }
+            Message::DropOver(d) => {
+                if self.drag.is_some() {
+                    self.drop = d;
+                }
+            }
+            Message::DragEnd => {
+                let (drag, drop) = (self.drag.take(), self.drop.take());
+                match (drag, drop) {
+                    (Some(Drag::Host(h)), Some(Drop::Group(g))) => return self.update(Message::MoveHost(h, g)),
+                    (Some(Drag::Tab(t)), Some(Drop::Tab(before))) if t != before => {
+                        if let Some(from) = self.tabs.iter().position(|x| x.id == t) {
+                            let tab = self.tabs.remove(from);
+                            let to = self.tabs.iter().position(|x| x.id == before).unwrap_or(self.tabs.len());
+                            self.tabs.insert(to, tab);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Message::Palette(open) => {
+                self.palette = open.then(Default::default);
+                if open {
+                    return iced::widget::operation::focus("palette");
+                }
+            }
+            Message::PaletteQuery(q) => {
+                if let Some(p) = &mut self.palette {
+                    p.query = q;
+                    p.selected = 0;
+                }
+            }
+            Message::PaletteMove(d) => {
+                if let Some(p) = &self.palette {
+                    let n = crate::palette::results(self, &p.query).len().max(1) as i32;
+                    let i = (p.selected as i32 + d).rem_euclid(n) as usize;
+                    if let Some(p) = &mut self.palette {
+                        p.selected = i;
+                    }
+                }
+            }
+            Message::PaletteEnter => {
+                if let Some(i) = self.palette.as_ref().map(|p| p.selected) {
+                    return self.update(Message::PaletteRun(i));
+                }
+            }
+            Message::PaletteRun(i) => {
+                let Some(q) = self.palette.as_ref().map(|p| p.query.clone()) else {
+                    return Task::none();
+                };
+                let run = crate::palette::results(self, &q).into_iter().nth(i).map(|it| it.run);
+                self.palette = None;
+                if let Some(m) = run {
+                    return self.update(m);
+                }
+            }
+            Message::FocusSearch => {
+                if !matches!(self.page, Page::Hosts | Page::Snippets | Page::Settings) || self.active_tab.is_some() {
+                    self.active_tab = None;
+                    self.page = Page::Hosts;
+                }
+                return iced::widget::operation::focus("search");
+            }
+            Message::SelectTabIndex(n) => {
+                if let Some(t) = self.tabs.get(n.saturating_sub(1)) {
+                    let id = t.id;
+                    return self.update(Message::SelectTab(Some(id)));
+                }
             }
             Message::HistorySuggestions(v) => {
                 self.settings.history_suggestions = Some(v);
@@ -2216,6 +2385,15 @@ fn shortcut(e: iced::keyboard::Event) -> Option<Message> {
         Key::Character("p" | "P") if m.control() && m.shift() => Some(Message::TypePassword),
         Key::Character("s" | "S") if m.control() && !m.shift() => Some(Message::SaveShortcut),
         Key::Named(Named::F11) => Some(Message::ToggleFullscreen),
+        Key::Character("k" | "K") if m.control() => Some(Message::Palette(true)),
+        Key::Character("n" | "N") if m.control() && !m.shift() => Some(Message::NewHost),
+        Key::Character(",") if m.control() => Some(Message::Nav(Page::Settings)),
+        Key::Character("f" | "F") if m.control() && !m.shift() => Some(Message::FocusSearch),
+        Key::Character(c) if m.control() && !m.shift() && c.len() == 1 && ('1'..='9').contains(&c.chars().next().unwrap_or(' ')) => {
+            Some(Message::SelectTabIndex(c.parse().unwrap_or(1)))
+        }
+        Key::Named(Named::ArrowDown) => Some(Message::PaletteMove(1)),
+        Key::Named(Named::ArrowUp) => Some(Message::PaletteMove(-1)),
         Key::Named(Named::Escape) => Some(Message::Escape),
         _ => None,
     }

@@ -610,6 +610,58 @@ fn settings_remote() {
 }
 
 #[test]
+fn palette() {
+    each(|app| {
+        let _ = app.update(Message::Palette(true));
+        let _ = app.update(Message::PaletteQuery("doc".into()));
+        let _ = app.update(Message::PaletteMove(1));
+        "palette"
+    });
+}
+
+#[test]
+fn host_menu() {
+    each(|app| {
+        let id = app.hosts.iter().find(|h| h.alias == "nas").unwrap().id;
+        let _ = app.update(Message::HostMenu(id, iced::Point::new(900.0, 420.0)));
+        let _ = app.update(Message::MenuMove);
+        "host-menu"
+    });
+}
+
+#[test]
+fn palette_menu_and_drag_do_what_they_say() {
+    use nautile_app::app::{Drag, Drop};
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = demo(false, true);
+    // Ctrl+K, « prox », Enter: connects.
+    let _ = app.update(Message::Palette(true));
+    let _ = app.update(Message::PaletteQuery("prox".into()));
+    let _ = app.update(Message::PaletteEnter);
+    assert!(app.palette.is_none());
+    assert_eq!(app.tabs.last().map(|t| t.name.as_str()), Some("proxmox"));
+    // A host dragged onto a group.
+    let pi = app.hosts.iter().find(|h| h.alias == "pihole").unwrap().id;
+    let vps = app.groups.iter().find(|g| g.name == "VPS").unwrap().id;
+    let _ = app.update(Message::DragStart(Drag::Host(pi)));
+    let _ = app.update(Message::DropOver(Some(Drop::Group(Some(vps)))));
+    let _ = app.update(Message::DragEnd);
+    assert_eq!(app.hosts.iter().find(|h| h.id == pi).unwrap().group_id, Some(vps));
+    // Duplicated from its menu.
+    let before = app.hosts.len();
+    let _ = app.update(Message::DuplicateHost(pi));
+    assert_eq!(app.hosts.len(), before + 1);
+    assert!(app.hosts.iter().any(|h| h.alias == "pihole (copie)"));
+    // Removed, after a confirmation.
+    let copy = app.hosts.iter().find(|h| h.alias == "pihole (copie)").unwrap().id;
+    let _ = app.update(Message::HostMenu(copy, iced::Point::ORIGIN));
+    let _ = app.update(Message::DeleteHostNow(copy));
+    assert_eq!(app.hosts.len(), before + 1, "asks first");
+    let _ = app.update(Message::DeleteHostNow(copy));
+    assert_eq!(app.hosts.len(), before);
+}
+
+#[test]
 fn settings_lock() {
     each(|app| {
         let _ = app.update(Message::Nav(Page::Settings));

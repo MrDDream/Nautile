@@ -95,6 +95,8 @@ From version 0.4.0, each [release](https://github.com/MrDDream/Nautile/releases/
 - `Nautile-X.Y.Z-portable.zip`: Windows, everything (encrypted data included) stays in the folder, e.g. on a USB stick;
 - `nautile_X.Y.Z_amd64.deb` (Debian, Ubuntu), `nautile-X.Y.Z.x86_64.rpm` (Fedora, openSUSE), `nautile-X.Y.Z-linux-x86_64.tar.gz` (others).
 
+It has the phone's interface (same settings, same themes) plus what a PC needs: an icon in the notification area (closing the window keeps it running), start with the session, Ctrl+K search over everything, right click on hosts, drag and drop, a server monitor, an SFTP file editor, `~/.ssh/config` import, sync that waits for the VPN and in-app updates.
+
 The Windows files are not signed yet: SmartScreen shows « Windows protected your PC » → *More info* → *Run anyway*. Checksums are in `SHA256SUMS-desktop.txt`.
 
 ## 🛠️ Build from source

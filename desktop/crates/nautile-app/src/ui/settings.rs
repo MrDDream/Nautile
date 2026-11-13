@@ -848,6 +848,16 @@ fn terminal_aspect(app: &App) -> Column<'_, Message> {
 
 fn terminal_keyboard(app: &App) -> Column<'_, Message> {
     let keys = [
+        (
+            "Ctrl+K".to_owned(),
+            tr("Rechercher partout (hôtes, snippets, réglages, actions) ; Ctrl+Maj+K dans un terminal"),
+        ),
+        ("Ctrl+N".to_owned(), tr("Nouvel hôte")),
+        ("Ctrl+F".to_owned(), tr("Aller à la recherche")),
+        ("Ctrl+,".to_owned(), tr("Réglages")),
+        ("Ctrl+1…9".to_owned(), tr("Aller à l'onglet 1 à 9")),
+        ("Ctrl+S".to_owned(), tr("Enregistrer le fichier distant ouvert")),
+        ("F11".to_owned(), tr("Plein écran")),
         ("Ctrl+Maj+C".to_owned(), tr("Copier la sélection")),
         ("Ctrl+Maj+V".to_owned(), tr("Coller")),
         (tr("Clic droit"), tr("Copier la sélection, ou coller")),
@@ -855,6 +865,10 @@ fn terminal_keyboard(app: &App) -> Column<'_, Message> {
         ("Ctrl+Maj+W".to_owned(), tr("Fermer l'onglet")),
         ("Ctrl+Tab".to_owned(), tr("Onglet suivant (Maj : précédent)")),
         ("Ctrl+Maj+A".to_owned(), tr("Assistant IA")),
+        (
+            tr("Clic droit sur un hôte").to_owned(),
+            tr("Menu : connecter, fichiers, moniteur, dupliquer, déplacer, supprimer"),
+        ),
         ("Ctrl+Maj+P".to_owned(), tr("Taper le mot de passe de l'hôte")),
         (tr("Échap"), tr("Fermer la fenêtre ouverte")),
     ];

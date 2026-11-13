@@ -28,7 +28,7 @@ pub(super) fn tab_bar(app: &App) -> Element<'_, Message> {
             .spacing(8)
             .align_y(Alignment::Center);
         if let Some(c) = state {
-            r = r.push(label(c.to_string()).font(MONO));
+            r = r.push(icon(c).size(12));
         }
         r = r.push(
             button(icon(I_CLOSE).size(12))
@@ -36,7 +36,9 @@ pub(super) fn tab_bar(app: &App) -> Element<'_, Message> {
                 .style(theme::ghost)
                 .on_press(Message::CloseTab(t.id)),
         );
-        tabs = tabs.push(
+        // Dragged onto another tab, it takes its place.
+        let over = app.drop == Some(crate::app::Drop::Tab(t.id)) && app.drag.is_some_and(|d| d != crate::app::Drag::Tab(t.id));
+        let tab = crate::pointer::pointer(
             button(r)
                 .padding(Padding {
                     top: 5.0,
@@ -44,8 +46,24 @@ pub(super) fn tab_bar(app: &App) -> Element<'_, Message> {
                     bottom: 5.0,
                     left: 12.0,
                 })
-                .style(theme::nav(active))
+                .style(move |th: &iced::Theme, s| {
+                    let mut b = theme::nav(active)(th, s);
+                    if over {
+                        b.border = iced::Border {
+                            color: theme::nt(th).accent,
+                            width: 2.0,
+                            radius: b.border.radius,
+                        };
+                    }
+                    b
+                })
                 .on_press(Message::SelectTab(Some(t.id))),
+        )
+        .on_drag(Message::DragStart(crate::app::Drag::Tab(t.id)), Message::DragEnd);
+        tabs = tabs.push(
+            iced::widget::mouse_area(tab)
+                .on_enter(Message::DropOver(Some(crate::app::Drop::Tab(t.id))))
+                .on_exit(Message::DropOver(None)),
         );
     }
     tabs = tabs.push(

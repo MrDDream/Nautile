@@ -73,18 +73,24 @@ pub(super) fn host_row<'a>(app: &'a App, h: &'a Host) -> Element<'a, Message> {
             .style(theme::ghost)
             .on_press(Message::EditHost(h.id)),
     );
-    button(r)
-        .width(Fill)
-        .padding([14, 16])
-        .style(move |t: &iced::Theme, st| {
-            let mut b = theme::card_row(t, st);
-            if selected {
-                b.background = Some(theme::alpha(theme::nt(t).accent, 0.10).into());
-            }
-            b
-        })
-        .on_press(Message::Connect(h.id))
-        .into()
+    let dragged = app.drag == Some(crate::app::Drag::Host(h.id));
+    let id = h.id;
+    crate::pointer::pointer(
+        button(r)
+            .width(Fill)
+            .padding([14, 16])
+            .style(move |t: &iced::Theme, st| {
+                let mut b = theme::card_row(t, st);
+                if selected || dragged {
+                    b.background = Some(theme::alpha(theme::nt(t).accent, 0.10).into());
+                }
+                b
+            })
+            .on_press(Message::Connect(h.id)),
+    )
+    .on_right(move |p| Message::HostMenu(id, p))
+    .on_drag(Message::DragStart(crate::app::Drag::Host(id)), Message::DragEnd)
+    .into()
 }
 
 pub(super) fn section<'a>(
@@ -160,15 +166,45 @@ pub(super) fn hosts(app: &App) -> Element<'_, Message> {
     )]
     .spacing(8)
     .align_y(Alignment::Center);
+    // While a host is dragged, the groups take it (« Sans groupe » too).
+    let dragging = matches!(app.drag, Some(crate::app::Drag::Host(_)));
+    let target = |chip: Element<'static, Message>, g: Option<i64>| -> Element<'static, Message> {
+        if !dragging {
+            return chip;
+        }
+        let over = app.drop == Some(crate::app::Drop::Group(g));
+        iced::widget::mouse_area(container(chip).padding(2).style(move |t: &iced::Theme| container::Style {
+            border: iced::Border {
+                color: if over {
+                    theme::nt(t).accent
+                } else {
+                    theme::alpha(theme::nt(t).accent, 0.35)
+                },
+                width: 2.0,
+                radius: 14.0.into(),
+            },
+            ..Default::default()
+        }))
+        .on_enter(Message::DropOver(Some(crate::app::Drop::Group(g))))
+        .on_exit(Message::DropOver(None))
+        .into()
+    };
     for g in &app.groups {
         let n = app.hosts.iter().filter(|h| h.group_id == Some(g.id)).count();
-        chips = chips.push(kit::count_chip(
-            g.name.clone(),
-            n,
-            app.group_filter == Some(g.id),
-            Some(argb(g.color)),
-            Message::GroupFilter(Some(g.id)),
+        chips = chips.push(target(
+            kit::count_chip(
+                g.name.clone(),
+                n,
+                app.group_filter == Some(g.id),
+                Some(argb(g.color)),
+                Message::GroupFilter(Some(g.id)),
+            ),
+            Some(g.id),
         ));
+    }
+    if dragging {
+        let n = app.hosts.iter().filter(|h| h.group_id.is_none()).count();
+        chips = chips.push(target(kit::count_chip(tr("Sans groupe"), n, false, None, Message::Noop), None));
     }
     chips = chips.push(
         button(container(icon(I_TUNE).size(20)).center(Length::Fixed(22.0)))
@@ -218,7 +254,7 @@ pub(super) fn hosts(app: &App) -> Element<'_, Message> {
             kit::page_header(tr("Hôtes"), None, vec![]),
             row![
                 kit::search(&app.search, tr("Hôte ou user@ip"), Message::Search, Message::Search(String::new())),
-                kit::square(I_TERMINAL, Message::OpenLocal),
+                kit::tip(kit::square(I_TERMINAL, Message::OpenLocal), tr("Terminal local (Ctrl+Maj+T)")),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
