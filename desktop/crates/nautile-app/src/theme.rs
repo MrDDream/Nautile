@@ -58,6 +58,8 @@ pub struct Nt {
     pub green: Color,
     pub blue: Color,
     pub pink: Color,
+    /// How the main actions are drawn.
+    pub style: ButtonStyle,
 }
 
 pub const DARK: Nt = Nt {
@@ -76,6 +78,27 @@ pub const DARK: Nt = Nt {
     green: rgb(0x5BD69A),
     blue: rgb(0x7AA2F7),
     pink: rgb(0xF38BA8),
+    style: ButtonStyle::Plein,
+};
+
+/// Black for OLED screens (Android's « Noir OLED »).
+pub const OLED: Nt = Nt {
+    dark: true,
+    bg: rgb(0x000000),
+    bar: rgb(0x000000),
+    surface: rgb(0x0B0B0B),
+    border: rgb(0x1E1E1E),
+    key_bg: rgb(0x141414),
+    text: rgb(0xF2F4F7),
+    text_soft: rgb(0xC9CED5),
+    muted: rgb(0x9AA3AD),
+    placeholder: rgb(0x6E767F),
+    accent: rgb(0xFFB547),
+    on_accent: rgb(0x1A1205),
+    green: rgb(0x5BD69A),
+    blue: rgb(0x7AA2F7),
+    pink: rgb(0xF38BA8),
+    style: ButtonStyle::Plein,
 };
 
 pub const LIGHT: Nt = Nt {
@@ -94,21 +117,155 @@ pub const LIGHT: Nt = Nt {
     green: rgb(0x1F7A4A),
     blue: rgb(0x2E4FA3),
     pink: rgb(0xA3254A),
+    style: ButtonStyle::Plein,
 };
 
-/// The palette of the active theme.
-pub fn nt(theme: &Theme) -> Nt {
-    if theme.extended_palette().is_dark {
-        DARK
-    } else {
-        LIGHT
+/// The base of the interface: its background and text colours.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Base {
+    Dark,
+    Light,
+    Oled,
+}
+
+/// The colour of the buttons (Android's `AccentColor`, without « Dynamique »).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum Accent {
+    #[default]
+    Ambre,
+    Lagon,
+    Corail,
+    Algue,
+    Abysse,
+    Nacre,
+    Lavande,
+}
+
+impl Accent {
+    pub const ALL: [Accent; 7] = [
+        Accent::Ambre,
+        Accent::Lagon,
+        Accent::Corail,
+        Accent::Algue,
+        Accent::Abysse,
+        Accent::Nacre,
+        Accent::Lavande,
+    ];
+
+    pub fn label(self) -> String {
+        nautile_core::tr(match self {
+            Accent::Ambre => "Ambre",
+            Accent::Lagon => "Lagon",
+            Accent::Corail => "Corail",
+            Accent::Algue => "Algue",
+            Accent::Abysse => "Abysse",
+            Accent::Nacre => "Nacre",
+            Accent::Lavande => "Lavande",
+        })
+    }
+
+    /// The colour and the ink on it, on a dark or a light background.
+    pub fn colors(self, dark: bool) -> (Color, Color) {
+        let (d, ink, l) = match self {
+            Accent::Ambre => (0xFFB547, 0x1A1205, 0x9A5B00),
+            Accent::Lagon => (0x3DD6C6, 0x04201D, 0x0F766E),
+            Accent::Corail => (0xFF8A6B, 0x2A0D05, 0xB4432A),
+            Accent::Algue => (0x7ED957, 0x0E2205, 0x3F7D1F),
+            Accent::Abysse => (0x7AA2F7, 0x0A1633, 0x2E4FA3),
+            Accent::Nacre => (0xF3A6C8, 0x2E0B1C, 0xA3255F),
+            Accent::Lavande => (0xB39DFF, 0x170F38, 0x5B3FC4),
+        };
+        if dark {
+            (rgb(d), rgb(ink))
+        } else {
+            (rgb(l), rgb(0xFFFFFF))
+        }
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            Accent::Ambre => "ambre",
+            Accent::Lagon => "lagon",
+            Accent::Corail => "corail",
+            Accent::Algue => "algue",
+            Accent::Abysse => "abysse",
+            Accent::Nacre => "nacre",
+            Accent::Lavande => "lavande",
+        }
     }
 }
 
-pub fn theme(dark: bool) -> Theme {
-    let n = if dark { DARK } else { LIGHT };
+/// How the main actions are drawn (Android's « Style des boutons »).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum ButtonStyle {
+    #[default]
+    Plein,
+    Tonal,
+    Contour,
+}
+
+impl ButtonStyle {
+    pub fn label(self) -> String {
+        nautile_core::tr(match self {
+            ButtonStyle::Plein => "Plein",
+            ButtonStyle::Tonal => "Tonal",
+            ButtonStyle::Contour => "Contour",
+        })
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            ButtonStyle::Plein => "plein",
+            ButtonStyle::Tonal => "tonal",
+            ButtonStyle::Contour => "contour",
+        }
+    }
+}
+
+/// The palette of a base with an accent and a button style.
+pub fn palette(base: Base, accent: Accent, style: ButtonStyle) -> Nt {
+    let mut n = match base {
+        Base::Dark => DARK,
+        Base::Light => LIGHT,
+        Base::Oled => OLED,
+    };
+    (n.accent, n.on_accent) = accent.colors(n.dark);
+    n.style = style;
+    n
+}
+
+/// The palette of the active theme, read back from its name (`nautile/<base>/<accent>/<style>`), so that
+/// every style function finds it without any global state.
+pub fn nt(theme: &Theme) -> Nt {
+    let name = theme.to_string();
+    let mut parts = name.split('/').skip(1);
+    let base = match parts.next() {
+        Some("light") => Base::Light,
+        Some("oled") => Base::Oled,
+        Some("dark") => Base::Dark,
+        _ => return if theme.extended_palette().is_dark { DARK } else { LIGHT },
+    };
+    let accent = parts
+        .next()
+        .and_then(|a| Accent::ALL.into_iter().find(|x| x.id() == a))
+        .unwrap_or_default();
+    let style = match parts.next() {
+        Some("tonal") => ButtonStyle::Tonal,
+        Some("contour") => ButtonStyle::Contour,
+        _ => ButtonStyle::Plein,
+    };
+    palette(base, accent, style)
+}
+
+pub fn theme(base: Base, accent: Accent, style: ButtonStyle) -> Theme {
+    let n = palette(base, accent, style);
+    let b = match base {
+        Base::Dark => "dark",
+        Base::Light => "light",
+        Base::Oled => "oled",
+    };
     Theme::custom(
-        if dark { "Nautile sombre" } else { "Nautile clair" }.to_owned(),
+        format!("nautile/{b}/{}/{}", accent.id(), style.id()),
         iced::theme::Palette {
             background: n.bg,
             text: n.text,
@@ -302,26 +459,63 @@ fn base(bg: Option<Color>, text: Color, border_color: Color, radius: f32) -> but
 /// Main action: filled with the accent.
 pub fn primary(t: &Theme, s: button::Status) -> button::Style {
     let n = nt(t);
-    let bg = match s {
-        button::Status::Hovered => alpha(n.accent, 0.88),
-        button::Status::Disabled => alpha(n.accent, 0.35),
-        _ => n.accent,
-    };
-    base(Some(bg), n.on_accent, Color::TRANSPARENT, 14.0)
+    let off = matches!(s, button::Status::Disabled);
+    let hover = matches!(s, button::Status::Hovered);
+    match n.style {
+        ButtonStyle::Plein => {
+            let bg = if off {
+                alpha(n.accent, 0.35)
+            } else if hover {
+                alpha(n.accent, 0.88)
+            } else {
+                n.accent
+            };
+            base(Some(bg), n.on_accent, Color::TRANSPARENT, 14.0)
+        }
+        ButtonStyle::Tonal => {
+            let a = if off {
+                0.08
+            } else if hover {
+                0.26
+            } else {
+                0.18
+            };
+            let fg = if off { alpha(n.accent, 0.5) } else { n.accent };
+            base(Some(alpha(n.accent, a)), fg, Color::TRANSPARENT, 14.0)
+        }
+        ButtonStyle::Contour => {
+            let fg = if off { alpha(n.accent, 0.45) } else { n.accent };
+            let mut st = base(hover.then_some(alpha(n.accent, 0.08)), fg, fg, 14.0);
+            st.border.width = 2.0;
+            st
+        }
+    }
 }
 
 /// The round « + » of the lists (Android's floating action button).
 pub fn fab(t: &Theme, s: button::Status) -> button::Style {
     let n = nt(t);
     let mut st = primary(t, s);
+    // Tonal and outlined stay opaque over the list.
+    if n.style != ButtonStyle::Plein {
+        let tint = if n.style == ButtonStyle::Tonal { 0.22 } else { 0.0 };
+        st.background = Some(mix(n.surface, n.accent, tint).into());
+    }
     st.border.radius = 30.0.into();
     st.shadow = Shadow {
         color: alpha(Color::BLACK, 0.35),
         offset: Vector::new(0.0, 4.0),
         blur_radius: 14.0,
     };
-    st.text_color = n.on_accent;
+    if n.style == ButtonStyle::Plein {
+        st.text_color = n.on_accent;
+    }
     st
+}
+
+/// [a] with [t] of [b] over it.
+pub fn mix(a: Color, b: Color, t: f32) -> Color {
+    Color::from_rgb(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t)
 }
 
 /// A filter chip with its count (Android's `CountChip`); [tint]: a group's colour or the accent.
@@ -529,5 +723,25 @@ pub fn toggler(t: &Theme, s: iced::widget::toggler::Status) -> iced::widget::tog
         text_color: None,
         border_radius: None,
         padding_ratio: 0.1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_palette_is_read_back_from_the_theme_name() {
+        for base in [Base::Dark, Base::Light, Base::Oled] {
+            for accent in Accent::ALL {
+                for style in [ButtonStyle::Plein, ButtonStyle::Tonal, ButtonStyle::Contour] {
+                    let n = nt(&theme(base, accent, style));
+                    let want = palette(base, accent, style);
+                    assert_eq!((n.bg, n.accent, n.on_accent, n.style), (want.bg, want.accent, want.on_accent, want.style));
+                }
+            }
+        }
+        assert_eq!(nt(&theme(Base::Oled, Accent::Lagon, ButtonStyle::Tonal)).bg, Color::BLACK);
+        assert_eq!(nt(&Theme::Dark).bg, DARK.bg, "an iced theme falls back to the dark palette");
     }
 }

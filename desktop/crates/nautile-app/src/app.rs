@@ -363,6 +363,11 @@ pub enum Message {
     SidebarMove(f32),
     SidebarRelease,
     SidebarToggle,
+    SystemTheme(iced::theme::Mode),
+    /// Does nothing (previews).
+    Noop,
+    Accent(crate::theme::Accent),
+    ButtonStyle(crate::theme::ButtonStyle),
     SettingsPage(Option<SettingsPage>),
     Search(String),
     GroupFilter(Option<i64>),
@@ -533,6 +538,8 @@ pub struct App {
     pub window: iced::Size,
     /// The sidebar's edge is being dragged.
     pub sidebar_drag: bool,
+    /// The system is in dark mode (for « Système »).
+    pub os_dark: bool,
 }
 
 impl App {
@@ -555,7 +562,8 @@ impl App {
             Task::none()
         };
         let backups = app.backup_boot();
-        (app, Task::batch([focus, backups]))
+        let os_theme = iced::system::theme().map(Message::SystemTheme);
+        (app, Task::batch([focus, backups, os_theme]))
     }
 
     pub fn with(paths: Paths, settings: Settings, db: Option<Db>, fatal: Option<String>) -> App {
@@ -600,6 +608,7 @@ impl App {
             modal: None,
             window: iced::Size::new(1280.0, 800.0),
             sidebar_drag: false,
+            os_dark: true,
         };
         app.locked = app.settings.locks();
         app.lock_form.method = app.settings.lock_method;
@@ -625,6 +634,9 @@ impl App {
         if self.sidebar_drag {
             subs.push(iced::event::listen_with(sidebar_drag));
         }
+        if self.settings.appearance == Appearance::System {
+            subs.push(iced::system::theme_changes().map(Message::SystemTheme));
+        }
         if self.settings.locks() && !self.locked && self.settings.lock_after() > 0 {
             subs.push(iced::time::every(std::time::Duration::from_secs(20)).map(|_| Message::Tick));
         }
@@ -632,7 +644,15 @@ impl App {
     }
 
     pub fn theme(&self) -> iced::Theme {
-        crate::theme::theme(self.settings.appearance == Appearance::Dark)
+        use crate::theme::Base;
+        let base = match self.settings.appearance {
+            Appearance::Dark => Base::Dark,
+            Appearance::Light => Base::Light,
+            Appearance::Oled => Base::Oled,
+            Appearance::System if self.os_dark => Base::Dark,
+            Appearance::System => Base::Light,
+        };
+        crate::theme::theme(base, self.settings.accent, self.settings.button_style)
     }
 
     /// Reads every list again from the database.
@@ -763,6 +783,20 @@ impl App {
                 }
             }
             Message::WindowResized(size) => self.window = size,
+            Message::Noop => {}
+            Message::SystemTheme(mode) => match mode {
+                iced::theme::Mode::Dark => self.os_dark = true,
+                iced::theme::Mode::Light => self.os_dark = false,
+                iced::theme::Mode::None => {}
+            },
+            Message::Accent(a) => {
+                self.settings.accent = a;
+                let _ = self.settings.save(&self.paths);
+            }
+            Message::ButtonStyle(b) => {
+                self.settings.button_style = b;
+                let _ = self.settings.save(&self.paths);
+            }
             Message::SidebarGrab => self.sidebar_drag = true,
             Message::SidebarMove(x) => {
                 if self.sidebar_drag {

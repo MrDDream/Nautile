@@ -55,9 +55,13 @@ pub enum Language {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Appearance {
+    /// Follows the system's light or dark mode.
+    System,
     #[default]
     Dark,
     Light,
+    /// Pure black, for OLED screens.
+    Oled,
 }
 
 /// Preferences of this computer (not synchronised).
@@ -102,6 +106,9 @@ pub struct Settings {
     pub ai_urls: std::collections::HashMap<String, String>,
     /// A system prompt of the user's (the built-in one when empty).
     pub ai_prompt: Option<String>,
+    /// The colour of the buttons.
+    pub accent: crate::theme::Accent,
+    pub button_style: crate::theme::ButtonStyle,
     /// The sidebar's width, when set by dragging its edge.
     pub sidebar_width: Option<f32>,
     /// The sidebar shows only its icons.

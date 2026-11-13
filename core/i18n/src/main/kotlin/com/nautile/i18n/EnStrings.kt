@@ -1173,6 +1173,7 @@ internal object EnStrings {
         "Thème, curseur, taille, police" to "Theme, cursor, size, font",
         "Thèmes" to "Themes",
         "Tiret" to "Dash",
+        "Tonal" to "Tonal",
         "Touche Windows" to "Windows key",
         "Toucher" to "Tap",
         "Touches" to "Keys",

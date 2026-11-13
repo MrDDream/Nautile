@@ -216,11 +216,7 @@ pub(super) fn entry_card<'a>(entries: Vec<Entry>) -> Element<'a, Message> {
 pub(super) fn settings_home(app: &App) -> Element<'_, Message> {
     use crate::app::SettingsPage as P;
     let s = &app.settings;
-    let n = if s.appearance == Appearance::Dark {
-        theme::DARK
-    } else {
-        theme::LIGHT
-    };
+    let n = theme::nt(&app.theme());
     let lavender = if n.dark {
         Color::from_rgb8(0xB3, 0x9D, 0xFF)
     } else {
@@ -237,11 +233,7 @@ pub(super) fn settings_home(app: &App) -> Element<'_, Message> {
         Language::Fr => "Français".into(),
         Language::En => "English".into(),
     };
-    let look = if s.appearance == Appearance::Dark {
-        tr("Sombre")
-    } else {
-        tr("Clair")
-    };
+    let look = format!("{} · {}", appearance_label(s.appearance), s.accent.label());
     let term = themes::by_id(s.terminal_theme());
     let personal = vec![
         Entry {
@@ -398,16 +390,146 @@ pub(super) fn settings(app: &App) -> Element<'_, Message> {
     settings_frame(head.into(), body)
 }
 
+pub(super) fn appearance_label(a: Appearance) -> String {
+    match a {
+        Appearance::System => tr("Système"),
+        Appearance::Dark => tr("Sombre"),
+        Appearance::Light => tr("Clair"),
+        Appearance::Oled => tr("Noir OLED"),
+    }
+}
+
+/// What the colour and the style look like: chips, a switch, a host and its two buttons (as on Android).
+fn appearance_preview<'a>() -> Element<'a, Message> {
+    let chip = |name: &str, n: usize, selected: bool| -> Element<'a, Message> {
+        kit::count_chip(name.to_owned(), n, selected, None, Message::Noop)
+    };
+    let host = row![
+        container(text("D").size(17).font(BOLD).style(|t: &iced::Theme| text::Style {
+            color: Some(theme::nt(t).accent),
+        }))
+        .center(Length::Fixed(40.0))
+        .style(|t: &iced::Theme| theme::soft_tile(theme::nt(t).accent, 12.0)(t)),
+        column![
+            text("docker-01").size(15).font(BOLD),
+            iced::widget::progress_bar(0.0..=100.0, 64.0)
+                .girth(6)
+                .style(|t: &iced::Theme| iced::widget::progress_bar::Style {
+                    background: theme::nt(t).key_bg.into(),
+                    bar: theme::nt(t).accent.into(),
+                    border: iced::border::rounded(3),
+                }),
+        ]
+        .spacing(8)
+        .width(Fill),
+    ]
+    .spacing(12)
+    .align_y(Alignment::Center);
+    let buttons = row![
+        button(text(tr("Enregistrer")).size(15).font(BOLD).center().width(Fill))
+            .width(Fill)
+            .padding([12, 18])
+            .style(theme::secondary)
+            .on_press(Message::Noop),
+        button(text(tr("Connecter")).size(15).font(BOLD).center().width(Fill))
+            .width(Fill)
+            .padding([12, 18])
+            .style(theme::primary)
+            .on_press(Message::Noop),
+    ]
+    .spacing(10);
+    let top = row![
+        chip("Homelab", 4, true),
+        chip("VPS", 1, false),
+        Space::new().width(Fill),
+        iced::widget::toggler(true)
+            .on_toggle(|_| Message::Noop)
+            .size(24)
+            .style(theme::toggler),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    // Shown only: it does nothing when pressed.
+    container(column![top, host, buttons].spacing(18))
+        .padding(18)
+        .width(Fill)
+        .style(theme::card)
+        .into()
+}
+
+/// One colour of the grid: its disc (with a check when chosen) and its name.
+fn accent_swatch<'a>(a: crate::theme::Accent, selected: bool) -> Element<'a, Message> {
+    let disc = container(if selected {
+        Element::from(kit::icon('\u{E5CA}', 20.0).style(move |t: &iced::Theme| text::Style {
+            color: Some(a.colors(theme::nt(t).dark).1),
+        }))
+    } else {
+        Space::new().into()
+    })
+    .center(Length::Fixed(34.0))
+    .style(move |t: &iced::Theme| container::Style {
+        background: Some(a.colors(theme::nt(t).dark).0.into()),
+        border: iced::border::rounded(17),
+        ..Default::default()
+    });
+    button(column![disc, text(a.label()).size(12)].spacing(8).align_x(Alignment::Center))
+        .width(Fill)
+        .padding([12, 6])
+        .style(move |t: &iced::Theme, st| {
+            let n = theme::nt(t);
+            button::Style {
+                background: Some(if matches!(st, button::Status::Hovered) { n.key_bg } else { n.bg }.into()),
+                text_color: n.text,
+                border: iced::Border {
+                    color: if selected { n.text } else { n.border },
+                    width: if selected { 2.0 } else { 1.0 },
+                    radius: 14.0.into(),
+                },
+                ..Default::default()
+            }
+        })
+        .on_press(Message::Accent(a))
+        .into()
+}
+
 pub(super) fn appearance_settings(app: &App) -> Column<'_, Message> {
+    use crate::theme::{Accent, ButtonStyle};
     let s = &app.settings;
+    let swatches = row(Accent::ALL.into_iter().map(|a| accent_swatch(a, a == s.accent))).spacing(8);
     column![
+        appearance_preview(),
         settings_card(
-            tr("Thème"),
-            segmented(
-                vec![(Appearance::Dark, tr("Sombre")), (Appearance::Light, tr("Clair"))],
-                s.appearance,
-                Message::Appearance
-            )
+            tr("Thème de l'app"),
+            column![
+                segmented(
+                    [Appearance::System, Appearance::Dark, Appearance::Light, Appearance::Oled]
+                        .into_iter()
+                        .map(|a| (a, appearance_label(a)))
+                        .collect(),
+                    s.appearance,
+                    Message::Appearance
+                ),
+                soft(tr("Le terminal garde ses propres couleurs : réglez-les dans Terminal.")),
+            ]
+            .spacing(10)
+        ),
+        settings_card(
+            trf("Couleur · %1$s", &[&s.accent.label()]),
+            column![
+                swatches,
+                field(
+                    tr("Style des boutons"),
+                    segmented(
+                        [ButtonStyle::Plein, ButtonStyle::Tonal, ButtonStyle::Contour]
+                            .into_iter()
+                            .map(|b| (b, b.label()))
+                            .collect(),
+                        s.button_style,
+                        Message::ButtonStyle
+                    )
+                ),
+            ]
+            .spacing(16)
         ),
         settings_card(
             tr("Langue"),

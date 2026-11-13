@@ -267,6 +267,27 @@ fn settings() {
 }
 
 #[test]
+fn settings_appearance() {
+    each(|app| {
+        let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::Appearance)));
+        let _ = app.update(Message::Accent(nautile_app::theme::Accent::Lagon));
+        let _ = app.update(Message::ButtonStyle(nautile_app::theme::ButtonStyle::Tonal));
+        "settings-appearance"
+    });
+}
+
+#[test]
+fn oled_hosts() {
+    each(|app| {
+        let _ = app.update(Message::Appearance(nautile_app::storage::Appearance::Oled));
+        let _ = app.update(Message::Accent(nautile_app::theme::Accent::Lavande));
+        let _ = app.update(Message::ButtonStyle(nautile_app::theme::ButtonStyle::Contour));
+        "oled-hosts"
+    });
+}
+
+#[test]
 fn settings_terminal() {
     each(|app| {
         let _ = app.update(Message::Nav(Page::Settings));
