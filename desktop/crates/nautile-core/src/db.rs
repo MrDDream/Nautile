@@ -510,3 +510,21 @@ mod tests {
         assert!(back.updated_at > 1);
     }
 }
+
+#[cfg(test)]
+mod forward_tests {
+    use super::*;
+    use crate::model::PortForward;
+
+    #[test]
+    fn forwards_round_trip() {
+        let db = Db::in_memory().unwrap();
+        let s = db.store();
+        let h = s.insert(&Host::new("a", "b")).unwrap();
+        let f: PortForward =
+            serde_json::from_value(serde_json::json!({ "name": "x", "hostId": h, "kind": "DYNAMIC", "bindPort": 1080 })).unwrap();
+        s.insert(&f).unwrap();
+        let all: Result<Vec<PortForward>> = s.all();
+        assert_eq!(all.unwrap().len(), 1);
+    }
+}

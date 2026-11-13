@@ -3,7 +3,9 @@
 use iced::widget::text_editor;
 use iced::Task;
 use nautile_core::db::Db;
-use nautile_core::model::{AuthMethod, BackupData, Host, HostGroup, Identity, Protocol, Snippet, SshKey, DEFAULT_COLOR};
+use nautile_core::model::{
+    AuthMethod, BackupData, ForwardKind, Host, HostGroup, Identity, KnownHost, PortForward, Protocol, Snippet, SshKey, DEFAULT_COLOR,
+};
 use nautile_core::{backup, i18n, sync, tr, trf};
 
 use crate::storage::{Appearance, Language, Paths, Settings};
@@ -16,7 +18,16 @@ pub enum Page {
     Hosts,
     Snippets,
     Keys,
+    Tunnels,
     Settings,
+}
+
+/// The tabs of the keychain page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeysTab {
+    Keys,
+    Identities,
+    KnownHosts,
 }
 
 /// An entry of a drop-down list (a group, a key, a jump host…): `None` is « none ».
@@ -191,12 +202,51 @@ pub struct SnippetForm {
     pub confirm_delete: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct IdentityForm {
+    pub original: Option<Identity>,
+    pub name: String,
+    pub username: String,
+    pub password: String,
+    pub key: Option<i64>,
+    pub confirm_delete: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ForwardForm {
+    pub original: Option<PortForward>,
+    pub name: String,
+    pub host: Option<i64>,
+    pub kind: ForwardKind,
+    pub bind_host: String,
+    pub bind_port: String,
+    pub dest_host: String,
+    pub dest_port: String,
+    pub auto_start: bool,
+    pub confirm_delete: bool,
+}
+
+fn port(s: &str) -> Option<i32> {
+    s.trim().parse::<u16>().ok().filter(|p| *p > 0).map(i32::from)
+}
+
+impl ForwardForm {
+    pub fn valid(&self) -> bool {
+        self.host.is_some()
+            && !self.name.trim().is_empty()
+            && port(&self.bind_port).is_some()
+            && (self.kind == ForwardKind::Dynamic || (port(&self.dest_port).is_some() && !self.dest_host.trim().is_empty()))
+    }
+}
+
 /// The panel on the right.
 #[derive(Debug)]
 pub enum Editor {
     Host(Box<HostForm>),
     Group(GroupForm),
     Snippet(SnippetForm),
+    Identity(IdentityForm),
+    Forward(ForwardForm),
 }
 
 /// Restoring a backup file.
@@ -257,6 +307,28 @@ pub enum Message {
     DeleteSnippet,
     CopySnippet(i64),
     DeleteKey(i64),
+    KeysTab(KeysTab),
+    NewIdentity,
+    EditIdentity(i64),
+    IdentityName(String),
+    IdentityUser(String),
+    IdentityPassword(String),
+    IdentityKey(Choice),
+    SaveIdentity,
+    DeleteIdentity,
+    DeleteKnownHost(i64),
+    NewForward,
+    EditForward(i64),
+    ForwardName(String),
+    ForwardHost(Choice),
+    ForwardKind(ForwardKind),
+    ForwardBindHost(String),
+    ForwardBindPort(String),
+    ForwardDestHost(String),
+    ForwardDestPort(String),
+    ForwardAuto(bool),
+    SaveForward,
+    DeleteForward,
     ImportPick,
     ImportPicked(Option<(String, String)>),
     ImportPassword(String),
@@ -284,6 +356,9 @@ pub struct App {
     pub snippets: Vec<Snippet>,
     pub keys: Vec<SshKey>,
     pub identities: Vec<Identity>,
+    pub known_hosts: Vec<KnownHost>,
+    pub forwards: Vec<PortForward>,
+    pub keys_tab: KeysTab,
     pub search: String,
     pub editor: Option<Editor>,
     pub toast: Option<String>,
@@ -319,6 +394,9 @@ impl App {
             snippets: vec![],
             keys: vec![],
             identities: vec![],
+            known_hosts: vec![],
+            forwards: vec![],
+            keys_tab: KeysTab::Keys,
             search: String::new(),
             editor: None,
             toast: None,
@@ -353,6 +431,11 @@ impl App {
         self.snippets.sort_by_key(|x| x.name.to_lowercase());
         self.keys = s.all().unwrap_or_default();
         self.identities = s.all().unwrap_or_default();
+        self.identities.sort_by_key(|x| x.name.to_lowercase());
+        self.known_hosts = s.all().unwrap_or_default();
+        self.known_hosts.sort_by(|a, b| a.host.cmp(&b.host).then(a.port.cmp(&b.port)));
+        self.forwards = s.all().unwrap_or_default();
+        self.forwards.sort_by_key(|x| x.name.to_lowercase());
     }
 
     fn say(&mut self, msg: String) -> Task<Message> {
@@ -609,6 +692,194 @@ impl App {
                     let _ = db.store().delete::<SshKey>(id);
                     self.reload();
                 }
+            }
+
+            Message::KeysTab(t) => {
+                self.keys_tab = t;
+                self.editor = None;
+            }
+            Message::NewIdentity => {
+                self.editor = Some(Editor::Identity(IdentityForm {
+                    original: None,
+                    name: String::new(),
+                    username: String::new(),
+                    password: String::new(),
+                    key: None,
+                    confirm_delete: false,
+                }))
+            }
+            Message::EditIdentity(id) => {
+                if let Some(i) = self.identities.iter().find(|i| i.id == id) {
+                    self.editor = Some(Editor::Identity(IdentityForm {
+                        original: Some(i.clone()),
+                        name: i.name.clone(),
+                        username: i.username.clone(),
+                        password: i.password.clone().unwrap_or_default(),
+                        key: i.key_id,
+                        confirm_delete: false,
+                    }));
+                }
+            }
+            Message::IdentityName(v) => {
+                if let Some(Editor::Identity(f)) = &mut self.editor {
+                    f.name = v;
+                }
+            }
+            Message::IdentityUser(v) => {
+                if let Some(Editor::Identity(f)) = &mut self.editor {
+                    f.username = v;
+                }
+            }
+            Message::IdentityPassword(v) => {
+                if let Some(Editor::Identity(f)) = &mut self.editor {
+                    f.password = v;
+                }
+            }
+            Message::IdentityKey(c) => {
+                if let Some(Editor::Identity(f)) = &mut self.editor {
+                    f.key = c.id;
+                }
+            }
+            Message::SaveIdentity => {
+                let (Some(Editor::Identity(f)), Some(db)) = (&self.editor, &self.db) else {
+                    return Task::none();
+                };
+                if f.name.trim().is_empty() || f.username.trim().is_empty() {
+                    return Task::none();
+                }
+                let mut i: Identity = f
+                    .original
+                    .clone()
+                    .unwrap_or_else(|| serde_json::from_value(serde_json::json!({ "name": "", "username": "" })).expect("defaults"));
+                i.name = f.name.trim().to_owned();
+                i.username = f.username.trim().to_owned();
+                i.password = Some(f.password.clone()).filter(|p| !p.is_empty());
+                i.key_id = f.key;
+                return match db.store().upsert(&i) {
+                    Ok(_) => {
+                        self.editor = None;
+                        self.reload();
+                        Task::none()
+                    }
+                    Err(e) => self.fail(e),
+                };
+            }
+            Message::DeleteIdentity => {
+                let (Some(Editor::Identity(f)), Some(db)) = (&mut self.editor, &self.db) else {
+                    return Task::none();
+                };
+                let Some(i) = f.original.clone() else { return Task::none() };
+                if !f.confirm_delete {
+                    f.confirm_delete = true;
+                    return Task::none();
+                }
+                let _ = db.store().delete::<Identity>(i.id);
+                self.editor = None;
+                self.reload();
+            }
+            Message::DeleteKnownHost(id) => {
+                if let Some(db) = &self.db {
+                    let _ = db.store().delete::<KnownHost>(id);
+                    self.reload();
+                }
+            }
+            Message::NewForward => {
+                self.editor = Some(Editor::Forward(ForwardForm {
+                    original: None,
+                    name: String::new(),
+                    host: self.hosts.iter().find(|h| h.protocol == Protocol::Ssh).map(|h| h.id),
+                    kind: ForwardKind::Local,
+                    bind_host: "127.0.0.1".into(),
+                    bind_port: String::new(),
+                    dest_host: "127.0.0.1".into(),
+                    dest_port: String::new(),
+                    auto_start: false,
+                    confirm_delete: false,
+                }))
+            }
+            Message::EditForward(id) => {
+                if let Some(x) = self.forwards.iter().find(|x| x.id == id) {
+                    self.editor = Some(Editor::Forward(ForwardForm {
+                        original: Some(x.clone()),
+                        name: x.name.clone(),
+                        host: Some(x.host_id),
+                        kind: x.kind,
+                        bind_host: x.bind_host.clone(),
+                        bind_port: x.bind_port.to_string(),
+                        dest_host: x.dest_host.clone(),
+                        dest_port: if x.dest_port > 0 { x.dest_port.to_string() } else { String::new() },
+                        auto_start: x.auto_start,
+                        confirm_delete: false,
+                    }));
+                }
+            }
+            Message::ForwardName(_)
+            | Message::ForwardHost(_)
+            | Message::ForwardKind(_)
+            | Message::ForwardBindHost(_)
+            | Message::ForwardBindPort(_)
+            | Message::ForwardDestHost(_)
+            | Message::ForwardDestPort(_)
+            | Message::ForwardAuto(_) => {
+                let digits = |v: String| v.chars().filter(char::is_ascii_digit).take(5).collect::<String>();
+                if let Some(Editor::Forward(f)) = &mut self.editor {
+                    f.confirm_delete = false;
+                    match message {
+                        Message::ForwardName(v) => f.name = v,
+                        Message::ForwardHost(c) => f.host = c.id,
+                        Message::ForwardKind(k) => f.kind = k,
+                        Message::ForwardBindHost(v) => f.bind_host = v,
+                        Message::ForwardBindPort(v) => f.bind_port = digits(v),
+                        Message::ForwardDestHost(v) => f.dest_host = v,
+                        Message::ForwardDestPort(v) => f.dest_port = digits(v),
+                        Message::ForwardAuto(v) => f.auto_start = v,
+                        _ => {}
+                    }
+                }
+            }
+            Message::SaveForward => {
+                let (Some(Editor::Forward(f)), Some(db)) = (&self.editor, &self.db) else {
+                    return Task::none();
+                };
+                if !f.valid() {
+                    return Task::none();
+                }
+                let mut x: PortForward = f.original.clone().unwrap_or_else(|| {
+                    serde_json::from_value(serde_json::json!({ "name": "", "hostId": 0, "kind": "LOCAL", "bindPort": 0 }))
+                        .expect("defaults")
+                });
+                x.name = f.name.trim().to_owned();
+                x.host_id = f.host.unwrap_or_default();
+                x.kind = f.kind;
+                x.bind_host = Some(f.bind_host.trim().to_owned())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "127.0.0.1".into());
+                x.bind_port = port(&f.bind_port).unwrap_or_default();
+                let dynamic = f.kind == ForwardKind::Dynamic;
+                x.dest_host = if dynamic { String::new() } else { f.dest_host.trim().to_owned() };
+                x.dest_port = if dynamic { 0 } else { port(&f.dest_port).unwrap_or_default() };
+                x.auto_start = f.auto_start;
+                return match db.store().upsert(&x) {
+                    Ok(_) => {
+                        self.editor = None;
+                        self.reload();
+                        Task::none()
+                    }
+                    Err(e) => self.fail(e),
+                };
+            }
+            Message::DeleteForward => {
+                let (Some(Editor::Forward(f)), Some(db)) = (&mut self.editor, &self.db) else {
+                    return Task::none();
+                };
+                let Some(x) = f.original.clone() else { return Task::none() };
+                if !f.confirm_delete {
+                    f.confirm_delete = true;
+                    return Task::none();
+                }
+                let _ = db.store().delete::<PortForward>(x.id);
+                self.editor = None;
+                self.reload();
             }
 
             // --- Backup ---

@@ -5,9 +5,10 @@ use iced::{Alignment, Color, Element, Fill, Length, Padding};
 use nautile_core::model::{AuthMethod, Host, Protocol};
 use nautile_core::{tr, trf};
 
-use crate::app::{App, AuthChoice, Choice, Editor, HostField, Message, Page, ProtocolChoice, COLORS};
+use crate::app::{App, AuthChoice, Choice, Editor, HostField, KeysTab, Message, Page, ProtocolChoice, COLORS};
 use crate::storage::{Appearance, Language};
 use crate::theme::{self, argb, BOLD, MONO};
+use nautile_core::model::ForwardKind;
 
 // Nerd Font (Material Design) icons.
 const I_HOSTS: char = '\u{F048B}';
@@ -23,6 +24,9 @@ const I_COPY: char = '\u{F018F}';
 const I_FOLDER: char = '\u{F024B}';
 const I_CLOSE: char = '\u{F0156}';
 const I_TRASH: char = '\u{F0A7A}';
+const I_TUNNEL: char = '\u{F0318}';
+const I_PERSON: char = '\u{F0004}';
+const I_SHIELD: char = '\u{F0565}';
 
 pub fn icon<'a>(c: char) -> iced::widget::Text<'a> {
     text(c.to_string()).font(MONO).size(17)
@@ -135,6 +139,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         Page::Hosts => hosts(app),
         Page::Snippets => snippets(app),
         Page::Keys => keys(app),
+        Page::Tunnels => tunnels(app),
         Page::Settings => settings(app),
     };
     let mut main = row![sidebar(app), container(page).width(Fill).height(Fill).style(theme::page)];
@@ -186,6 +191,7 @@ fn sidebar(app: &App) -> Element<'_, Message> {
             item(I_HOSTS, tr("Hôtes"), Page::Hosts, Some(app.hosts.len())),
             item(I_SNIPPETS, tr("Snippets"), Page::Snippets, Some(app.snippets.len())),
             item(I_KEYS, tr("Clés"), Page::Keys, Some(app.keys.len())),
+            item(I_TUNNEL, tr("Tunnels"), Page::Tunnels, Some(app.forwards.len())),
             Space::new().height(Fill),
             item(I_SETTINGS, tr("Réglages"), Page::Settings, None),
             label(place).size(11),
@@ -464,7 +470,7 @@ fn snippets(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-fn keys(app: &App) -> Element<'_, Message> {
+fn key_list(app: &App) -> Column<'_, Message> {
     let mut list = Column::new().spacing(8).padding(Padding {
         top: 4.0,
         right: 28.0,
@@ -505,8 +511,194 @@ fn keys(app: &App) -> Element<'_, Message> {
             tr("Les clés de votre téléphone arrivent avec sa sauvegarde ; l'import et la génération viennent avec le terminal."),
         ));
     }
+    list
+}
+
+fn keys(app: &App) -> Element<'_, Message> {
+    let tabs = segmented(
+        vec![
+            (KeysTab::Keys, tr("Clés")),
+            (KeysTab::Identities, tr("Identités")),
+            (KeysTab::KnownHosts, tr("Hôtes connus")),
+        ],
+        app.keys_tab,
+        Message::KeysTab,
+    );
+    let (n, body, actions): (usize, Column<Message>, Vec<Element<Message>>) = match app.keys_tab {
+        KeysTab::Keys => (app.keys.len(), key_list(app), vec![]),
+        KeysTab::Identities => (
+            app.identities.len(),
+            identity_list(app),
+            vec![primary(tr("Nouvelle identité"), Some(Message::NewIdentity)).into()],
+        ),
+        KeysTab::KnownHosts => (app.known_hosts.len(), known_list(app), vec![]),
+    };
     column![
-        header(tr("Clés"), Some(app.keys.len()), None, vec![]),
+        header(tr("Trousseau"), Some(n), None, actions),
+        container(container(tabs).max_width(520)).padding(Padding {
+            top: 0.0,
+            right: 28.0,
+            bottom: 10.0,
+            left: 28.0
+        }),
+        scrollable(body).height(Fill)
+    ]
+    .into()
+}
+
+fn pad() -> Padding {
+    Padding {
+        top: 4.0,
+        right: 28.0,
+        bottom: 28.0,
+        left: 28.0,
+    }
+}
+
+fn identity_list(app: &App) -> Column<'_, Message> {
+    let mut list = Column::new().spacing(8).padding(pad());
+    for i in &app.identities {
+        let selected = matches!(&app.editor, Some(Editor::Identity(f)) if f.original.as_ref().map(|o| o.id) == Some(i.id));
+        let how = match (i.key_id.and_then(|k| app.keys.iter().find(|x| x.id == k)), i.password.is_some()) {
+            (Some(k), _) => trf("clé %1$s", &[&k.name]),
+            (None, true) => tr("mot de passe"),
+            (None, false) => tr("mot de passe demandé"),
+        };
+        let used = app.hosts.iter().filter(|h| h.identity_id == Some(i.id)).count();
+        let body = row![
+            container(icon(I_PERSON).size(18))
+                .padding([7, 9])
+                .style(|t: &iced::Theme| theme::tile(theme::nt(t).blue)(t)),
+            column![
+                text(&i.name).font(BOLD).size(15),
+                soft(format!("{} · {} · {}", i.username, how, trf("%1$s hôte(s)", &[&used])))
+            ]
+            .spacing(3),
+        ]
+        .spacing(14)
+        .align_y(Alignment::Center);
+        list = list.push(
+            button(body)
+                .width(Fill)
+                .padding([10, 14])
+                .style(theme::row_item(selected))
+                .on_press(Message::EditIdentity(i.id)),
+        );
+    }
+    if app.identities.is_empty() {
+        list = list.push(empty(
+            I_PERSON,
+            tr("Aucune identité"),
+            tr("Un utilisateur et son mot de passe ou sa clé, à réutiliser sur plusieurs hôtes."),
+        ));
+    }
+    list
+}
+
+fn known_list(app: &App) -> Column<'_, Message> {
+    let mut list = Column::new().spacing(8).padding(pad());
+    for k in &app.known_hosts {
+        let body = row![
+            container(icon(I_SHIELD).size(18))
+                .padding([7, 9])
+                .style(|t: &iced::Theme| theme::tile(theme::nt(t).green)(t)),
+            column![
+                text(if k.port == 22 {
+                    k.host.clone()
+                } else {
+                    format!("{}:{}", k.host, k.port)
+                })
+                .font(BOLD)
+                .size(15),
+                soft(k.key_type.clone()),
+                label(k.fingerprint.clone()).font(MONO),
+            ]
+            .spacing(3),
+            Space::new().width(Fill),
+            icon_button(I_TRASH, Message::DeleteKnownHost(k.id)),
+        ]
+        .spacing(14)
+        .align_y(Alignment::Center);
+        list = list.push(container(body).padding([10, 14]).style(theme::card));
+    }
+    if app.known_hosts.is_empty() {
+        list = list.push(empty(
+            I_SHIELD,
+            tr("Aucun hôte connu"),
+            tr("La clé de chaque serveur est retenue à la première connexion, puis vérifiée à chaque fois."),
+        ));
+    }
+    list
+}
+
+fn kind_label(k: ForwardKind) -> String {
+    match k {
+        ForwardKind::Local => tr("Locale"),
+        ForwardKind::Remote => tr("Distante"),
+        ForwardKind::Dynamic => "SOCKS5".into(),
+    }
+}
+
+fn tunnels(app: &App) -> Element<'_, Message> {
+    let mut list = Column::new().spacing(8).padding(pad());
+    for x in &app.forwards {
+        let selected = matches!(&app.editor, Some(Editor::Forward(f)) if f.original.as_ref().map(|o| o.id) == Some(x.id));
+        let via = app
+            .hosts
+            .iter()
+            .find(|h| h.id == x.host_id)
+            .map(|h| h.alias.clone())
+            .unwrap_or_default();
+        let route = match x.kind {
+            ForwardKind::Dynamic => format!("{}:{} → SOCKS5", x.bind_host, x.bind_port),
+            _ => format!("{}:{} → {}:{}", x.bind_host, x.bind_port, x.dest_host, x.dest_port),
+        };
+        let mut info = column![
+            row![
+                text(&x.name).font(BOLD).size(15),
+                container(text(kind_label(x.kind)).size(11).font(BOLD))
+                    .padding([1, 7])
+                    .style(|t: &iced::Theme| theme::chip(theme::nt(t).blue)(t)),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+            soft(route).font(MONO).size(12),
+            label(trf("via %1$s", &[&via])),
+        ]
+        .spacing(3);
+        if x.auto_start {
+            info = info.push(label(tr("Démarre avec chaque session")));
+        }
+        let body = row![
+            container(icon(I_TUNNEL).size(18))
+                .padding([7, 9])
+                .style(|t: &iced::Theme| theme::tile(theme::nt(t).accent)(t)),
+            info
+        ]
+        .spacing(14)
+        .align_y(Alignment::Center);
+        list = list.push(
+            button(body)
+                .width(Fill)
+                .padding([10, 14])
+                .style(theme::row_item(selected))
+                .on_press(Message::EditForward(x.id)),
+        );
+    }
+    if app.forwards.is_empty() {
+        list = list.push(empty(
+            I_TUNNEL,
+            tr("Aucun tunnel"),
+            tr("Accédez à un service du serveur depuis cet ordinateur (locale), exposez un service local sur le serveur (distante) ou passez par le serveur comme proxy (SOCKS)."),
+        ));
+    }
+    column![
+        header(
+            tr("Tunnels"),
+            Some(app.forwards.len()),
+            None,
+            vec![primary(tr("Nouvelle règle"), (!app.hosts.is_empty()).then_some(Message::NewForward)).into()]
+        ),
         scrollable(list).height(Fill)
     ]
     .into()
@@ -863,6 +1055,134 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
                 column![form, hint].spacing(14).into(),
                 (!f.name.trim().is_empty()).then_some(Message::SaveGroup),
                 f.original.as_ref().map(|_| (f.confirm_delete, Message::DeleteGroup)),
+            )
+        }
+        Editor::Identity(f) => {
+            let keys: Vec<Choice> = std::iter::once(Choice {
+                id: None,
+                label: tr("Aucune — mot de passe"),
+            })
+            .chain(app.keys.iter().map(|k| Choice {
+                id: Some(k.id),
+                label: k.name.clone(),
+            }))
+            .collect();
+            let current = keys.iter().find(|c| c.id == f.key).cloned();
+            let form = column![
+                field(tr("Nom"), input("admin", &f.name, Message::IdentityName)),
+                field(tr("Utilisateur"), input("root", &f.username, Message::IdentityUser)),
+                field(
+                    tr("Clé SSH"),
+                    pick_list(keys, current, Message::IdentityKey)
+                        .width(Fill)
+                        .padding([8, 12])
+                        .style(theme::select)
+                ),
+                field(
+                    tr("Mot de passe"),
+                    text_input(&tr("Demandé à la connexion si vide"), &f.password)
+                        .on_input(Message::IdentityPassword)
+                        .secure(true)
+                        .padding([9, 12])
+                        .size(14)
+                        .style(theme::input)
+                ),
+            ]
+            .spacing(14);
+            let heading = if f.original.is_some() {
+                f.name.clone()
+            } else {
+                tr("Nouvelle identité")
+            };
+            let ok = !f.name.trim().is_empty() && !f.username.trim().is_empty();
+            (
+                heading,
+                form.into(),
+                ok.then_some(Message::SaveIdentity),
+                f.original.as_ref().map(|_| (f.confirm_delete, Message::DeleteIdentity)),
+            )
+        }
+        Editor::Forward(f) => {
+            let hosts: Vec<Choice> = app
+                .hosts
+                .iter()
+                .filter(|h| matches!(h.protocol, Protocol::Ssh | Protocol::Mosh))
+                .map(|h| Choice {
+                    id: Some(h.id),
+                    label: h.alias.clone(),
+                })
+                .collect();
+            let current = hosts.iter().find(|c| c.id == f.host).cloned();
+            let explain = match f.kind {
+                ForwardKind::Local => tr("Écoute sur cet ordinateur, se connecte à la destination depuis le serveur."),
+                ForwardKind::Remote => tr("Écoute sur le serveur, se connecte à la destination depuis cet ordinateur."),
+                ForwardKind::Dynamic => tr("Proxy SOCKS5 sur cet ordinateur : les applis qui le configurent sortent par le serveur."),
+            };
+            let mut form = column![
+                field(tr("Nom"), input("Jellyfin", &f.name, Message::ForwardName)),
+                segmented(
+                    vec![
+                        (ForwardKind::Local, tr("Locale")),
+                        (ForwardKind::Remote, tr("Distante")),
+                        (ForwardKind::Dynamic, "SOCKS".into())
+                    ],
+                    f.kind,
+                    Message::ForwardKind
+                ),
+                soft(explain),
+                field(
+                    tr("Via l'hôte"),
+                    pick_list(hosts, current, Message::ForwardHost)
+                        .placeholder(tr("Choisir…"))
+                        .width(Fill)
+                        .padding([8, 12])
+                        .style(theme::select)
+                ),
+                row![
+                    field(
+                        if f.kind == ForwardKind::Remote {
+                            tr("Écoute (serveur)")
+                        } else {
+                            tr("Écoute")
+                        },
+                        input("127.0.0.1", &f.bind_host, Message::ForwardBindHost).font(MONO)
+                    )
+                    .width(Length::FillPortion(2)),
+                    field(tr("Port"), input("8080", &f.bind_port, Message::ForwardBindPort).font(MONO)).width(Length::FillPortion(1)),
+                ]
+                .spacing(10),
+            ]
+            .spacing(14);
+            if f.kind != ForwardKind::Dynamic {
+                form = form.push(
+                    row![
+                        field(
+                            "Destination".into(),
+                            input("127.0.0.1", &f.dest_host, Message::ForwardDestHost).font(MONO)
+                        )
+                        .width(Length::FillPortion(2)),
+                        field(tr("Port"), input("80", &f.dest_port, Message::ForwardDestPort).font(MONO)).width(Length::FillPortion(1)),
+                    ]
+                    .spacing(10),
+                );
+            }
+            form = form.push(
+                iced::widget::checkbox(f.auto_start)
+                    .label(tr("Démarrer avec chaque session sur cet hôte"))
+                    .on_toggle(Message::ForwardAuto)
+                    .size(18)
+                    .text_size(14),
+            );
+            let heading = if f.original.is_some() {
+                tr("Modifier la règle")
+            } else {
+                tr("Nouvelle règle")
+            };
+            (
+                heading,
+                form.into(),
+                f.valid().then_some(Message::SaveForward),
+                f.original.as_ref().map(|_| (f.confirm_delete, Message::DeleteForward)),
             )
         }
         Editor::Snippet(f) => {

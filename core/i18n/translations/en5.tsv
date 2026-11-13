@@ -37,3 +37,18 @@ Supprimer le groupe garde ses hôtes, sans groupe.	Deleting the group keeps its 
 Astuce : ${NOM} devient une valeur demandée à chaque exécution. Plusieurs lignes = plusieurs commandes.	Tip: ${NAME} becomes a value asked at each run. Several lines = several commands.
 Tag	Tag
 Un groupe porte déjà ce nom	A group already has this name
+clé %1\$s	key %1\$s
+mot de passe demandé	password asked
+Aucune identité	No identities
+Un utilisateur et son mot de passe ou sa clé, à réutiliser sur plusieurs hôtes.	A user and their password or key, to reuse on several hosts.
+Aucun hôte connu	No known hosts
+La clé de chaque serveur est retenue à la première connexion, puis vérifiée à chaque fois.	Each server's key is remembered on the first connection, then checked every time.
+via %1\$s	via %1\$s
+Démarre avec chaque session	Starts with every session
+Aucun tunnel	No tunnels
+Accédez à un service du serveur depuis cet ordinateur (locale), exposez un service local sur le serveur (distante) ou passez par le serveur comme proxy (SOCKS).	Reach a server's service from this computer (local), expose a local service on the server (remote) or go through the server as a proxy (SOCKS).
+Aucune — mot de passe	None — password
+Écoute sur cet ordinateur, se connecte à la destination depuis le serveur.	Listens on this computer, connects to the destination from the server.
+Écoute sur le serveur, se connecte à la destination depuis cet ordinateur.	Listens on the server, connects to the destination from this computer.
+Proxy SOCKS5 sur cet ordinateur : les applis qui le configurent sortent par le serveur.	SOCKS5 proxy on this computer: apps set to use it go out through the server.
+mot de passe	password

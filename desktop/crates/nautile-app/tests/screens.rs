@@ -91,6 +91,29 @@ fn demo(english: bool, dark: bool) -> App {
             serde_json::from_value(serde_json::json!({ "name": name, "command": command, "tag": nautile_core::tr(tag) })).unwrap();
         s.insert(&sn).unwrap();
     }
+    let docker_id = s.all::<Host>().unwrap().into_iter().find(|h| h.alias == "docker-01").unwrap().id;
+    for v in [
+        serde_json::json!({ "name": "Jellyfin", "hostId": docker_id, "kind": "LOCAL", "bindPort": 8096, "destHost": "127.0.0.1", "destPort": 8096, "autoStart": true }),
+        serde_json::json!({ "name": "Proxy maison", "hostId": docker_id, "kind": "DYNAMIC", "bindPort": 1080 }),
+    ] {
+        s.insert(&serde_json::from_value::<nautile_core::model::PortForward>(v).unwrap())
+            .unwrap();
+    }
+    s.insert(
+        &serde_json::from_value::<nautile_core::model::Identity>(
+            serde_json::json!({ "name": "admin", "username": "root", "keyId": key_id }),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    s.insert(
+        &serde_json::from_value::<nautile_core::model::KnownHost>(serde_json::json!({
+            "host": "10.0.0.20", "port": 22, "keyType": "ssh-ed25519", "publicKey": "AAAAC3NzaC1lZDI1NTE5AAAAIGq0",
+            "fingerprint": "SHA256:Xq7rO0vqk5mHqJ8yQ1cD9g4w3s2Kp6Lr0fZt8uVbN2E"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
     let settings = Settings {
         appearance: if dark { Appearance::Dark } else { Appearance::Light },
         ..Settings::default()
@@ -170,6 +193,25 @@ fn keys() {
     each(|app| {
         let _ = app.update(Message::Nav(Page::Keys));
         "keys"
+    });
+}
+
+#[test]
+fn tunnels() {
+    each(|app| {
+        let _ = app.update(Message::Nav(Page::Tunnels));
+        let id = app.forwards[0].id;
+        let _ = app.update(Message::EditForward(id));
+        "tunnels"
+    });
+}
+
+#[test]
+fn identities() {
+    each(|app| {
+        let _ = app.update(Message::Nav(Page::Keys));
+        let _ = app.update(Message::KeysTab(nautile_app::app::KeysTab::Identities));
+        "identities"
     });
 }
 
