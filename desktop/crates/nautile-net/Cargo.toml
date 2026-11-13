@@ -1,0 +1,31 @@
+[package]
+name = "nautile-net"
+description = "Nautile's connections: SSH (jump hosts, proxy, port knocking, tunnels, agent), Telnet, Mosh and the local terminal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+nautile-core = { path = "../nautile-core" }
+# ring instead of aws-lc-rs: no CMake/NASM needed to build on Windows.
+russh = { version = "0.65", default-features = false, features = ["ring", "flate2", "rsa"] }
+tokio = { version = "1", features = ["net", "io-util", "rt-multi-thread", "sync", "time", "macros"] }
+portable-pty = "0.9"
+thiserror.workspace = true
+base64.workspace = true
+sha2.workspace = true
+rand.workspace = true
+# The random source of ssh-key (key generation).
+rand10 = { package = "rand", version = "0.10" }
+# Old encrypted PEM keys (`Proc-Type: 4,ENCRYPTED`), which russh only partly reads.
+aes = "0.9"
+cbc = "0.2"
+des = "0.9"
+md5 = "0.8"
+# Mosh: AES-128-OCB3 packets, zlib-compressed instructions.
+ocb3 = "0.2"
+flate2 = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }

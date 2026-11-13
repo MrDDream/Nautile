@@ -68,6 +68,9 @@ pub struct Settings {
     pub appearance: Appearance,
     /// Where the database key lives: "keyring" or "file".
     pub key_store: Option<String>,
+    /// The terminal colour scheme (ids of the Android app).
+    pub terminal_theme: Option<String>,
+    pub terminal_font: Option<f32>,
 }
 
 impl Settings {
@@ -81,6 +84,14 @@ impl Settings {
     pub fn save(&self, paths: &Paths) -> std::io::Result<()> {
         std::fs::create_dir_all(&paths.data)?;
         std::fs::write(paths.settings(), serde_json::to_string_pretty(self).unwrap_or_default())
+    }
+
+    pub fn terminal_theme(&self) -> &str {
+        self.terminal_theme.as_deref().unwrap_or("nautile")
+    }
+
+    pub fn terminal_font(&self) -> f32 {
+        self.terminal_font.unwrap_or(14.0)
     }
 
     /// English unless the setting or, by default, the system is French (as on Android).

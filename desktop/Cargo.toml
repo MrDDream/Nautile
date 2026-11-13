@@ -1,7 +1,7 @@
 # Nautile Desktop (Windows, Linux, later macOS): a separate app that speaks the Android app's formats.
 [workspace]
 resolver = "2"
-members = ["crates/nautile-core", "crates/nautile-app"]
+members = ["crates/nautile-core", "crates/nautile-net", "crates/nautile-app"]
 
 [workspace.package]
 version = "0.4.0"

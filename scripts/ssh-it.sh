@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Starts a throwaway sshd + SOCKS5 + HTTP proxies in Docker and runs the core:ssh integration tests.
+# `--desktop`: runs the desktop app's ones instead (cargo, desktop/crates/nautile-net/tests/ssh_it.rs).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 NET=nautile-it
@@ -36,5 +37,10 @@ done
 sleep 3
 # Mosh server for the MoshChannel test (Alpine-based image).
 docker exec coq-sshd sh -c 'apk add --no-cache mosh >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq mosh >/dev/null)' || true
-IT_PORT=22022 IT_INNER_PORT=2222 IT_INNER_HOST=sshd IT_SOCKS_PORT=21080 IT_HTTP_PORT=28888 \
-  ./gradlew --console=plain :core:ssh:test -PsshIT --rerun-tasks "$@"
+export IT_PORT=22022 IT_INNER_PORT=2222 IT_INNER_HOST=sshd IT_SOCKS_PORT=21080 IT_HTTP_PORT=28888
+if [ "${1:-}" = "--desktop" ]; then
+  shift
+  (cd desktop && cargo test -p nautile-net --test ssh_it "$@" -- --nocapture)
+  exit
+fi
+./gradlew --console=plain :core:ssh:test -PsshIT --rerun-tasks "$@"

@@ -52,3 +52,29 @@ Aucune — mot de passe	None — password
 Écoute sur le serveur, se connecte à la destination depuis cet ordinateur.	Listens on the server, connects to the destination from this computer.
 Proxy SOCKS5 sur cet ordinateur : les applis qui le configurent sortent par le serveur.	SOCKS5 proxy on this computer: apps set to use it go out through the server.
 mot de passe	password
+Clé du serveur refusée	Server key rejected
+Connexion fermée par le serveur	Connection closed by the server
+Aucune méthode d'authentification acceptée	No authentication method accepted
+Rebond via %1\$s…	Jumping through %1\$s…
+Rebond vers %1\$s impossible : %2\$s	Cannot jump to %1\$s: %2\$s
+Clé refusée par le serveur	Key rejected by the server
+Session terminée (code %1\$s)	Session ended (code %1\$s)
+Tunnel %1\$s impossible : %2\$s	Tunnel %1\$s failed: %2\$s
+Impossible de lancer %1\$s : %2\$s	Cannot start %1\$s: %2\$s
+Réponse inattendue de mosh-server	Unexpected answer from mosh-server
+Adresse introuvable : %1\$s	Address not found: %1\$s
+Clé publique copiée	Public key copied
+Générez une clé ou importez-en une (OpenSSH, PEM, PuTTY .ppk). Celles du téléphone arrivent avec sa sauvegarde.	Generate a key or import one (OpenSSH, PEM, PuTTY .ppk). The phone's keys come with its backup.
+Actif sur %1\$s	Active on %1\$s
+Démarrage…	Starting…
+Arrêter	Stop
+Démarrer	Start
+Thème · %1\$s	Theme · %1\$s
+Ctrl+Maj+C / Ctrl+Maj+V pour copier-coller, clic droit pour copier la sélection ou coller. Ctrl+Maj+T ouvre un terminal local, Ctrl+Tab change d'onglet.	Ctrl+Shift+C / Ctrl+Shift+V to copy and paste, right click to copy the selection or paste. Ctrl+Shift+T opens a local terminal, Ctrl+Tab switches tabs.
+Clé privée	Private key
+Choisir un fichier…	Choose a file…
+Mémoriser la phrase de passe	Remember the passphrase
+Lecture de la clé…	Reading the key…
+sur %1\$s	on %1\$s
+Ce type de connexion arrive bientôt sur ordinateur	This kind of connection is coming soon to the desktop
+Le bureau à distance (RDP, VNC) arrive bientôt sur ordinateur	Remote desktop (RDP, VNC) is coming soon to the desktop

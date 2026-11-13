@@ -6,9 +6,12 @@ use nautile_core::model::{AuthMethod, Host, Protocol};
 use nautile_core::{tr, trf};
 
 use crate::app::{App, AuthChoice, Choice, Editor, HostField, KeysTab, Message, Page, ProtocolChoice, COLORS};
+use crate::sessions::{Tab, TabState, TunnelState};
 use crate::storage::{Appearance, Language};
+use crate::term::{themes, widget as term_view};
 use crate::theme::{self, argb, BOLD, MONO};
 use nautile_core::model::ForwardKind;
+use nautile_net::Prompt;
 
 // Nerd Font (Material Design) icons.
 const I_HOSTS: char = '\u{F048B}';
@@ -27,6 +30,10 @@ const I_TRASH: char = '\u{F0A7A}';
 const I_TUNNEL: char = '\u{F0318}';
 const I_PERSON: char = '\u{F0004}';
 const I_SHIELD: char = '\u{F0565}';
+const I_PLAY: char = '\u{F040A}';
+const I_STOP: char = '\u{F04DB}';
+const I_SEND: char = '\u{F048A}';
+const I_PLUS: char = '\u{F0415}';
 
 pub fn icon<'a>(c: char) -> iced::widget::Text<'a> {
     text(c.to_string()).font(MONO).size(17)
@@ -135,18 +142,32 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .into();
     }
 
-    let page: Element<Message> = match app.page {
-        Page::Hosts => hosts(app),
-        Page::Snippets => snippets(app),
-        Page::Keys => keys(app),
-        Page::Tunnels => tunnels(app),
-        Page::Settings => settings(app),
+    let active = app.active_tab.and_then(|id| app.tab(id));
+    let page: Element<Message> = match active {
+        Some(t) => session(app, t),
+        None => match app.page {
+            Page::Hosts => hosts(app),
+            Page::Snippets => snippets(app),
+            Page::Keys => keys(app),
+            Page::Tunnels => tunnels(app),
+            Page::Settings => settings(app),
+        },
     };
-    let mut main = row![sidebar(app), container(page).width(Fill).height(Fill).style(theme::page)];
+    let mut center = Column::new();
+    if !app.tabs.is_empty() {
+        center = center.push(tab_bar(app));
+    }
+    center = center.push(container(page).width(Fill).height(Fill).style(theme::page));
+    let mut main = row![sidebar(app), center];
     if let Some(e) = &app.editor {
         main = main.push(container(editor(app, e)).width(400).height(Fill).style(theme::panel));
     }
     let mut layers = stack![main];
+    if let Some(p) = app.prompts.first() {
+        layers = layers.push(prompt_dialog(app, &p.prompt));
+    } else if let Some((id, vars)) = &app.snippet_run {
+        layers = layers.push(snippet_dialog(app, *id, vars));
+    }
     if let Some(t) = &app.toast {
         layers = layers.push(
             container(container(text(t.clone()).size(14)).padding([10, 16]).style(theme::toast))
@@ -160,7 +181,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
 fn sidebar(app: &App) -> Element<'_, Message> {
     let item = |c: char, name: String, p: Page, n: Option<usize>| {
-        let active = app.page == p;
+        let active = app.page == p && app.active_tab.is_none();
         let mut r = row![icon(c), text(name).size(14)].spacing(12).align_y(Alignment::Center);
         if let Some(n) = n {
             r = r.push(Space::new().width(Fill)).push(text(n.to_string()).size(12));
@@ -297,14 +318,20 @@ fn host_row<'a>(app: &'a App, h: &'a Host) -> Element<'a, Message> {
         .padding([3, 8])
         .style(|t: &iced::Theme| theme::chip(theme::nt(t).text_soft)(t));
     button(
-        row![tile, info, Space::new().width(Fill), proto]
-            .spacing(14)
-            .align_y(Alignment::Center),
+        row![
+            tile,
+            info,
+            Space::new().width(Fill),
+            proto,
+            icon_button(I_EDIT, Message::EditHost(h.id))
+        ]
+        .spacing(14)
+        .align_y(Alignment::Center),
     )
     .width(Fill)
     .padding([10, 12])
     .style(theme::row_item(selected))
-    .on_press(Message::EditHost(h.id))
+    .on_press(Message::Connect(h.id))
     .into()
 }
 
@@ -377,6 +404,15 @@ fn hosts(app: &App) -> Element<'_, Message> {
             Some(app.hosts.len()),
             Some((&app.search, tr("Rechercher"))),
             vec![
+                button(
+                    row![icon(I_TERMINAL).size(15), text(tr("Terminal local")).size(14)]
+                        .spacing(8)
+                        .align_y(Alignment::Center)
+                )
+                .padding([9, 14])
+                .style(theme::secondary)
+                .on_press(Message::OpenLocal)
+                .into(),
                 secondary(tr("Nouveau groupe"), Message::NewGroup).into(),
                 button(
                     row![icon(I_ADD).size(15), text(tr("Nouvel hôte")).font(BOLD).size(14)]
@@ -440,9 +476,11 @@ fn snippets(app: &App) -> Element<'_, Message> {
         if more > 0 {
             info = info.push(label(trf("+ %1$s ligne(s)", &[&more])));
         }
-        let body = row![info, Space::new().width(Fill), icon_button(I_COPY, Message::CopySnippet(s.id))]
-            .spacing(10)
-            .align_y(Alignment::Center);
+        let mut body = row![info, Space::new().width(Fill)].spacing(10).align_y(Alignment::Center);
+        if app.target_tab().is_some() {
+            body = body.push(icon_button(I_SEND, Message::RunSnippet(s.id)));
+        }
+        body = body.push(icon_button(I_COPY, Message::CopySnippet(s.id)));
         list = list.push(
             button(body)
                 .width(Fill)
@@ -498,6 +536,7 @@ fn key_list(app: &App) -> Column<'_, Message> {
             ]
             .spacing(3),
             Space::new().width(Fill),
+            icon_button(I_COPY, Message::CopyPublicKey(k.id)),
             icon_button(I_TRASH, Message::DeleteKey(k.id)),
         ]
         .spacing(14)
@@ -508,7 +547,7 @@ fn key_list(app: &App) -> Column<'_, Message> {
         list = list.push(empty(
             I_KEYS,
             tr("Aucune clé"),
-            tr("Les clés de votre téléphone arrivent avec sa sauvegarde ; l'import et la génération viennent avec le terminal."),
+            tr("Générez une clé ou importez-en une (OpenSSH, PEM, PuTTY .ppk). Celles du téléphone arrivent avec sa sauvegarde."),
         ));
     }
     list
@@ -525,7 +564,14 @@ fn keys(app: &App) -> Element<'_, Message> {
         Message::KeysTab,
     );
     let (n, body, actions): (usize, Column<Message>, Vec<Element<Message>>) = match app.keys_tab {
-        KeysTab::Keys => (app.keys.len(), key_list(app), vec![]),
+        KeysTab::Keys => (
+            app.keys.len(),
+            key_list(app),
+            vec![
+                secondary(tr("Importer"), Message::NewKey(false)).into(),
+                primary(tr("Générer"), Some(Message::NewKey(true))).into(),
+            ],
+        ),
         KeysTab::Identities => (
             app.identities.len(),
             identity_list(app),
@@ -669,11 +715,42 @@ fn tunnels(app: &App) -> Element<'_, Message> {
         if x.auto_start {
             info = info.push(label(tr("Démarre avec chaque session")));
         }
+        let run = app.tunnels.get(&x.id).map(|r| &r.state);
+        match run {
+            Some(TunnelState::Running) => {
+                let hint = App::tunnel_hint(x)
+                    .map(|a| trf("Actif sur %1$s", &[&a]))
+                    .unwrap_or_else(|| tr("Actif"));
+                info = info.push(text(hint).size(12).style(|t: &iced::Theme| text::Style {
+                    color: Some(theme::nt(t).green),
+                }));
+            }
+            Some(TunnelState::Starting(step)) => info = info.push(label(if step.is_empty() { tr("Démarrage…") } else { step.clone() })),
+            Some(TunnelState::Failed(e)) => {
+                info = info.push(text(e.clone()).size(12).style(|t: &iced::Theme| text::Style {
+                    color: Some(theme::nt(t).pink),
+                }))
+            }
+            None => {}
+        }
+        let running = matches!(run, Some(TunnelState::Running | TunnelState::Starting(_)));
         let body = row![
             container(icon(I_TUNNEL).size(18))
                 .padding([7, 9])
                 .style(|t: &iced::Theme| theme::tile(theme::nt(t).accent)(t)),
-            info
+            info,
+            Space::new().width(Fill),
+            button(
+                row![
+                    icon(if running { I_STOP } else { I_PLAY }).size(15),
+                    text(if running { tr("Arrêter") } else { tr("Démarrer") }).size(13)
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center)
+            )
+            .padding([6, 12])
+            .style(if running { theme::danger } else { theme::secondary })
+            .on_press(Message::ToggleTunnel(x.id)),
         ]
         .spacing(14)
         .align_y(Alignment::Center);
@@ -769,6 +846,52 @@ fn settings(app: &App) -> Element<'_, Message> {
         .spacing(14),
     );
 
+    let current = themes::by_id(s.terminal_theme());
+    let swatches = row(themes::all().into_iter().map(|t| {
+        let selected = t.id == current.id;
+        let (bg, fg, accent) = (t.background, t.foreground, t.ansi[2]);
+        let id = t.id.to_owned();
+        button(
+            column![
+                text("$ ls").font(MONO).size(12).color(fg),
+                text("~/docker").font(MONO).size(12).color(accent),
+            ]
+            .spacing(2),
+        )
+        .padding([8, 10])
+        .width(86)
+        .style(move |th: &iced::Theme, _| button::Style {
+            background: Some(bg.into()),
+            border: iced::Border {
+                color: if selected { theme::nt(th).accent } else { theme::nt(th).border },
+                width: if selected { 2.0 } else { 1.0 },
+                radius: 10.0.into(),
+            },
+            ..Default::default()
+        })
+        .on_press(Message::TermTheme(id))
+        .into()
+    }))
+    .spacing(8)
+    .wrap();
+    let size = s.terminal_font();
+    let terminal = settings_card(
+        tr("Terminal"),
+        column![
+            field(trf("Thème · %1$s", &[&tr(current.name)]), swatches),
+            field(
+                trf("Taille du texte · %1$spx", &[&size]),
+                row![
+                    secondary("A−".into(), Message::TermFont(size - 1.0)),
+                    secondary("A+".into(), Message::TermFont(size + 1.0)),
+                ]
+                .spacing(8)
+            ),
+            soft(tr("Ctrl+Maj+C / Ctrl+Maj+V pour copier-coller, clic droit pour copier la sélection ou coller. Ctrl+Maj+T ouvre un terminal local, Ctrl+Tab change d'onglet.")),
+        ]
+        .spacing(14),
+    );
+
     let imp = &app.import;
     let mut restore = column![soft(tr(
         "Un fichier nautile.backup de votre téléphone ou d'un autre ordinateur : tout est fusionné, rien n'est effacé ici."
@@ -860,7 +983,7 @@ fn settings(app: &App) -> Element<'_, Message> {
 
     column![
         header(tr("Réglages"), None, None, vec![]),
-        scrollable(column![look, backup, data].spacing(16).max_width(760).padding(Padding {
+        scrollable(column![look, terminal, backup, data].spacing(16).max_width(760).padding(Padding {
             top: 4.0,
             right: 28.0,
             bottom: 28.0,
@@ -1055,6 +1178,79 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
                 column![form, hint].spacing(14).into(),
                 (!f.name.trim().is_empty()).then_some(Message::SaveGroup),
                 f.original.as_ref().map(|_| (f.confirm_delete, Message::DeleteGroup)),
+            )
+        }
+        Editor::Key(f) => {
+            let mut form = column![field(tr("Nom"), input("laptop", &f.name, Message::KeyName))].spacing(14);
+            if f.generate {
+                form = form.push(field(
+                    tr("Type"),
+                    pick_list(nautile_net::keys::KeyAlgorithm::ALL, Some(f.algorithm), Message::KeyAlgorithm)
+                        .width(Fill)
+                        .padding([8, 12])
+                        .style(theme::select),
+                ));
+            } else {
+                form = form.push(field(
+                    tr("Clé privée"),
+                    column![
+                        text_editor(&f.text)
+                            .placeholder("-----BEGIN OPENSSH PRIVATE KEY-----")
+                            .on_action(Message::KeyText)
+                            .font(MONO)
+                            .size(12)
+                            .height(180)
+                            .padding(10),
+                        secondary(tr("Choisir un fichier…"), Message::KeyPickFile),
+                    ]
+                    .spacing(8),
+                ));
+            }
+            form = form.push(field(
+                if f.generate {
+                    tr("Phrase de passe (recommandée)")
+                } else {
+                    tr("Phrase de passe")
+                },
+                text_input(&tr("Aucune"), &f.passphrase)
+                    .on_input(Message::KeyPassphrase)
+                    .on_submit(Message::SaveKey)
+                    .secure(true)
+                    .padding([9, 12])
+                    .size(14)
+                    .style(theme::input),
+            ));
+            if !f.generate {
+                form = form.push(
+                    iced::widget::checkbox(f.remember)
+                        .label(tr("Mémoriser la phrase de passe"))
+                        .on_toggle(Message::KeyRemember)
+                        .size(16)
+                        .text_size(13),
+                );
+            }
+            if f.busy {
+                form = form.push(soft(if f.generate {
+                    tr("Génération…")
+                } else {
+                    tr("Lecture de la clé…")
+                }));
+            }
+            if let Some(e) = &f.error {
+                form = form.push(text(e.clone()).size(13).style(|t: &iced::Theme| text::Style {
+                    color: Some(theme::nt(t).pink),
+                }));
+            }
+            let ok = !f.name.trim().is_empty() && !f.busy && (f.generate || !f.text.text().trim().is_empty());
+            (
+                if f.generate {
+                    tr("Générer une clé")
+                } else {
+                    tr("Importer une clé")
+                },
+                form.into(),
+                ok.then_some(Message::SaveKey),
+                None,
             )
         }
         Editor::Identity(f) => {
@@ -1265,4 +1461,267 @@ fn editor<'a>(app: &'a App, e: &'a Editor) -> Element<'a, Message> {
         container(actions).padding([14, 20]),
     ]
     .into()
+}
+
+/// The tabs: the hosts page, then one per session.
+fn tab_bar(app: &App) -> Element<'_, Message> {
+    let home = app.active_tab.is_none();
+    let mut tabs = row![button(
+        row![icon(I_HOSTS).size(15), text(tr("Hôtes")).size(13)]
+            .spacing(8)
+            .align_y(Alignment::Center)
+    )
+    .padding([7, 12])
+    .style(theme::nav(home))
+    .on_press(Message::SelectTab(None))]
+    .spacing(4)
+    .align_y(Alignment::Center);
+    for t in &app.tabs {
+        let active = app.active_tab == Some(t.id);
+        let state = match &t.state {
+            TabState::Open => None,
+            TabState::Connecting(_) => Some(I_TERMINAL),
+            TabState::Closed(_) => Some(I_CLOSE),
+        };
+        let mut r = row![color_dot(t.color, 8.0), text(t.name.clone()).size(13)]
+            .spacing(8)
+            .align_y(Alignment::Center);
+        if let Some(c) = state {
+            r = r.push(label(c.to_string()).font(MONO));
+        }
+        r = r.push(
+            button(icon(I_CLOSE).size(12))
+                .padding([2, 4])
+                .style(theme::ghost)
+                .on_press(Message::CloseTab(t.id)),
+        );
+        tabs = tabs.push(
+            button(r)
+                .padding(Padding {
+                    top: 5.0,
+                    right: 6.0,
+                    bottom: 5.0,
+                    left: 12.0,
+                })
+                .style(theme::nav(active))
+                .on_press(Message::SelectTab(Some(t.id))),
+        );
+    }
+    tabs = tabs.push(
+        button(icon(I_PLUS).size(15))
+            .padding([6, 9])
+            .style(theme::ghost)
+            .on_press(Message::OpenLocal),
+    );
+    container(scrollable(tabs).direction(scrollable::Direction::Horizontal(
+        scrollable::Scrollbar::new().width(0).scroller_width(0),
+    )))
+    .width(Fill)
+    .padding([6, 10])
+    .style(theme::sidebar)
+    .into()
+}
+
+/// A session: its terminal, and what is happening when it is not open.
+fn session<'a>(app: &'a App, t: &'a Tab) -> Element<'a, Message> {
+    let id = t.id;
+    let focused = app.prompts.is_empty() && app.editor.is_none();
+    let term: Element<Message> =
+        term_view::view(&t.term, MONO, app.settings.terminal_font(), focused, move |a| Message::Term(id, a)).into();
+    let bg = t.term.palette.background;
+    let term = container(term).style(move |_| container::Style {
+        background: Some(bg.into()),
+        ..Default::default()
+    });
+    let banner = |body: Element<'a, Message>| -> Element<'a, Message> {
+        container(container(body).padding([14, 18]).max_width(560).style(theme::card))
+            .center_x(Fill)
+            .align_bottom(Fill)
+            .padding(24)
+            .into()
+    };
+    match &t.state {
+        TabState::Open => term.into(),
+        TabState::Connecting(step) => {
+            let step = if step.is_empty() {
+                trf("Connexion à %1$s…", &[&t.name])
+            } else {
+                step.clone()
+            };
+            stack![
+                term,
+                banner(
+                    row![
+                        icon(I_TERMINAL),
+                        text(step).size(14),
+                        Space::new().width(Fill),
+                        secondary(tr("Annuler"), Message::CloseTab(id))
+                    ]
+                    .spacing(12)
+                    .align_y(Alignment::Center)
+                    .into()
+                )
+            ]
+            .into()
+        }
+        TabState::Closed(reason) => {
+            let (head, color_pink) = match reason {
+                Some(r) => (r.clone(), true),
+                None => (tr("Session terminée"), false),
+            };
+            let mut actions = row![].spacing(8);
+            if t.protocol != nautile_core::model::Protocol::Local || t.host_id.is_none() {
+                actions = actions.push(primary(tr("Reconnecter"), Some(Message::Reconnect(id))));
+            }
+            actions = actions.push(secondary(tr("Fermer"), Message::CloseTab(id)));
+            stack![
+                term,
+                banner(
+                    row![
+                        text(head).size(14).style(move |th: &iced::Theme| text::Style {
+                            color: Some(if color_pink { theme::nt(th).pink } else { theme::nt(th).text }),
+                        }),
+                        Space::new().width(Fill),
+                        actions
+                    ]
+                    .spacing(12)
+                    .align_y(Alignment::Center)
+                    .into()
+                )
+            ]
+            .into()
+        }
+    }
+}
+
+/// A connection's question: trust a host key, or type a secret.
+fn prompt_dialog<'a>(app: &'a App, p: &'a Prompt) -> Element<'a, Message> {
+    let body: Element<Message> = match p {
+        Prompt::HostKey {
+            label: alias,
+            info,
+            previous,
+            ..
+        } => {
+            let changed = previous.is_some();
+            let mut c = column![
+                text(if changed {
+                    tr("⚠ La clé de l'hôte a changé")
+                } else {
+                    tr("Nouvel hôte")
+                })
+                .size(18)
+                .font(BOLD)
+                .style(move |th: &iced::Theme| text::Style {
+                    color: Some(if changed { theme::nt(th).pink } else { theme::nt(th).text }),
+                }),
+                soft(if changed {
+                    trf(
+                        "La clé présentée par %1$s:%2$s ne correspond plus à celle enregistrée. ",
+                        &[&info.host, &info.port],
+                    ) + &tr("Cela peut venir d'une réinstallation du serveur… ou d'une attaque de l'homme du milieu.")
+                } else {
+                    trf(
+                        "Première connexion à %1$s:%2$s (%3$s). Vérifiez l'empreinte avant de faire confiance.",
+                        &[&info.host, &info.port, alias],
+                    )
+                }),
+                label(info.key_type.clone()),
+                text(info.fingerprint.clone()).font(MONO).size(13),
+            ]
+            .spacing(10);
+            if let Some(prev) = previous {
+                c = c
+                    .push(label(tr("Ancienne empreinte")))
+                    .push(soft(prev.fingerprint.clone()).font(MONO));
+            }
+            c.push(
+                row![
+                    Space::new().width(Fill),
+                    secondary(tr("Refuser"), Message::PromptAnswer(false)),
+                    button(
+                        text(if changed { tr("Remplacer la clé") } else { tr("Faire confiance") })
+                            .font(BOLD)
+                            .size(14)
+                    )
+                    .padding([9, 16])
+                    .style(if changed { theme::danger } else { theme::primary })
+                    .on_press(Message::PromptAnswer(true)),
+                ]
+                .spacing(10),
+            )
+            .into()
+        }
+        Prompt::Secret {
+            label: alias,
+            title: name,
+            detail,
+            ..
+        } => column![
+            text(name.clone()).size(18).font(BOLD),
+            soft(format!("{alias} · {detail}")),
+            text_input("", &app.prompt_input)
+                .id("prompt-secret")
+                .on_input(Message::PromptInput)
+                .on_submit(Message::PromptAnswer(true))
+                .secure(true)
+                .padding([9, 12])
+                .size(14)
+                .style(theme::input),
+            row![
+                Space::new().width(Fill),
+                secondary(tr("Annuler"), Message::PromptAnswer(false)),
+                primary(tr("Se connecter"), Some(Message::PromptAnswer(true))),
+            ]
+            .spacing(10),
+        ]
+        .spacing(12)
+        .into(),
+    };
+    container(container(body).padding(22).max_width(520).style(theme::card))
+        .center(Fill)
+        .style(|_| container::Style {
+            background: Some(Color { a: 0.55, ..Color::BLACK }.into()),
+            ..Default::default()
+        })
+        .into()
+}
+
+/// The values of a snippet's `${VARIABLES}` before it runs.
+fn snippet_dialog<'a>(app: &'a App, id: i64, vars: &'a [(String, String)]) -> Element<'a, Message> {
+    let name = app.snippets.iter().find(|s| s.id == id).map(|s| s.name.clone()).unwrap_or_default();
+    let target = app.target_tab().map(|t| t.name.clone()).unwrap_or_default();
+    let mut c = column![
+        text(trf("Exécuter %1$s", &[&name])).size(18).font(BOLD),
+        soft(trf("sur %1$s", &[&target]))
+    ]
+    .spacing(12);
+    for (i, (var, value)) in vars.iter().enumerate() {
+        let last = i + 1 == vars.len();
+        let mut inp = text_input(var, value)
+            .on_input(move |v| Message::SnippetVar(i, v))
+            .padding([9, 12])
+            .size(14)
+            .font(MONO)
+            .style(theme::input);
+        if last {
+            inp = inp.on_submit(Message::SnippetRunGo);
+        }
+        c = c.push(field(var.clone(), inp));
+    }
+    c = c.push(
+        row![
+            Space::new().width(Fill),
+            secondary(tr("Annuler"), Message::SnippetRunCancel),
+            primary(tr("Exécuter"), Some(Message::SnippetRunGo)),
+        ]
+        .spacing(10),
+    );
+    container(container(c).padding(22).max_width(520).style(theme::card))
+        .center(Fill)
+        .style(|_| container::Style {
+            background: Some(Color { a: 0.55, ..Color::BLACK }.into()),
+            ..Default::default()
+        })
+        .into()
 }

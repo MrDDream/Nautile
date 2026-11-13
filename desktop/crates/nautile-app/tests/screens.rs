@@ -240,3 +240,117 @@ fn editing_a_host_saves_it() {
     assert_eq!((h.hostname.as_str(), h.port, h.username.as_str()), ("b.example.org", 22, "ops"));
     assert_eq!(h.sync_id.len(), 32, "synced like on Android");
 }
+
+/// A session as it looks after a few commands (same content as the Android terminal screenshot).
+fn with_session(app: &mut App) -> u64 {
+    use nautile_app::sessions::{Tab, TabState};
+    use nautile_app::term::Terminal;
+    let host = app.hosts.iter().find(|h| h.alias == "docker-01").unwrap().clone();
+    let mut term = Terminal::new(132, 38, app.term_theme());
+    let p = "\x1b[1;32mmrd@docker-01\x1b[0m:\x1b[1;34m~\x1b[0m$ ";
+    let demo = format!(
+        "{p}uptime\r\n 14:02:11 up 41 days,  3:12,  1 user,  load average: 0.31, 0.27, 0.22\r\n\
+         {p}ls --color\r\n\x1b[1;34mcompose\x1b[0m  \x1b[1;34mbackups\x1b[0m  \x1b[1;32mdeploy.sh\x1b[0m  notes.md  \x1b[1;31mrelease.tar.gz\x1b[0m\r\n\
+         {p}docker ps --format 'table {{{{.Names}}}}\\t{{{{.Status}}}}'\r\n\
+         NAMES        STATUS\r\njellyfin     Up 3 days (healthy)\r\nnextcloud    Up 3 days\r\nnginx        Up 12 days\r\n\
+         {p}git status -sb\r\n## \x1b[32mmain\x1b[0m...\x1b[31morigin/main\x1b[0m [ahead 1]\r\n \x1b[31mM\x1b[0m compose/jellyfin.yml\r\n\x1b[32mA\x1b[0m  compose/immich.yml\r\n\
+         {p}echo \"$TERM · 256 couleurs\" && for i in $(seq 16 51); do printf '\\e[48;5;%sm  ' $i; done; echo\r\n\
+         xterm-256color · 256 couleurs\r\n"
+    );
+    term.feed(demo.as_bytes());
+    let mut bar = String::new();
+    for i in 16..52 {
+        bar.push_str(&format!("\x1b[48;5;{i}m  "));
+    }
+    term.feed(format!("{bar}\x1b[0m\r\n{p}").as_bytes());
+    app.tabs.push(Tab {
+        id: 1,
+        host_id: Some(host.id),
+        name: host.alias.clone(),
+        color: host.color,
+        protocol: host.protocol,
+        term,
+        input: None,
+        state: TabState::Open,
+        remote_title: Some("mrd@docker-01: ~".into()),
+    });
+    app.next_tab = 1;
+    let _ = app.update(Message::SelectTab(Some(1)));
+    1
+}
+
+#[test]
+fn terminal() {
+    each(|app| {
+        with_session(app);
+        "terminal"
+    });
+}
+
+#[test]
+fn host_key_question() {
+    each(|app| {
+        with_session(app);
+        let (session, _events, _input) = nautile_net::session::channels();
+        drop(session);
+        let _ = app.update(Message::Session(
+            1,
+            nautile_net::Event::Prompt(nautile_net::Prompt::HostKey {
+                label: "vps-paris".into(),
+                info: nautile_net::HostKeyInfo {
+                    host: "vps.example.org".into(),
+                    port: 22,
+                    key_type: "ssh-ed25519".into(),
+                    public_key: String::new(),
+                    fingerprint: "SHA256:PhDBqaTp44bX5NNvghkgs0U/CrJL/eZA5N1z61PFORg".into(),
+                },
+                previous: None,
+                reply: test_reply(),
+            }),
+        ));
+        "host-key"
+    });
+}
+
+fn test_reply() -> nautile_net::session::Reply<bool> {
+    nautile_net::session::Reply::detached()
+}
+
+#[test]
+fn typing_in_the_terminal_sends_the_keys() {
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = demo(false, true);
+    with_session(&mut app);
+    let settings = iced_test::core::Settings {
+        fonts: vec![theme::FONT_UI.into(), theme::FONT_MONO.into()],
+        default_font: theme::UI,
+        ..Default::default()
+    };
+    let mut ui = iced_test::simulator::Simulator::with_size(settings, (1280.0, 800.0), ui::view(&app));
+    ui.typewrite("ls");
+    ui.tap_key(iced::keyboard::key::Named::Enter);
+    let sent: Vec<u8> = ui
+        .into_messages()
+        .filter_map(|m| match m {
+            Message::Term(1, nautile_app::term::widget::Action::Input(b)) => Some(b),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert_eq!(sent, b"ls\r");
+}
+
+#[test]
+fn a_generated_key_is_saved_like_on_android() {
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = demo(false, true);
+    let _ = app.update(Message::NewKey(true));
+    let _ = app.update(Message::KeyName("bureau".into()));
+    let k = nautile_net::keys::generate(nautile_net::keys::KeyAlgorithm::Ed25519, "bureau").unwrap();
+    let _ = app.update(Message::KeyReady(Ok(k.clone())));
+    let saved = app.keys.iter().find(|x| x.name == "bureau").expect("saved");
+    assert_eq!(saved.fingerprint, k.fingerprint);
+    assert_eq!((saved.key_type.as_str(), saved.description.as_str()), ("ssh-ed25519", "ED25519"));
+    assert!(saved.generated && !saved.encrypted);
+    assert_eq!(saved.sync_id.len(), 32);
+}

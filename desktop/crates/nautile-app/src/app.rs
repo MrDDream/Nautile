@@ -8,7 +8,9 @@ use nautile_core::model::{
 };
 use nautile_core::{backup, i18n, sync, tr, trf};
 
+use crate::sessions::{PendingPrompt, Tab, TunnelRun};
 use crate::storage::{Appearance, Language, Paths, Settings};
+use crate::term::widget::Action;
 
 /// Colours offered for hosts and groups (HOST_COLORS on Android).
 pub const COLORS: [i64; 5] = [0xFFFF_B547, 0xFF7A_A2F7, 0xFF5B_D69A, 0xFFF3_8BA8, 0xFF5A_6672];
@@ -239,6 +241,21 @@ impl ForwardForm {
     }
 }
 
+/// A key being generated or imported.
+#[derive(Debug)]
+pub struct KeyForm {
+    pub generate: bool,
+    pub name: String,
+    pub algorithm: nautile_net::keys::KeyAlgorithm,
+    /// The private key pasted or read from a file.
+    pub text: text_editor::Content,
+    pub passphrase: String,
+    /// Keeps the passphrase of an imported key so it is not asked at each connection.
+    pub remember: bool,
+    pub busy: bool,
+    pub error: Option<String>,
+}
+
 /// The panel on the right.
 #[derive(Debug)]
 pub enum Editor {
@@ -247,6 +264,7 @@ pub enum Editor {
     Snippet(SnippetForm),
     Identity(IdentityForm),
     Forward(ForwardForm),
+    Key(KeyForm),
 }
 
 /// Restoring a backup file.
@@ -307,6 +325,17 @@ pub enum Message {
     DeleteSnippet,
     CopySnippet(i64),
     DeleteKey(i64),
+    NewKey(bool),
+    KeyName(String),
+    KeyAlgorithm(nautile_net::keys::KeyAlgorithm),
+    KeyText(text_editor::Action),
+    KeyPassphrase(String),
+    KeyRemember(bool),
+    KeyPickFile,
+    KeyFileLoaded(Option<(String, String)>),
+    SaveKey,
+    KeyReady(Result<nautile_net::keys::KeyMaterial, String>),
+    CopyPublicKey(i64),
     KeysTab(KeysTab),
     NewIdentity,
     EditIdentity(i64),
@@ -341,7 +370,27 @@ pub enum Message {
     ExportDone(Result<String, String>),
     Language(Language),
     Appearance(Appearance),
+    TermTheme(String),
+    TermFont(f32),
     ToastClear,
+    // --- Sessions ---
+    Connect(i64),
+    OpenLocal,
+    SelectTab(Option<u64>),
+    CloseTab(u64),
+    Reconnect(u64),
+    NextTab(bool),
+    CloseActiveTab,
+    Session(u64, nautile_net::Event),
+    Term(u64, Action),
+    PromptInput(String),
+    PromptAnswer(bool),
+    RunSnippet(i64),
+    SnippetVar(usize, String),
+    SnippetRunGo,
+    SnippetRunCancel,
+    ToggleTunnel(i64),
+    Tunnel(i64, nautile_net::Event),
 }
 
 pub struct App {
@@ -364,6 +413,21 @@ pub struct App {
     pub toast: Option<String>,
     pub import: ImportState,
     pub export: ExportState,
+    pub tabs: Vec<Tab>,
+    /// `None`: the hosts and the other pages.
+    pub active_tab: Option<u64>,
+    pub next_tab: u64,
+    /// The last grid size of the terminal area, for new sessions.
+    pub grid: (u16, u16),
+    /// Questions from the connections, the first one shown.
+    pub prompts: Vec<PendingPrompt>,
+    pub prompt_input: String,
+    /// The session shown last, where snippets go from the Snippets page.
+    pub last_tab: Option<u64>,
+    /// A snippet waiting for its variables: (snippet, name → value).
+    pub snippet_run: Option<(i64, Vec<(String, String)>)>,
+    /// Tunnels started from the Tunnels page, by rule.
+    pub tunnels: std::collections::HashMap<i64, TunnelRun>,
 }
 
 impl App {
@@ -402,13 +466,30 @@ impl App {
             toast: None,
             import: ImportState::default(),
             export: ExportState::default(),
+            tabs: Vec::new(),
+            active_tab: None,
+            next_tab: 0,
+            grid: (100, 30),
+            prompts: Vec::new(),
+            prompt_input: String::new(),
+            last_tab: None,
+            snippet_run: None,
+            tunnels: Default::default(),
         };
         app.reload();
         app
     }
 
     pub fn title(&self) -> String {
-        "Nautile".into()
+        match self.active_tab.and_then(|id| self.tab(id)) {
+            Some(t) => format!("{} — Nautile", t.remote_title.as_deref().unwrap_or(&t.name)),
+            None => "Nautile".into(),
+        }
+    }
+
+    /// Window shortcuts: new local terminal, close / switch tabs.
+    pub fn subscription(&self) -> iced::Subscription<Message> {
+        iced::keyboard::listen().filter_map(shortcut)
     }
 
     pub fn theme(&self) -> iced::Theme {
@@ -438,7 +519,7 @@ impl App {
         self.forwards.sort_by_key(|x| x.name.to_lowercase());
     }
 
-    fn say(&mut self, msg: String) -> Task<Message> {
+    pub(crate) fn say(&mut self, msg: String) -> Task<Message> {
         self.toast = Some(msg);
         Task::perform(async { tokio::time::sleep(std::time::Duration::from_secs(4)).await }, |_| {
             Message::ToastClear
@@ -452,6 +533,7 @@ impl App {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Nav(p) => {
+                self.active_tab = None;
                 self.page = p;
                 self.editor = None;
                 self.search.clear();
@@ -694,6 +776,127 @@ impl App {
                 }
             }
 
+            Message::NewKey(generate) => {
+                self.editor = Some(Editor::Key(KeyForm {
+                    generate,
+                    name: String::new(),
+                    algorithm: nautile_net::keys::KeyAlgorithm::Ed25519,
+                    text: text_editor::Content::new(),
+                    passphrase: String::new(),
+                    remember: false,
+                    busy: false,
+                    error: None,
+                }))
+            }
+            Message::KeyName(_)
+            | Message::KeyAlgorithm(_)
+            | Message::KeyText(_)
+            | Message::KeyPassphrase(_)
+            | Message::KeyRemember(_)
+            | Message::KeyFileLoaded(_) => {
+                if let Some(Editor::Key(f)) = &mut self.editor {
+                    f.error = None;
+                    match message {
+                        Message::KeyName(v) => f.name = v,
+                        Message::KeyAlgorithm(a) => f.algorithm = a,
+                        Message::KeyText(a) => f.text.perform(a),
+                        Message::KeyPassphrase(v) => f.passphrase = v,
+                        Message::KeyRemember(v) => f.remember = v,
+                        Message::KeyFileLoaded(Some((name, text))) => {
+                            f.text = text_editor::Content::with_text(text.trim());
+                            if f.name.is_empty() {
+                                f.name = name.trim_end_matches(".pem").trim_end_matches(".ppk").to_owned();
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Message::KeyPickFile => {
+                return Task::perform(
+                    async {
+                        let file = rfd::AsyncFileDialog::new().set_title(tr("Importer une clé")).pick_file().await?;
+                        let text = String::from_utf8(file.read().await).ok()?;
+                        Some((file.file_name(), text))
+                    },
+                    Message::KeyFileLoaded,
+                )
+            }
+            Message::SaveKey => {
+                let Some(Editor::Key(f)) = &mut self.editor else {
+                    return Task::none();
+                };
+                if f.busy || f.name.trim().is_empty() {
+                    return Task::none();
+                }
+                f.busy = true;
+                let (generate, alg, name, text, pass) = (
+                    f.generate,
+                    f.algorithm,
+                    f.name.trim().to_owned(),
+                    f.text.text(),
+                    f.passphrase.clone(),
+                );
+                return Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            use nautile_net::keys;
+                            let pass = Some(pass.as_str()).filter(|p| !p.is_empty());
+                            if generate {
+                                let mut k = keys::generate(alg, &name)?;
+                                if let Some(p) = pass {
+                                    k.private_key = keys::export(&k.private_key, None, Some(p), &name)?;
+                                    k.encrypted = true;
+                                }
+                                Ok(k)
+                            } else {
+                                keys::parse(&text, pass, &name)
+                            }
+                        })
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .map_err(|e: nautile_net::keys::KeyError| e.to_string())
+                    },
+                    Message::KeyReady,
+                );
+            }
+            Message::KeyReady(r) => {
+                let (Some(Editor::Key(f)), Some(db)) = (&mut self.editor, &self.db) else {
+                    return Task::none();
+                };
+                f.busy = false;
+                match r {
+                    Err(e) => f.error = Some(e),
+                    Ok(k) => {
+                        let saved = (!f.generate && f.remember && !f.passphrase.is_empty()).then(|| f.passphrase.clone());
+                        let key: Result<SshKey, _> = serde_json::from_value(serde_json::json!({
+                            "name": f.name.trim(), "keyType": k.key_type, "description": k.description,
+                            "publicKey": k.public_key, "privateKey": k.private_key, "fingerprint": k.fingerprint,
+                            "encrypted": k.encrypted, "savedPassphrase": saved, "generated": f.generate,
+                            "createdAt": nautile_core::model::now_ms(),
+                        }));
+                        let name = f.name.trim().to_owned();
+                        return match key
+                            .map_err(|e| e.to_string())
+                            .and_then(|k| db.store().insert(&k).map_err(|e| e.to_string()))
+                        {
+                            Ok(_) => {
+                                self.editor = None;
+                                self.reload();
+                                self.say(trf("« %1$s » ajouté", &[&name]))
+                            }
+                            Err(e) => self.fail(e),
+                        };
+                    }
+                }
+            }
+            Message::CopyPublicKey(id) => {
+                if let Some(k) = self.keys.iter().find(|k| k.id == id) {
+                    let text = k.public_key.clone();
+                    let toast = self.say(tr("Clé publique copiée"));
+                    return Task::batch([iced::clipboard::write(text), toast]);
+                }
+            }
             Message::KeysTab(t) => {
                 self.keys_tab = t;
                 self.editor = None;
@@ -996,7 +1199,67 @@ impl App {
                 self.settings.appearance = a;
                 let _ = self.settings.save(&self.paths);
             }
+            Message::TermTheme(id) => {
+                self.settings.terminal_theme = Some(id);
+                let _ = self.settings.save(&self.paths);
+                let theme = self.term_theme();
+                for t in &mut self.tabs {
+                    t.term.palette = theme.clone();
+                }
+            }
+            Message::TermFont(size) => {
+                self.settings.terminal_font = Some(size.clamp(9.0, 28.0));
+                let _ = self.settings.save(&self.paths);
+            }
+
+            // --- Sessions ---
+            Message::Connect(id) => return self.connect(id),
+            Message::OpenLocal => return self.open_local(),
+            Message::SelectTab(id) => {
+                self.active_tab = id;
+                if id.is_some() {
+                    self.last_tab = id;
+                }
+                self.editor = None;
+            }
+            Message::CloseTab(id) => self.close_tab(id),
+            Message::Reconnect(id) => return self.reconnect(id),
+            Message::NextTab(forward) => self.cycle_tab(forward),
+            Message::CloseActiveTab => {
+                if let Some(id) = self.active_tab {
+                    self.close_tab(id);
+                }
+            }
+            Message::Session(id, e) => return self.on_session(id, e),
+            Message::Term(id, a) => self.on_term(id, a),
+            Message::PromptInput(v) => self.prompt_input = v,
+            Message::PromptAnswer(ok) => self.answer(ok),
+            Message::RunSnippet(id) => return self.run_snippet(id),
+            Message::SnippetVar(i, v) => {
+                if let Some((_, vars)) = &mut self.snippet_run {
+                    if let Some(x) = vars.get_mut(i) {
+                        x.1 = v;
+                    }
+                }
+            }
+            Message::SnippetRunGo => self.run_filled_snippet(),
+            Message::SnippetRunCancel => self.snippet_run = None,
+            Message::ToggleTunnel(id) => return self.toggle_tunnel(id),
+            Message::Tunnel(id, e) => return self.on_tunnel(id, e),
         }
         Task::none()
+    }
+}
+
+fn shortcut(e: iced::keyboard::Event) -> Option<Message> {
+    use iced::keyboard::{key::Named, Event, Key};
+    let Event::KeyPressed { key, modifiers: m, .. } = e else {
+        return None;
+    };
+    match key.as_ref() {
+        Key::Named(Named::Tab) if m.control() => Some(Message::NextTab(!m.shift())),
+        Key::Character("t" | "T") if m.control() && m.shift() => Some(Message::OpenLocal),
+        Key::Character("w" | "W") if m.control() && m.shift() => Some(Message::CloseActiveTab),
+        _ => None,
     }
 }

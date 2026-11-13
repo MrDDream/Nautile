@@ -8,6 +8,7 @@ fn main() -> iced::Result {
     iced::application(App::boot, App::update, ui::view)
         .title(App::title)
         .theme(App::theme)
+        .subscription(App::subscription)
         .font(theme::FONT_UI)
         .font(theme::FONT_MONO)
         .default_font(theme::UI)
