@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Nautile</string>
+  <key>CFBundleDisplayName</key><string>Nautile</string>
+  <key>CFBundleIdentifier</key><string>com.nautile.desktop</string>
+  <key>CFBundleVersion</key><string>@VERSION@</string>
+  <key>CFBundleShortVersionString</key><string>@VERSION@</string>
+  <key>CFBundleExecutable</key><string>nautile</string>
+  <key>CFBundleIconFile</key><string>nautile</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+  <key>NSLocalNetworkUsageDescription</key><string>Nautile finds your other devices on the network to synchronise with them.</string>
+  <key>NSBonjourServices</key><array><string>_nautile._tcp</string></array>
+</dict>
+</plist>

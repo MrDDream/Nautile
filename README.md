@@ -87,6 +87,16 @@ com.nautile
 09:88:CF:FC:59:0E:A1:60:F9:75:DF:D5:04:0B:3F:41:91:38:1A:23:30:E6:63:2A:6E:B7:CF:40:B9:A3:D7:2D
 ```
 
+### 💻 On a computer (Windows, Linux)
+
+From version 0.4.0, each [release](https://github.com/MrDDream/Nautile/releases/latest) also carries the desktop app, a native Rust program (about 35 MB of RAM) that reads the phone's backups and syncs with it (shared file or straight over Wi-Fi):
+
+- `Nautile-X.Y.Z-setup.exe`: Windows installer, no administrator rights needed;
+- `Nautile-X.Y.Z-portable.zip`: Windows, everything (encrypted data included) stays in the folder, e.g. on a USB stick;
+- `nautile_X.Y.Z_amd64.deb` (Debian, Ubuntu), `nautile-X.Y.Z.x86_64.rpm` (Fedora, openSUSE), `nautile-X.Y.Z-linux-x86_64.tar.gz` (others).
+
+The Windows files are not signed yet: SmartScreen shows « Windows protected your PC » → *More info* → *Run anyway*. Checksums are in `SHA256SUMS-desktop.txt`.
+
 ## 🛠️ Build from source
 
 Requirements: JDK 17 and the Android SDK (platform 34).
@@ -102,6 +112,8 @@ scripts/build-freerdp.sh
 ```
 
 SSH integration tests run against `sshd`, `mosh-server` and proxies in Docker: `scripts/ssh-it.sh`; VNC ones against x11vnc: `scripts/vnc-it.sh`; S3 against RustFS: `scripts/s3-it.sh`.
+
+The desktop app lives in `desktop/` (Rust 1.89+, iced, IronRDP, russh): `cd desktop && cargo run --release -p nautile-app`. Its own integration tests: `scripts/ssh-it.sh --desktop`, `scripts/vnc-it.sh --desktop`, `scripts/rdp-it.sh`, `scripts/store-it.sh`.
 
 Modules: `app` (Compose UI), `core:data` (Room + SQLCipher, import, backup, sync), `core:security` (Keystore, lock), `core:ssh` (sshj, Mosh, Telnet; pure JVM), `core:rdp` (FreeRDP over JNI), `core:vnc` (VNC client; pure JVM), `core:i18n`, and the Termux `terminal-emulator` / `terminal-view` under `third_party/`.
 

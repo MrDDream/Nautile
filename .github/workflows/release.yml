@@ -114,6 +114,9 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-deb,cargo-generate-rpm
+      - name: NSIS (Windows installer)
+        if: runner.os == 'Windows'
+        run: choco install nsis -y --no-progress
       - name: Tests, release build and packages
         run: |
           cargo test --all

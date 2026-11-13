@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -41,6 +41,9 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-deb,cargo-generate-rpm
+      - name: NSIS (Windows installer)
+        if: runner.os == 'Windows'
+        run: choco install nsis -y --no-progress
       - name: Packages
         shell: bash
         run: packaging/package.sh

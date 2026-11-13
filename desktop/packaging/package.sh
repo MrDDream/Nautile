@@ -2,6 +2,7 @@
 # Builds the desktop packages from desktop/target/release/nautile(.exe) into desktop/dist:
 #   Linux:   nautile_<version>_amd64.deb, nautile-<version>.x86_64.rpm, nautile-<version>-linux-x86_64.tar.gz
 #   Windows: Nautile-<version>-setup.exe, Nautile-<version>-portable.zip
+#   macOS:   Nautile-<version>-macos-<arch>.dmg (not notarised yet)
 # Needs cargo-deb and cargo-generate-rpm (Linux), makensis (Windows).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -24,6 +25,22 @@ case "$(uname -s)" in
     cp target/release/nautile.exe packaging/portable.txt ../LICENSE "dist/Nautile-$VERSION-portable/"
     (cd dist && 7z a -bd -tzip "Nautile-$VERSION-portable.zip" "Nautile-$VERSION-portable" >/dev/null)
     rm -rf "dist/Nautile-$VERSION-portable"
+    ;;
+  Darwin)
+    ARCH=$(uname -m)
+    APP=dist/Nautile.app
+    mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+    cp target/release/nautile "$APP/Contents/MacOS/nautile"
+    ICONSET=$(mktemp -d)/nautile.iconset
+    mkdir -p "$ICONSET"
+    for s in 16 32 128 256 512; do
+      sips -z $s $s packaging/nautile-512.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
+      d=$((s * 2)); [ $d -le 512 ] && sips -z $d $d packaging/nautile-512.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+    done
+    iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/nautile.icns"
+    sed "s/@VERSION@/$VERSION/g" packaging/macos/Info.plist > "$APP/Contents/Info.plist"
+    hdiutil create -volname Nautile -srcfolder "$APP" -ov -format UDZO "dist/Nautile-$VERSION-macos-$ARCH.dmg" >/dev/null
+    rm -rf "$APP"
     ;;
 esac
 ls -la dist

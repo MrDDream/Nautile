@@ -46,7 +46,7 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "test-util
 name = "nautile"
 maintainer = "Nautile <https://github.com/MrDDream/Nautile>"
 copyright = "Nautile contributors"
-license-file = ["../../LICENSE", "0"]
+license-file = ["../../../LICENSE", "0"]
 extended-description = "SSH, Mosh, Telnet, SFTP, RDP and VNC client with tunnels, snippets, an AI assistant, encrypted backups and synchronisation with the Nautile Android app."
 section = "net"
 priority = "optional"
