@@ -1072,6 +1072,7 @@ fn settings(app: &App) -> Element<'_, Message> {
                 backup,
                 settings_card(tr("Synchronisation"), sync_settings(app)),
                 settings_card(tr("Synchronisation Wi-Fi"), lan_settings(app)),
+                settings_card(tr("Assistant IA"), ai_settings(app)),
                 data
             ]
             .spacing(16)
@@ -1607,13 +1608,26 @@ fn tab_bar(app: &App) -> Element<'_, Message> {
             .style(theme::ghost)
             .on_press(Message::OpenLocal),
     );
-    container(scrollable(tabs).direction(scrollable::Direction::Horizontal(
-        scrollable::Scrollbar::new().width(0).scroller_width(0),
+
+    let mut bar = row![container(scrollable(tabs).direction(scrollable::Direction::Horizontal(
+        scrollable::Scrollbar::new().width(0).scroller_width(0)
     )))
-    .width(Fill)
-    .padding([6, 10])
-    .style(theme::sidebar)
-    .into()
+    .width(Fill)]
+    .align_y(Alignment::Center);
+    let shows_terminal = app.active_tab.and_then(|id| app.tab(id)).is_some_and(|t| t.files.is_none());
+    if shows_terminal {
+        bar = bar.push(
+            button(
+                row![icon(I_SPARKLES).size(15), text(tr("Assistant")).size(13)]
+                    .spacing(6)
+                    .align_y(Alignment::Center),
+            )
+            .padding([6, 12])
+            .style(theme::nav(app.assistant.open))
+            .on_press(Message::Ai(crate::assistant::AiMsg::Toggle)),
+        );
+    }
+    container(bar).width(Fill).padding([6, 10]).style(theme::sidebar).into()
 }
 
 /// A session: its terminal, and what is happening when it is not open.
@@ -1637,8 +1651,15 @@ fn session<'a>(app: &'a App, t: &'a Tab) -> Element<'a, Message> {
             .padding(24)
             .into()
     };
+    let with_panel = |e: Element<'a, Message>| -> Element<'a, Message> {
+        if app.assistant.open {
+            row![e, assistant_panel(app)].into()
+        } else {
+            e
+        }
+    };
     match &t.state {
-        TabState::Open => term.into(),
+        TabState::Open => with_panel(term.into()),
         TabState::Connecting(step) => {
             let step = if step.is_empty() {
                 trf("Connexion à %1$s…", &[&t.name])
@@ -2614,6 +2635,262 @@ fn lan_settings(app: &App) -> Element<'_, Message> {
     }
     if let Some(m) = &st.lan_status {
         c = c.push(soft(m.clone()));
+    }
+    c.into()
+}
+
+// --- AI assistant ---
+
+const I_SPARKLES: char = '\u{F0E8D}';
+
+fn am(m: crate::assistant::AiMsg) -> Message {
+    Message::Ai(m)
+}
+
+fn md_settings(app: &App) -> iced::widget::markdown::Settings {
+    let th = app.theme();
+    let n = theme::nt(&th);
+    let mut style = iced::widget::markdown::Style::from_palette(th.palette());
+    style.font = theme::UI;
+    style.inline_code_font = MONO;
+    style.code_block_font = MONO;
+    style.inline_code_color = n.text;
+    style.inline_code_highlight = iced::advanced::text::Highlight {
+        background: n.key_bg.into(),
+        border: iced::border::rounded(4),
+    };
+    let mut s = iced::widget::markdown::Settings::with_text_size(14, style);
+    s.h3_size = 15.into();
+    s.code_size = 13.into();
+    s
+}
+
+/// The assistant beside the session.
+fn assistant_panel(app: &App) -> Element<'_, Message> {
+    use crate::assistant::AiMsg as A;
+    let st = &app.assistant;
+    let kind = app.ai_provider();
+    let model = app.ai_config(kind).model;
+    let head = row![
+        icon(I_SPARKLES).size(16),
+        text(tr("Assistant")).font(BOLD).size(15),
+        container(text(format!("{} · {}", kind.short_label(), nautile_net::ai::pretty_model(&model))).size(11))
+            .padding([2, 8])
+            .style(|t: &iced::Theme| theme::chip(theme::nt(t).blue)(t)),
+        Space::new().width(Fill),
+        icon_button(I_TRASH, am(A::Clear)),
+        icon_button(I_CLOSE, am(A::Toggle)),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+
+    let mut list = Column::new().spacing(14);
+    let turns = app.ai_conversation();
+    if turns.is_empty() {
+        list = list.push(soft(tr(
+            "Décrivez ce que vous voulez faire sur ce serveur, ou demandez d'expliquer ce qui est à l'écran : l'assistant propose une commande et l'explique.",
+        )));
+    }
+    for s in turns {
+        let mut req = column![text(s.turn.request.clone()).size(14)].spacing(4);
+        let mut joined = Vec::new();
+        if s.turn.screen {
+            joined.push(tr("écran"));
+        }
+        joined.extend(s.turn.files.iter().cloned());
+        if !joined.is_empty() {
+            req = req.push(label(trf("Joint : %1$s", &[&joined.join(", ")])));
+        }
+        list = list.push(
+            container(req)
+                .padding([8, 12])
+                .width(Fill)
+                .style(|t: &iced::Theme| theme::chip(theme::nt(t).accent)(t)),
+        );
+        if let Some(cmd) = &s.command {
+            list = list.push(
+                container(
+                    column![
+                        text(cmd.clone()).font(MONO).size(13),
+                        row![
+                            Space::new().width(Fill),
+                            button(text(tr("Copier")).size(12))
+                                .padding([5, 10])
+                                .style(theme::secondary)
+                                .on_press(am(A::Copy(cmd.clone()))),
+                            button(text(tr("Insérer dans le terminal")).size(12).font(BOLD))
+                                .padding([5, 10])
+                                .style(theme::primary)
+                                .on_press(am(A::Insert(cmd.clone()))),
+                        ]
+                        .spacing(6),
+                    ]
+                    .spacing(8),
+                )
+                .padding(10)
+                .width(Fill)
+                .style(|t: &iced::Theme| container::Style {
+                    background: Some(theme::nt(t).bg.into()),
+                    border: iced::Border {
+                        color: theme::nt(t).border,
+                        width: 1.0,
+                        radius: 10.0.into(),
+                    },
+                    ..Default::default()
+                }),
+            );
+        }
+        list = list.push(iced::widget::markdown::view(s.explanation.items(), md_settings(app)).map(|u| am(A::OpenLink(u))));
+    }
+    if st.busy {
+        list = list.push(soft(tr("Réflexion…")));
+    }
+    if let Some(e) = &st.error {
+        list = list.push(pink(e.clone()));
+    }
+
+    let mut attach = row![
+        iced::widget::checkbox(st.screen)
+            .label(tr("Joindre l'écran"))
+            .on_toggle(|v| am(A::Screen(v)))
+            .size(14)
+            .text_size(12),
+        Space::new().width(Fill),
+        button(
+            row![icon(I_FILE).size(13), text(tr("Fichier…")).size(12)]
+                .spacing(6)
+                .align_y(Alignment::Center)
+        )
+        .padding([4, 8])
+        .style(theme::ghost)
+        .on_press(am(A::Attach)),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    if !app.ai_ready() {
+        attach = attach.push(Space::new());
+    }
+    let mut files = row![].spacing(6);
+    for (i, f) in st.files.iter().enumerate() {
+        files = files.push(
+            button(text(format!("{} ✕", f.name)).size(11))
+                .padding([2, 8])
+                .style(theme::secondary)
+                .on_press(am(A::RemoveFile(i))),
+        );
+    }
+    let input = text_input(&tr("Que voulez-vous faire ?"), &st.input)
+        .id("ai-input")
+        .on_input(|v| am(A::Input(v)))
+        .on_submit(am(A::Send))
+        .padding([9, 12])
+        .size(14)
+        .style(theme::input);
+    let mut bottom = column![
+        attach,
+        files,
+        row![input, primary(tr("Envoyer"), (!st.busy).then_some(am(A::Send)))].spacing(8)
+    ]
+    .spacing(8);
+    if !app.ai_ready() {
+        bottom = bottom.push(pink(tr("Configurez l'assistant dans Réglages › Assistant IA")));
+    }
+    container(column![head, scrollable(list).height(Fill).anchor_bottom(), bottom].spacing(12))
+        .padding(14)
+        .width(420)
+        .height(Fill)
+        .style(theme::panel)
+        .into()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModelChoice(String);
+
+impl std::fmt::Display for ModelChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}  ·  {}", nautile_net::ai::pretty_model(&self.0), self.0)
+    }
+}
+
+fn ai_settings(app: &App) -> Element<'_, Message> {
+    use crate::assistant::AiMsg as A;
+    use nautile_net::ai::ProviderKind;
+    let st = &app.assistant;
+    let kind = app.ai_provider();
+    let saved = app.ai_config(kind);
+    let mut c = column![
+        soft(tr("Dans une session, l'assistant (Ctrl+Maj+A) transforme une demande en commande et explique ce qui est à l'écran. Rien n'est envoyé sans votre demande.")),
+        field(
+            tr("Fournisseur"),
+            pick_list(ProviderKind::ALL, Some(kind), |k| am(A::Provider(k)))
+                .width(Fill)
+                .padding([8, 12])
+                .style(theme::select)
+        ),
+    ]
+    .spacing(12);
+    if kind.needs_key() {
+        let has = saved.api_key.is_some();
+        let mut r = row![text_input(
+            &if has {
+                tr("Clé enregistrée — en saisir une autre pour la remplacer")
+            } else {
+                kind.key_hint().to_owned()
+            },
+            &st.key_input
+        )
+        .on_input(|v| am(A::Key(v)))
+        .secure(true)
+        .padding([9, 12])
+        .size(14)
+        .style(theme::input)]
+        .spacing(8);
+        if has {
+            r = r.push(secondary(tr("Oublier"), am(A::ForgetKey)));
+        }
+        c = c.push(field(tr("Clé API"), r));
+    }
+    if kind.editable_url() {
+        c = c.push(field(
+            tr("Adresse"),
+            text_input(kind.default_url().unwrap_or_default(), &st.url_input)
+                .on_input(|v| am(A::Url(v)))
+                .padding([9, 12])
+                .size(14)
+                .font(MONO)
+                .style(theme::input),
+        ));
+    }
+    let mut model_row = row![text_input(kind.default_model(), &st.model_input)
+        .on_input(|v| am(A::Model(v)))
+        .padding([9, 12])
+        .size(14)
+        .font(MONO)
+        .style(theme::input)]
+    .spacing(8);
+    model_row = model_row.push(secondary(tr("Charger la liste"), am(A::LoadModels)));
+    c = c.push(field(tr("Modèle"), model_row));
+    if !st.models.is_empty() {
+        let choices: Vec<ModelChoice> = st.models.iter().cloned().map(ModelChoice).collect();
+        let current = choices.iter().find(|m| m.0 == st.model_input).cloned();
+        c = c.push(
+            pick_list(choices, current, |m: ModelChoice| am(A::PickModel(m.0)))
+                .width(Fill)
+                .padding([8, 12])
+                .style(theme::select),
+        );
+    }
+    c = c.push(
+        row![
+            primary(tr("Enregistrer"), Some(am(A::Save))),
+            secondary(if st.testing { tr("Test…") } else { tr("Tester") }, am(A::Test)),
+        ]
+        .spacing(8),
+    );
+    match &st.status {
+        Some(Ok(s)) => c = c.push(green(s.clone())),
+        Some(Err(e)) => c = c.push(pink(e.clone())),
+        None => {}
     }
     c.into()
 }

@@ -146,3 +146,19 @@ APPAREILS ASSOCIÉS	PAIRED DEVICES
 synchronisé %1\$s	synced %1\$s
 jamais synchronisé	never synced
 à portée · %1\$s	in range · %1\$s
+%1\$s injoignable : %2\$s	%1\$s unreachable: %2\$s
+URL manquante	Missing URL
+Décrivez ce que vous voulez faire sur ce serveur, ou demandez d'expliquer ce qui est à l'écran : l'assistant propose une commande et l'explique.	Describe what you want to do on this server, or ask to explain what is on screen: the assistant suggests a command and explains it.
+écran	screen
+Joint : %1\$s	Attached: %1\$s
+Insérer dans le terminal	Insert in the terminal
+Réflexion…	Thinking…
+Fichier…	File…
+Dans une session, l'assistant (Ctrl+Maj+A) transforme une demande en commande et explique ce qui est à l'écran. Rien n'est envoyé sans votre demande.	In a session, the assistant (Ctrl+Shift+A) turns a request into a command and explains what is on screen. Nothing is sent unless you ask.
+Clé enregistrée — en saisir une autre pour la remplacer	Key saved — type another one to replace it
+Oublier	Forget
+Charger la liste	Load the list
+Test…	Testing…
+Commande copiée	Command copied
+Assistant enregistré	Assistant saved
+%1\$s modèle(s)	%1\$s model(s)

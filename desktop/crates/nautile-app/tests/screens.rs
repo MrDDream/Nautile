@@ -495,3 +495,38 @@ fn backups() {
         "backups"
     });
 }
+
+#[test]
+fn assistant() {
+    each(|app| {
+        use nautile_app::assistant::{Shown, Turn};
+        let id = with_session(app);
+        let host = app.tab(id).unwrap().host_id.unwrap();
+        let en = nautile_core::i18n::is_english();
+        let raw = if en {
+            "```bash\ndocker logs --tail 50 jellyfin 2>&1 | grep -iE 'error|warn'\n```\nShows the **last 50 lines** of the `jellyfin` container, errors and warnings only.\n\n- `--tail 50`: only the end of the log\n- `2>&1`: the errors go through the filter too"
+        } else {
+            "```bash\ndocker logs --tail 50 jellyfin 2>&1 | grep -iE 'error|warn'\n```\nAffiche les **50 dernières lignes** du conteneur `jellyfin`, erreurs et avertissements seulement.\n\n- `--tail 50` : seulement la fin du journal\n- `2>&1` : les erreurs passent aussi par le filtre"
+        };
+        let turn = Turn {
+            request: if en {
+                "why does jellyfin keep restarting?"
+            } else {
+                "pourquoi jellyfin redémarre en boucle ?"
+            }
+            .into(),
+            sent: String::new(),
+            files: vec![],
+            screen: true,
+            provider: nautile_net::ai::ProviderKind::Claude,
+            model: "claude-opus-5-5".into(),
+            raw: raw.into(),
+            at: 0,
+        };
+        app.assistant.conversations.insert(format!("host:{host}"), vec![Shown::new(turn)]);
+        app.assistant.open = true;
+        // What the terminal asks once laid out beside the panel.
+        let _ = app.update(Message::Term(id, nautile_app::term::widget::Action::Resize(73, 38)));
+        "assistant"
+    });
+}

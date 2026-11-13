@@ -38,7 +38,9 @@ fn computer(name: &str, shared: &std::path::Path) -> App {
     let settings = Settings {
         targets: vec![Target {
             id: "shared".into(),
-            dest: Dest::Folder { path: shared.to_path_buf() },
+            dest: Dest::Folder {
+                path: shared.to_path_buf(),
+            },
             auto: false,
             frequency: Frequency::Week,
             time: 180,

@@ -397,6 +397,7 @@ pub enum Message {
     Tick,
     BackupTick,
     Backup(crate::backup::BackupMsg),
+    Ai(crate::assistant::AiMsg),
     // --- Sessions ---
     Connect(i64),
     OpenFiles(i64),
@@ -462,6 +463,7 @@ pub struct App {
     pub lock_form: LockForm,
     pub last_activity: std::time::Instant,
     pub backup: crate::backup::BackupState,
+    pub assistant: crate::assistant::AssistantState,
 }
 
 impl App {
@@ -522,6 +524,7 @@ impl App {
             lock_form: LockForm::default(),
             last_activity: std::time::Instant::now(),
             backup: Default::default(),
+            assistant: Default::default(),
         };
         app.locked = app.settings.locks();
         app.lock_form.method = app.settings.lock_method;
@@ -618,6 +621,7 @@ impl App {
                     | Message::ToastClear
                     | Message::Tick
                     | Message::BackupTick
+                    | Message::Ai(crate::assistant::AiMsg::Answer(..))
                     | Message::Backup(
                         crate::backup::BackupMsg::Lan(_)
                             | crate::backup::BackupMsg::Fetched(_)
@@ -1343,6 +1347,7 @@ impl App {
             Message::LockSave => return self.save_lock(),
             Message::BackupTick => return self.backup_tick(),
             Message::Backup(m) => return self.backup_update(m),
+            Message::Ai(m) => return self.ai_update(m),
             Message::LockAfter(m) => {
                 self.settings.lock_after = Some(m);
                 let _ = self.settings.save(&self.paths);
@@ -1400,6 +1405,7 @@ fn shortcut(e: iced::keyboard::Event) -> Option<Message> {
         Key::Named(Named::Tab) if m.control() => Some(Message::NextTab(!m.shift())),
         Key::Character("t" | "T") if m.control() && m.shift() => Some(Message::OpenLocal),
         Key::Character("w" | "W") if m.control() && m.shift() => Some(Message::CloseActiveTab),
+        Key::Character("a" | "A") if m.control() && m.shift() => Some(Message::Ai(crate::assistant::AiMsg::Toggle)),
         _ => None,
     }
 }

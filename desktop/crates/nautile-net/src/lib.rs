@@ -1,6 +1,7 @@
 //! Nautile's connections. Each one runs on [session::RUNTIME] and talks to the interface through a
 //! [session::Session]: input and resizes in, terminal bytes, questions and status out.
 
+pub mod ai;
 pub mod keys;
 pub mod lan_sync;
 pub mod local;

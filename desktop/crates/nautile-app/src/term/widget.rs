@@ -252,7 +252,8 @@ where
                 let (ctrl, shift) = (modifiers.control(), modifiers.shift());
                 // Left to the window: tabs and the app's own shortcuts.
                 if ctrl
-                    && (matches!(key, Key::Named(Named::Tab)) || (shift && matches!(key.as_ref(), Key::Character("t" | "T" | "w" | "W"))))
+                    && (matches!(key, Key::Named(Named::Tab))
+                        || (shift && matches!(key.as_ref(), Key::Character("t" | "T" | "w" | "W" | "a" | "A"))))
                 {
                     return;
                 }
@@ -448,6 +449,9 @@ where
         let (cw, ch) = (state.cell.width, state.cell.height);
         let origin = Point::new(bounds.x + PADDING, bounds.y + PADDING);
         let clip = bounds.intersection(viewport).unwrap_or(bounds);
+        // Everything is clipped to the widget (long lines, wide glyphs).
+        renderer.start_layer(clip);
+        let columns = self.term.cols() as usize;
         let content = self.term.term.renderable_content();
         let offset = content.display_offset as i32;
         let selection = content.selection;
@@ -479,6 +483,10 @@ where
             }
             let row = (cell.point.line.0 + offset) as usize;
             let col = cell.point.column.0;
+            // After a shrink, alacritty keeps the cut-off cells for a later widening: not shown.
+            if col >= columns {
+                continue;
+            }
             let width = if flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 };
             let (mut fg, mut bg) = (self.color(cell.fg), self.color(cell.bg));
             if flags.contains(Flags::BOLD) {
@@ -623,6 +631,7 @@ where
                 ),
             }
         }
+        renderer.end_layer();
     }
 }
 

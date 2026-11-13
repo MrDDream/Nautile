@@ -96,6 +96,12 @@ pub struct Settings {
     pub devices: Vec<(String, String, i64)>,
     pub lan_enabled: bool,
     pub lan_peers: Vec<crate::backup::Peer>,
+    /// The AI assistant's provider, and per provider (by name) its model and address. Keys stay in the database.
+    pub ai_provider: Option<nautile_net::ai::ProviderKind>,
+    pub ai_models: std::collections::HashMap<String, String>,
+    pub ai_urls: std::collections::HashMap<String, String>,
+    /// A system prompt of the user's (the built-in one when empty).
+    pub ai_prompt: Option<String>,
 }
 
 impl Settings {
