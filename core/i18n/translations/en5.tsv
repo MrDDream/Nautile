@@ -1,0 +1,39 @@
+Clé SSH	SSH key
+« %1\$s » ajouté	“%1\$s” added
+Modifications enregistrées	Changes saved
+« %1\$s » supprimé	“%1\$s” deleted
+Restaurer une sauvegarde	Restore a backup
+Sauvegarde restaurée : %1\$s ajout(s), %2\$s mise(s) à jour	Backup restored: %1\$s added, %2\$s updated
+Exporter une sauvegarde	Export a backup
+Sauvegarde enregistrée : %1\$s	Backup saved: %1\$s
+Impossible d'ouvrir les données de Nautile	Cannot open Nautile's data
+Mode portable	Portable mode
+Données chiffrées sur cet ordinateur	Data encrypted on this computer
+cet ordinateur	this computer
+Aucun hôte pour l'instant	No hosts yet
+Ajoutez un serveur, ou restaurez la sauvegarde de votre téléphone dans les réglages.	Add a server, or restore your phone's backup in Settings.
++ %1\$s ligne(s)	+ %1\$s line(s)
+Aucun snippet	No snippets
+Aucune clé	No keys
+Les clés de votre téléphone arrivent avec sa sauvegarde ; l'import et la génération viennent avec le terminal.	Your phone's keys come with its backup; importing and generating keys come with the terminal.
+Un fichier nautile.backup de votre téléphone ou d'un autre ordinateur : tout est fusionné, rien n'est effacé ici.	A nautile.backup file from your phone or another computer: everything is merged, nothing here is erased.
+Choisir le fichier…	Choose the file…
+Déchiffrement…	Decrypting…
+Un fichier chiffré (Argon2id + AES-256), à rouvrir sur un autre appareil avec ce mot de passe.	An encrypted file (Argon2id + AES-256), to open on another device with this password.
+Mot de passe (8 caractères minimum)	Password (at least 8 characters)
+Chiffrement…	Encrypting…
+Exporter…	Export…
+RESTAURER	RESTORE
+EXPORTER	EXPORT
+Clé de la base dans le trousseau du système	Database key in the system keyring
+Mode portable : la clé voyage avec le dossier data	Portable mode: the key travels with the data folder
+Clé de la base dans un fichier réservé à votre compte (pas de trousseau disponible)	Database key in a file only your account can read (no keyring available)
+Données	Data
+Base SQLCipher chiffrée, sans compte ni serveur.	Encrypted SQLCipher database, no account, no server.
+Type	Type
+Demandé à la connexion si vide	Asked when connecting if empty
+Rebond SSH	SSH jump host
+Supprimer le groupe garde ses hôtes, sans groupe.	Deleting the group keeps its hosts, without a group.
+Astuce : ${NOM} devient une valeur demandée à chaque exécution. Plusieurs lignes = plusieurs commandes.	Tip: ${NAME} becomes a value asked at each run. Several lines = several commands.
+Tag	Tag
+Un groupe porte déjà ce nom	A group already has this name

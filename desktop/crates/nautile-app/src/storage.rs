@@ -1,0 +1,183 @@
+//! Where Nautile keeps its data, its settings, and the database key.
+//!
+//! - Installed: `%APPDATA%\Nautile` (Windows), `~/.local/share/nautile` (Linux), `~/Library/Application Support/Nautile`.
+//! - Portable: a `data` folder next to the executable when it exists (or a `portable` file is there): the
+//!   whole app then lives on a USB stick.
+//!
+//! The database key (32 random bytes) goes to the system keyring (Windows Credential Manager, GNOME Keyring /
+//! KWallet, macOS Keychain). Without one — or in portable mode — it is kept in `db.key` next to the database.
+
+use std::path::{Path, PathBuf};
+
+use rand::RngCore;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone)]
+pub struct Paths {
+    pub data: PathBuf,
+    pub portable: bool,
+}
+
+impl Paths {
+    pub fn detect() -> Paths {
+        if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+            if dir.join("data").is_dir() || dir.join("portable").exists() {
+                return Paths {
+                    data: dir.join("data"),
+                    portable: true,
+                };
+            }
+        }
+        let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+        let name = if cfg!(target_os = "linux") { "nautile" } else { "Nautile" };
+        Paths {
+            data: base.join(name),
+            portable: false,
+        }
+    }
+
+    pub fn db(&self) -> PathBuf {
+        self.data.join("nautile.db")
+    }
+
+    fn settings(&self) -> PathBuf {
+        self.data.join("settings.json")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Language {
+    #[default]
+    System,
+    Fr,
+    En,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Appearance {
+    #[default]
+    Dark,
+    Light,
+}
+
+/// Preferences of this computer (not synchronised).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    pub language: Language,
+    pub appearance: Appearance,
+    /// Where the database key lives: "keyring" or "file".
+    pub key_store: Option<String>,
+}
+
+impl Settings {
+    pub fn load(paths: &Paths) -> Settings {
+        std::fs::read_to_string(paths.settings())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self, paths: &Paths) -> std::io::Result<()> {
+        std::fs::create_dir_all(&paths.data)?;
+        std::fs::write(paths.settings(), serde_json::to_string_pretty(self).unwrap_or_default())
+    }
+
+    /// English unless the setting or, by default, the system is French (as on Android).
+    pub fn english(&self) -> bool {
+        match self.language {
+            Language::Fr => false,
+            Language::En => true,
+            Language::System => !system_is_french(),
+        }
+    }
+}
+
+fn system_is_french() -> bool {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .find_map(|v| std::env::var(v).ok().filter(|s| !s.is_empty()))
+        .map(|l| l.to_lowercase().starts_with("fr"))
+        .unwrap_or_else(windows_is_french)
+}
+
+#[cfg(windows)]
+fn windows_is_french() -> bool {
+    // The user's UI language, without a crate: `GetUserDefaultUILanguage` primary language 0x0C is French.
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetUserDefaultUILanguage() -> u16;
+    }
+    unsafe { GetUserDefaultUILanguage() & 0x3ff == 0x0c }
+}
+
+#[cfg(not(windows))]
+fn windows_is_french() -> bool {
+    false
+}
+
+const SERVICE: &str = "Nautile";
+const ACCOUNT: &str = "database-key";
+
+/// The key of the database, created the first time.
+pub fn database_key(paths: &Paths, settings: &mut Settings) -> std::io::Result<[u8; 32]> {
+    std::fs::create_dir_all(&paths.data)?;
+    let file = paths.data.join("db.key");
+    let use_file = paths.portable || settings.key_store.as_deref() == Some("file");
+    if !use_file {
+        if let Ok(entry) = keyring::Entry::new(SERVICE, ACCOUNT) {
+            if let Ok(k) = entry.get_secret() {
+                if let Ok(key) = <[u8; 32]>::try_from(k.as_slice()) {
+                    return Ok(key);
+                }
+            }
+            // First start: a new key, unless a database already exists (its key would be lost).
+            if settings.key_store.is_none() && !paths.db().exists() {
+                let key = new_key();
+                if entry.set_secret(&key).is_ok() && entry.get_secret().is_ok_and(|k| k == key) {
+                    settings.key_store = Some("keyring".into());
+                    let _ = settings.save(paths);
+                    return Ok(key);
+                }
+            } else if settings.key_store.as_deref() == Some("keyring") {
+                return Err(std::io::Error::other("Le trousseau du système ne donne plus la clé de la base"));
+            }
+        }
+    }
+    // No keyring (headless Linux, portable mode): a file readable only by this user.
+    if let Ok(k) = std::fs::read(&file) {
+        if let Ok(key) = <[u8; 32]>::try_from(k.as_slice()) {
+            return Ok(key);
+        }
+    }
+    let key = new_key();
+    write_private(&file, &key)?;
+    settings.key_store = Some("file".into());
+    let _ = settings.save(paths);
+    Ok(key)
+}
+
+fn new_key() -> [u8; 32] {
+    let mut k = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut k);
+    k
+}
+
+fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        f.write_all(data)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, data)
+    }
+}
