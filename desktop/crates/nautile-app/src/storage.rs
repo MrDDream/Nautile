@@ -128,6 +128,13 @@ pub struct Settings {
     pub ai_prompt_id: Option<String>,
     /// Lines of the terminal sent with « Joindre l'écran » (40, 100, 200, 500).
     pub ai_lines: Option<usize>,
+    /// Closing the window keeps Nautile in the notification area (on by default).
+    pub close_to_tray: Option<bool>,
+    /// System notifications while the window is hidden (on by default).
+    pub notifications: Option<bool>,
+    /// The window as it was left, and the page shown.
+    pub window: Option<WindowState>,
+    pub last_page: Option<String>,
     /// The sidebar's width, when set by dragging its edge.
     pub sidebar_width: Option<f32>,
     /// The sidebar shows only its icons.
@@ -161,6 +168,14 @@ impl Settings {
 
     pub fn lock_after(&self) -> u32 {
         self.lock_after.unwrap_or(15)
+    }
+
+    pub fn close_to_tray(&self) -> bool {
+        self.close_to_tray.unwrap_or(true)
+    }
+
+    pub fn notifications(&self) -> bool {
+        self.notifications.unwrap_or(true)
     }
 
     pub fn ai_lines(&self) -> usize {
@@ -292,4 +307,13 @@ pub struct AiPrompt {
     pub id: String,
     pub name: String,
     pub text: String,
+}
+
+/// The window's size and place, to open it as it was left.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct WindowState {
+    pub width: f32,
+    pub height: f32,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
 }

@@ -302,6 +302,19 @@ pub(super) fn settings_home(app: &App) -> Element<'_, Message> {
             page: P::Security,
         },
         Entry {
+            icon: I_DESKTOP,
+            tint: n.blue,
+            title: tr("Fenêtre et démarrage"),
+            detail: if s.close_to_tray() {
+                tr("Reste dans la zone de notification")
+            } else {
+                tr("Fermer quitte Nautile")
+            },
+            words: "fenetre window zone de notification tray systray demarrage startup session reduire minimize notifications mise a jour update",
+            dot: None,
+            page: P::System,
+        },
+        Entry {
             icon: I_STORAGE,
             tint: teal,
             title: tr("Données"),
@@ -381,6 +394,7 @@ pub(super) fn settings(app: &App) -> Element<'_, Message> {
         P::Security => (tr("Sécurité"), column![settings_card(tr("Verrouillage"), lock_settings(app))]),
         P::Data => (tr("Données"), data_settings(app)),
         P::Logs => (tr("Journaux de session"), logs_settings(app)),
+        P::System => (tr("Fenêtre et démarrage"), system_settings(app)),
     };
     let back = if page == P::Logs {
         Message::SettingsPage(Some(P::Terminal))
@@ -2675,4 +2689,50 @@ pub(super) fn restore_modal(app: &App, max_height: f32) -> Element<'_, Message> 
         ),
         None,
     )
+}
+
+/// The window, the notification area, starting with the session and notifications.
+pub(super) fn system_settings(app: &App) -> Column<'_, Message> {
+    let s = &app.settings;
+    let tray_note = if app.tray {
+        tr("L'icône de Nautile est dans la zone de notification : un clic rouvre la fenêtre, son menu ouvre un terminal, synchronise, verrouille ou quitte.")
+    } else {
+        tr("Ce bureau n'a pas de zone de notification (sous GNOME, l'extension AppIndicator l'ajoute) : la fenêtre est réduite au lieu d'être cachée.")
+    };
+    column![
+        column![
+            container(kit::section_label(tr("Fenêtre"))).padding([0, 4]),
+            kit::card(vec![kit::toggle_row(
+                None,
+                tr("Fermer réduit dans la zone de notification"),
+                tr("Les sessions, tunnels et synchronisations continuent ; « Quitter » dans le menu de l'icône ferme vraiment."),
+                s.close_to_tray(),
+                Message::CloseToTray
+            )]),
+            soft(tray_note),
+        ]
+        .spacing(10),
+        column![
+            container(kit::section_label(tr("Démarrage"))).padding([0, 4]),
+            kit::card(vec![kit::toggle_row(
+                None,
+                tr("Lancer au démarrage de la session"),
+                tr("Nautile démarre réduit dans la zone de notification : la synchronisation et les sauvegardes automatiques tournent."),
+                crate::autostart::is_on(),
+                Message::Autostart
+            )]),
+        ]
+        .spacing(10),
+        column![
+            container(kit::section_label(tr("Notifications"))).padding([0, 4]),
+            kit::card(vec![kit::toggle_row(
+                None,
+                tr("Notifications du système"),
+                tr("Quand la fenêtre est cachée : sauvegarde ou synchronisation échouée, tunnel coupé, mise à jour disponible."),
+                s.notifications(),
+                Message::Notifications
+            )]),
+        ]
+        .spacing(10),
+    ]
 }

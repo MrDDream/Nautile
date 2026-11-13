@@ -634,8 +634,12 @@ impl App {
             Event::Trust { info, .. } => self.trust(info),
             Event::Closed(reason) => match reason {
                 Some(r) => {
+                    let name = self.forwards.iter().find(|f| f.id == forward_id).map(|f| f.name.clone());
                     if let Some(run) = self.tunnels.get_mut(&forward_id) {
-                        run.state = TunnelState::Failed(r);
+                        run.state = TunnelState::Failed(r.clone());
+                    }
+                    if let Some(name) = name {
+                        self.notify(trf("Tunnel « %1$s » coupé", &[&name]), r);
                     }
                 }
                 None => {

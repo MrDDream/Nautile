@@ -2,6 +2,7 @@
 
 pub mod app;
 pub mod assistant;
+pub mod autostart;
 pub mod backup;
 pub mod files;
 pub mod kit;
@@ -11,4 +12,5 @@ pub mod sessions;
 pub mod storage;
 pub mod term;
 pub mod theme;
+pub mod tray;
 pub mod ui;

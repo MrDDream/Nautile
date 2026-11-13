@@ -632,6 +632,7 @@ impl App {
                 return Task::none();
             }
         }
+        self.notify(tr("Synchronisation échouée"), e.clone());
         self.settings.sync_error = Some(e);
         self.save_settings();
         Task::none()
@@ -835,7 +836,10 @@ impl App {
                 self.save_settings();
                 return match r {
                     Ok(()) if ok => self.say(tr("Sauvegarde effectuée")),
-                    Err(e) => self.say(trf("Échec : %1$s", &[&e])),
+                    Err(e) => {
+                        self.notify(tr("Sauvegarde échouée"), e.clone());
+                        self.say(trf("Échec : %1$s", &[&e]))
+                    }
                     _ => Task::none(),
                 };
             }

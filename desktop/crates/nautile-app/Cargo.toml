@@ -36,6 +36,20 @@ opener = "0.8"
 # The network interfaces, to know whether a VPN is up (« Seulement via le VPN »).
 if-addrs = "0.13"
 
+# Notifications (backup failed, tunnel down, update) while the window is hidden.
+notify-rust = "4"
+
+# The icon in the notification area: StatusNotifierItem over D-Bus on Linux (no GTK).
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = { version = "0.3", features = ["blocking"] }
+
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+tray-icon = "0.21"
+
+# « Lancer au démarrage » on Windows.
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+
 [build-dependencies]
 # The icon and the version of nautile.exe.
 winresource = "0.1"

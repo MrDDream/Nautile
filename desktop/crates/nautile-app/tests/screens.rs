@@ -390,6 +390,15 @@ fn settings_ai_models() {
 }
 
 #[test]
+fn settings_system() {
+    each(|app| {
+        let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::System)));
+        "settings-system"
+    });
+}
+
+#[test]
 fn settings_lock() {
     each(|app| {
         let _ = app.update(Message::Nav(Page::Settings));

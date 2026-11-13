@@ -231,3 +231,22 @@ Sans lui, une sauvegarde ne peut pas être ouverte : notez-le dans votre gestion
 Mot de passe de sauvegarde	Backup password
 Exporter une copie	Export a copy
 Attend que le VPN (WireGuard, Tailscale…) soit connecté, puis synchronise aussitôt	Waits for the VPN (WireGuard, Tailscale…) to connect, then syncs right away
+Synchronisation échouée	Sync failed
+Sauvegarde échouée	Backup failed
+Ouvrir Nautile	Open Nautile
+Quitter	Quit
+Tunnel « %1\$s » coupé	Tunnel “%1\$s” down
+Fenêtre et démarrage	Window and startup
+Reste dans la zone de notification	Stays in the notification area
+Fermer quitte Nautile	Closing quits Nautile
+L'icône de Nautile est dans la zone de notification : un clic rouvre la fenêtre, son menu ouvre un terminal, synchronise, verrouille ou quitte.	Nautile's icon is in the notification area: a click opens the window again, its menu opens a terminal, syncs, locks or quits.
+Ce bureau n'a pas de zone de notification (sous GNOME, l'extension AppIndicator l'ajoute) : la fenêtre est réduite au lieu d'être cachée.	This desktop has no notification area (on GNOME, the AppIndicator extension adds one): the window is minimised instead of hidden.
+Fenêtre	Window
+Fermer réduit dans la zone de notification	Closing keeps it in the notification area
+Les sessions, tunnels et synchronisations continuent ; « Quitter » dans le menu de l'icône ferme vraiment.	Sessions, tunnels and syncs keep running; “Quit” in the icon's menu really closes it.
+Démarrage	Startup
+Lancer au démarrage de la session	Start with the session
+Nautile démarre réduit dans la zone de notification : la synchronisation et les sauvegardes automatiques tournent.	Nautile starts hidden in the notification area: sync and automatic backups keep running.
+Notifications	Notifications
+Notifications du système	System notifications
+Quand la fenêtre est cachée : sauvegarde ou synchronisation échouée, tunnel coupé, mise à jour disponible.	While the window is hidden: failed backup or sync, tunnel down, update available.

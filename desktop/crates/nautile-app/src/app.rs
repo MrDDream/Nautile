@@ -64,6 +64,8 @@ pub enum SettingsPage {
     Data,
     /// The recorded sessions (under Terminal).
     Logs,
+    /// The window, the notification area, starting with the session, updates.
+    System,
 }
 
 /// The tabs of the terminal settings (as on Android).
@@ -413,6 +415,17 @@ pub enum Message {
     /// Opens a file or folder with the system.
     OpenPath(std::path::PathBuf),
     DeleteLog(std::path::PathBuf),
+    Tray(crate::tray::TrayEvent),
+    /// The window's close button: hide in the notification area, or quit.
+    CloseRequested(iced::window::Id),
+    WindowMoved(iced::Point),
+    WindowFocused(bool),
+    /// Shows the window again (from the notification area).
+    ShowWindow,
+    Quit,
+    CloseToTray(bool),
+    Autostart(bool),
+    Notifications(bool),
     Accent(crate::theme::Accent),
     ButtonStyle(crate::theme::ButtonStyle),
     SettingsPage(Option<SettingsPage>),
@@ -593,6 +606,12 @@ pub struct App {
     pub fonts_loaded: Vec<&'static str>,
     /// A connected session waiting for « Fermer ? ».
     pub closing: Option<u64>,
+    /// The icon is in the notification area.
+    pub tray: bool,
+    /// The window is hidden in the notification area, or not in front.
+    pub hidden: bool,
+    pub focused: bool,
+    pub window_pos: Option<iced::Point>,
 }
 
 impl App {
@@ -618,7 +637,16 @@ impl App {
         let os_theme = iced::system::theme().map(Message::SystemTheme);
         let font = app.settings.terminal_family().id;
         let font = app.load_font(font);
-        (app, Task::batch([focus, backups, os_theme, font]))
+        app.tray = crate::tray::start();
+        // Started with the session, hidden: shown anyway when there is no notification area to find it in.
+        let minimized = std::env::args().any(|a| a == "--minimized");
+        app.hidden = minimized;
+        let show = if minimized && !app.tray {
+            app.update(Message::ShowWindow)
+        } else {
+            Task::none()
+        };
+        (app, Task::batch([focus, backups, os_theme, font, show]))
     }
 
     pub fn with(paths: Paths, settings: Settings, db: Option<Db>, fatal: Option<String>) -> App {
@@ -667,6 +695,10 @@ impl App {
             term_tab: TermTab::Aspect,
             fonts_loaded: Vec::new(),
             closing: None,
+            tray: false,
+            hidden: false,
+            focused: true,
+            window_pos: None,
         };
         // Before several providers could be on, the chosen one was the only one.
         if app.settings.ai_enabled.is_empty() {
@@ -674,6 +706,13 @@ impl App {
                 app.settings.ai_enabled.push(k);
             }
         }
+        app.page = match app.settings.last_page.as_deref() {
+            Some("snippets") => Page::Snippets,
+            Some("keys") => Page::Keys,
+            Some("tunnels") => Page::Tunnels,
+            Some("settings") => Page::Settings,
+            _ => Page::Hosts,
+        };
         app.locked = app.settings.locks();
         app.lock_form.method = app.settings.lock_method;
         app.reload();
@@ -694,6 +733,14 @@ impl App {
             iced::event::listen_with(dropped_file),
             iced::time::every(std::time::Duration::from_secs(30)).map(|_| Message::BackupTick),
             iced::window::resize_events().map(|(_, size)| Message::WindowResized(size)),
+            crate::tray::subscription().map(Message::Tray),
+            iced::window::close_requests().map(Message::CloseRequested),
+            iced::window::events().filter_map(|(_, e)| match e {
+                iced::window::Event::Moved(p) => Some(Message::WindowMoved(p)),
+                iced::window::Event::Focused => Some(Message::WindowFocused(true)),
+                iced::window::Event::Unfocused => Some(Message::WindowFocused(false)),
+                _ => None,
+            }),
         ];
         if self.sidebar_drag {
             subs.push(iced::event::listen_with(sidebar_drag));
@@ -763,6 +810,11 @@ impl App {
                 | Message::Tick
                 | Message::ToastClear
                 | Message::BackupTick
+                | Message::WindowMoved(_)
+                | Message::WindowFocused(_)
+                | Message::WindowResized(_)
+                | Message::SystemTheme(_)
+                | Message::FontLoaded
                 | Message::Backup(
                     crate::backup::BackupMsg::Lan(_)
                         | crate::backup::BackupMsg::Fetched(_)
@@ -779,6 +831,15 @@ impl App {
                 message,
                 Message::LockInput(_)
                     | Message::Unlock
+                    | Message::Tray(_)
+                    | Message::CloseRequested(_)
+                    | Message::ShowWindow
+                    | Message::Quit
+                    | Message::WindowMoved(_)
+                    | Message::WindowFocused(_)
+                    | Message::WindowResized(_)
+                    | Message::SystemTheme(_)
+                    | Message::FontLoaded
                     | Message::Session(..)
                     | Message::Tunnel(..)
                     | Message::Sftp(..)
@@ -910,6 +971,64 @@ impl App {
             }
             Message::OpenPath(p) => {
                 let _ = opener::open(&p);
+            }
+            Message::Tray(e) => {
+                use crate::tray::TrayEvent as T;
+                return match e {
+                    T::Open => self.update(Message::ShowWindow),
+                    T::NewLocal => Task::batch([self.update(Message::ShowWindow), self.update(Message::OpenLocal)]),
+                    T::Sync => self.update(Message::Backup(crate::backup::BackupMsg::SyncNow)),
+                    T::Lock => self.update(Message::LockNow),
+                    T::Quit => self.update(Message::Quit),
+                };
+            }
+            Message::CloseRequested(id) => {
+                self.remember_window();
+                if self.settings.close_to_tray() {
+                    self.hidden = true;
+                    return if self.tray {
+                        iced::window::set_mode(id, iced::window::Mode::Hidden)
+                    } else {
+                        // No notification area (some GNOME desktops): minimised, never lost.
+                        iced::window::minimize(id, true)
+                    };
+                }
+                return iced::exit();
+            }
+            Message::WindowMoved(p) => self.window_pos = Some(p),
+            Message::WindowFocused(f) => {
+                self.focused = f;
+                if f {
+                    self.hidden = false;
+                }
+            }
+            Message::ShowWindow => {
+                self.hidden = false;
+                return iced::window::latest().and_then(|id| {
+                    Task::batch([
+                        iced::window::set_mode(id, iced::window::Mode::Windowed),
+                        iced::window::minimize(id, false),
+                        iced::window::gain_focus(id),
+                    ])
+                });
+            }
+            Message::Quit => {
+                self.remember_window();
+                return iced::exit();
+            }
+            Message::CloseToTray(v) => {
+                self.settings.close_to_tray = Some(v);
+                let _ = self.settings.save(&self.paths);
+            }
+            Message::Autostart(v) => {
+                return match crate::autostart::set(v) {
+                    Ok(()) => Task::none(),
+                    Err(e) => self.say(e.to_string()),
+                };
+            }
+            Message::Notifications(v) => {
+                self.settings.notifications = Some(v);
+                let _ = self.settings.save(&self.paths);
             }
             Message::DeleteLog(p) => {
                 // Only the recorded sessions, never anything else.
@@ -1807,6 +1926,34 @@ impl App {
     }
 
     /// Closes a session, asking first when it is connected (« Confirmer la fermeture »).
+    /// Keeps the window's size and place and the page shown, for the next start.
+    fn remember_window(&mut self) {
+        self.settings.window = Some(crate::storage::WindowState {
+            width: self.window.width,
+            height: self.window.height,
+            x: self.window_pos.map(|p| p.x),
+            y: self.window_pos.map(|p| p.y),
+        });
+        self.settings.last_page = Some(
+            match self.page {
+                Page::Hosts => "hosts",
+                Page::Snippets => "snippets",
+                Page::Keys => "keys",
+                Page::Tunnels => "tunnels",
+                Page::Settings => "settings",
+            }
+            .into(),
+        );
+        let _ = self.settings.save(&self.paths);
+    }
+
+    /// A system notification, only while the window is hidden or in the background.
+    pub fn notify(&self, title: String, body: String) {
+        if self.settings.notifications() && (self.hidden || !self.focused) {
+            crate::tray::notify(title, body);
+        }
+    }
+
     fn ask_close(&mut self, id: u64) {
         let open = self.tab(id).is_some_and(|t| t.state == crate::sessions::TabState::Open);
         if open && self.settings.confirm_close() {
