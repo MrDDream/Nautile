@@ -1,0 +1,5 @@
+• VNC remote desktop, next to RDP
+• Backup: several locations, each with its own schedule (day, time, network)
+• New locations: S3 storage, Syncthing folder
+• Direct sync between devices over Wi-Fi, no cloud
+• App lock by biometrics, PIN or password

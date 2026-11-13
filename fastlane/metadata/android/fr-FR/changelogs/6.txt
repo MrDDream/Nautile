@@ -1,0 +1,5 @@
+• Bureau à distance VNC, à côté du RDP
+• Sauvegarde : plusieurs emplacements, chacun avec sa planification (jour, heure, réseau)
+• Nouveaux emplacements : stockage S3, dossier Syncthing
+• Synchro directe entre appareils sur le Wi-Fi, sans cloud
+• Verrouillage par biométrie, code PIN ou mot de passe
