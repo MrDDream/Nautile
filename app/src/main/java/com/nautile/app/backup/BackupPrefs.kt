@@ -28,7 +28,11 @@ enum class BackupFrequency(val hours: Long) {
 }
 
 /** Which networks the backup and the synchronisation may use. */
-enum class BackupNetwork { WIFI, ANY }
+enum class BackupNetwork {
+    WIFI, ANY,
+    /** Only while a VPN is up (WireGuard, Tailscale…): for a server reachable on a private network only. */
+    VPN,
+}
 
 /** One place backups go, with its own schedule and status. */
 data class BackupTarget(

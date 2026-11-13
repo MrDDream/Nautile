@@ -676,6 +676,42 @@ fn backups() {
 }
 
 #[test]
+fn backup_target() {
+    each(|app| {
+        use nautile_app::backup::{BackupMsg as B, Frequency, Target};
+        use nautile_net::store::Dest;
+        app.settings.targets = vec![Target {
+            id: "usb".into(),
+            dest: Dest::Folder {
+                path: PathBuf::from("/media/mrd/USB/Sauvegardes"),
+            },
+            auto: true,
+            frequency: Frequency::Week,
+            time: 180,
+            weekday: 7,
+            last: Some(1_794_000_000_000),
+            error: None,
+        }];
+        let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::Backup)));
+        let _ = app.update(Message::Backup(B::Open(Some("usb".into()))));
+        "backup-target"
+    });
+}
+
+#[test]
+fn backup_add_place() {
+    each(|app| {
+        use nautile_app::backup::{BackupMsg as B, PlaceKind};
+        let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::Backup)));
+        let _ = app.update(Message::OpenModal(Some(nautile_app::app::Modal::AddPlace)));
+        let _ = app.update(Message::Backup(B::NewPlace(PlaceKind::S3)));
+        "backup-add-place"
+    });
+}
+
+#[test]
 fn assistant() {
     each(|app| {
         use nautile_app::assistant::{Shown, Turn};

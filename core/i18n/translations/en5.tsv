@@ -34,7 +34,7 @@ Type	Type
 Demandé à la connexion si vide	Asked when connecting if empty
 Rebond SSH	SSH jump host
 Supprimer le groupe garde ses hôtes, sans groupe.	Deleting the group keeps its hosts, without a group.
-Astuce : ${NOM} devient une valeur demandée à chaque exécution. Plusieurs lignes = plusieurs commandes.	Tip: ${NAME} becomes a value asked at each run. Several lines = several commands.
+Astuce : \${NOM} devient une valeur demandée à chaque exécution. Plusieurs lignes = plusieurs commandes.	Tip: \${NAME} becomes a value asked at each run. Several lines = several commands.
 Tag	Tag
 Un groupe porte déjà ce nom	A group already has this name
 clé %1\$s	key %1\$s
@@ -192,3 +192,42 @@ Aucun journal. Activez « Enregistrer les sessions » dans Terminal › Sessions
 Les clés API restent chiffrées sur cet ordinateur (base SQLCipher).	API keys stay encrypted on this computer (SQLCipher database).
 Ollama : http://IP-du-PC:11434/v1 (lancez-le avec OLLAMA_HOST=0.0.0.0). LM Studio : http://IP-du-PC:1234/v1.	Ollama: http://PC-IP:11434/v1 (start it with OLLAMA_HOST=0.0.0.0). LM Studio: http://PC-IP:1234/v1.
 L'assistant doit garder la commande dans un bloc ```bash``` : c'est elle que « Insérer » tape dans le terminal.	The assistant must keep the command in a ```bash``` block: that is what “Insert” types into the terminal.
+En attente du VPN	Waiting for the VPN
+Serveur injoignable, nouvel essai à %1\$s	Server unreachable, trying again at %1\$s
+Seulement via le VPN	Only through the VPN
+VPN actif : la synchronisation passe par lui.	VPN up: the sync goes through it.
+Aucun VPN actif : la synchronisation attend qu'il se connecte (WireGuard, Tailscale, OpenVPN…).	No VPN up: the sync waits for it to connect (WireGuard, Tailscale, OpenVPN…).
+Choisir	Choose
+Plus de 30 jours : pensez à sauvegarder	Over 30 days: time for a backup
+Une copie chiffrée, à garder ailleurs que sur cet ordinateur	An encrypted copy, to keep somewhere other than this computer
+Choisissez d'abord le mot de passe des sauvegardes (le même sur tous vos appareils).	First choose the backup password (the same on all your devices).
+Manuelle	Manual
+Fichier chiffré (Argon2id + AES-256-GCM) : sans le mot de passe, il est illisible. Il se restaure sur le téléphone comme ici.	Encrypted file (Argon2id + AES-256-GCM): unreadable without the password. It restores on the phone as it does here.
+Changer le mot de passe de sauvegarde	Change the backup password
+Sur chaque appareil : le même emplacement et le même mot de passe. Un dossier Google Drive, OneDrive ou Syncthing convient aussi.	On each device: the same place and the same password. A Google Drive, OneDrive or Syncthing folder works too.
+Le fichier synchronisé sert aussi de sauvegarde ; une copie par jour reste sur cet ordinateur.	The synced file is also a backup; one copy a day stays on this computer.
+Tapez ce code sur l'autre appareil, dans « Associer » › « Saisir un code ».	Type this code on the other device, in “Pair” › “Enter a code”.
+Il change à chaque association et ne sert qu'une fois.	It changes with each pairing and works only once.
+Les appareils à proximité qui affichent un code :	Nearby devices showing a code:
+Recherche… Ouvrez Nautile sur l'autre appareil et choisissez « Afficher un code ».	Searching… Open Nautile on the other device and choose “Show a code”.
+Cet ordinateur montre un code à taper sur l'autre appareil	This computer shows a code to type on the other device
+L'autre appareil montre le code, vous le tapez ici	The other device shows the code, you type it here
+Un dossier de cet ordinateur : Google Drive, OneDrive, Nextcloud ou Syncthing pour ordinateur, clé USB…	A folder on this computer: Google Drive, OneDrive, Nextcloud or Syncthing for desktop, USB stick…
+WebDAV, auto-hébergé (Nextcloud, ownCloud, Apache…)	WebDAV, self-hosted (Nextcloud, ownCloud, Apache…)
+Backblaze B2, Cloudflare R2, AWS, MinIO, RustFS…	Backblaze B2, Cloudflare R2, AWS, MinIO, RustFS…
+Où garder la sauvegarde ?	Where to keep the backup?
+Le dossier d'un client de synchronisation (Google Drive, OneDrive, Nextcloud, Syncthing) emporte la sauvegarde ailleurs.	The folder of a sync client (Google Drive, OneDrive, Nextcloud, Syncthing) carries the backup elsewhere.
+Adresse WebDAV	WebDAV address
+Nextcloud : Paramètres › Sécurité › mot de passe d'application.	Nextcloud: Settings › Security › app password.
+C'est le fichier de synchronisation : il est mis à jour à chaque synchronisation, une copie par jour reste sur cet ordinateur.	This is the sync file: it is updated at each sync, one copy a day stays on this computer.
+L	Mo
+Ma	Tu
+Me	We
+J	Th
+V	Fr
+S	Sa
+D	Su
+Sans lui, une sauvegarde ne peut pas être ouverte : notez-le dans votre gestionnaire de mots de passe.	Without it a backup cannot be opened: note it in your password manager.
+Mot de passe de sauvegarde	Backup password
+Exporter une copie	Export a copy
+Attend que le VPN (WireGuard, Tailscale…) soit connecté, puis synchronise aussitôt	Waits for the VPN (WireGuard, Tailscale…) to connect, then syncs right away

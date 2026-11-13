@@ -48,6 +48,10 @@ object AutoBackup {
             val bytes = app.backups.export(pw).toByteArray()
             withContext(Dispatchers.IO) { BackupVersions.add(app, bytes) }
             plain.forEach { t ->
+                if (t.network == BackupNetwork.VPN && !isLocal(t.dest) && !vpnUp(app)) {
+                    failure = failure ?: IOException(tr("En attente du VPN"))
+                    return@forEach
+                }
                 runCatching {
                     withContext(Dispatchers.IO) {
                         val store = BackupStores.of(app, t, prefs)
@@ -104,8 +108,16 @@ object AutoBackup {
 
     private fun network(dest: BackupDestination, network: BackupNetwork) = when {
         isLocal(dest) -> NetworkType.NOT_REQUIRED
-        network == BackupNetwork.ANY -> NetworkType.CONNECTED
+        // WorkManager has no « VPN » condition: any network, then the VPN is checked before writing.
+        network == BackupNetwork.ANY || network == BackupNetwork.VPN -> NetworkType.CONNECTED
         else -> NetworkType.UNMETERED
+    }
+
+    /** Whether a VPN network is up (WireGuard, Tailscale, OpenVPN… all show as TRANSPORT_VPN). */
+    fun vpnUp(context: Context): Boolean {
+        val cm = context.getSystemService(android.net.ConnectivityManager::class.java) ?: return false
+        @Suppress("DEPRECATION")
+        return cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true }
     }
 
     /** Schedules each place's automatic backup and the synchronisation, cancels the rest. */

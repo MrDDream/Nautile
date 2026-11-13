@@ -966,78 +966,6 @@ pub(super) fn lock_settings(app: &App) -> Column<'_, Message> {
     lock_body
 }
 
-pub(super) fn backup_settings(app: &App) -> Column<'_, Message> {
-    let imp = &app.import;
-    let mut restore = column![soft(tr(
-        "Un fichier nautile.backup de votre téléphone ou d'un autre ordinateur : tout est fusionné, rien n'est effacé ici."
-    ))]
-    .spacing(12);
-    match &imp.file {
-        None => restore = restore.push(row![secondary(tr("Choisir le fichier…"), Message::ImportPick)]),
-        Some((name, _)) => {
-            restore = restore
-                .push(
-                    row![icon(I_FOLDER), text(name.clone()).size(14)]
-                        .spacing(8)
-                        .align_y(Alignment::Center),
-                )
-                .push(
-                    row![
-                        kit::float_field(
-                            tr("Mot de passe de la sauvegarde"),
-                            text_input("", &imp.password)
-                                .on_input(Message::ImportPassword)
-                                .on_submit(Message::ImportRun)
-                                .secure(true)
-                        ),
-                        primary(
-                            if imp.busy { tr("Déchiffrement…") } else { tr("Restaurer") },
-                            (!imp.busy && !imp.password.is_empty()).then_some(Message::ImportRun)
-                        ),
-                    ]
-                    .spacing(10)
-                    .align_y(Alignment::End),
-                );
-        }
-    }
-
-    let ex = &app.export;
-    let ok = ex.password.chars().count() >= 8 && ex.password == ex.confirm && !ex.busy;
-    let export = column![
-        soft(tr(
-            "Un fichier chiffré (Argon2id + AES-256), à rouvrir sur un autre appareil avec ce mot de passe."
-        )),
-        row![
-            kit::float_field(
-                tr("Mot de passe (8 caractères minimum)"),
-                text_input("", &ex.password).on_input(Message::ExportPassword).secure(true)
-            ),
-            kit::float_field(
-                tr("Confirmer"),
-                text_input("", &ex.confirm)
-                    .on_input(Message::ExportConfirm)
-                    .on_submit(Message::ExportRun)
-                    .secure(true)
-            ),
-            primary(
-                if ex.busy { tr("Chiffrement…") } else { tr("Exporter…") },
-                ok.then_some(Message::ExportRun)
-            ),
-        ]
-        .spacing(10)
-        .align_y(Alignment::End),
-    ]
-    .spacing(12);
-
-    column![
-        settings_card(tr("Synchronisation"), sync_settings(app)),
-        settings_card(tr("Synchronisation Wi-Fi"), lan_settings(app)),
-        settings_card(tr("Sauvegarde"), backup_places(app)),
-        settings_card(tr("Restaurer"), restore),
-        settings_card(tr("Exporter"), export),
-    ]
-}
-
 pub(super) fn data_settings(app: &App) -> Column<'_, Message> {
     let key_place = match app.settings.key_store.as_deref() {
         Some("keyring") => tr("Clé de la base dans le trousseau du système"),
@@ -1058,266 +986,17 @@ pub(super) fn data_settings(app: &App) -> Column<'_, Message> {
 pub(super) fn place_icon(d: &nautile_net::store::Dest) -> char {
     match d {
         nautile_net::store::Dest::Folder { .. } => I_FOLDER,
-        _ => I_CLOUD,
+        nautile_net::store::Dest::WebDav { .. } => I_HOSTS,
+        nautile_net::store::Dest::S3 { .. } => I_INVENTORY,
     }
 }
 
-/// The backup password, the places and their schedules.
-pub(super) fn backup_places(app: &App) -> Element<'_, Message> {
-    use crate::backup::{BackupMsg as B, Frequency, PlaceField as F, PlaceKind};
-    let st = &app.backup;
-    let mut c = column![].spacing(12);
-
-    // Password.
-    let has = app.has_backup_password();
-    c = c.push(soft(if has {
-        tr("Le mot de passe de sauvegarde est enregistré sur cet ordinateur : les sauvegardes automatiques et la synchronisation s'en servent.")
-    } else {
-        tr("Choisissez le mot de passe des sauvegardes (le même que sur vos autres appareils pour la synchronisation).")
-    }));
-    let ok = st.password.chars().count() >= 8 && st.password == st.password_confirm;
-    c = c.push(
-        row![
-            text_input(
-                &if has {
-                    tr("Nouveau mot de passe")
-                } else {
-                    tr("Mot de passe (8 caractères minimum)")
-                },
-                &st.password
-            )
-            .on_input(|v| bm(B::PasswordInput(v)))
-            .secure(true)
-            .padding([9, 12])
-            .size(14)
-            .style(theme::input),
-            text_input(&tr("Confirmer"), &st.password_confirm)
-                .on_input(|v| bm(B::PasswordConfirm(v)))
-                .on_submit(bm(B::SavePassword))
-                .secure(true)
-                .padding([9, 12])
-                .size(14)
-                .style(theme::input),
-            primary(tr("Enregistrer"), ok.then_some(bm(B::SavePassword))),
-        ]
-        .spacing(10),
-    );
-
-    // Places.
-    c = c.push(label(tr("EMPLACEMENTS")));
-    let now = nautile_core::model::now_ms();
-    for t in &app.settings.targets {
-        let syncing = app.settings.sync_enabled && app.settings.sync_target.as_ref() == Some(&t.id);
-        let running = st.running.contains(&t.id) || (syncing && st.syncing);
-        let status = if running {
-            soft(tr("En cours…"))
-        } else if let Some(e) = &t.error {
-            pink(e.clone())
-        } else if let Some(l) = t.last {
-            green(trf("Dernière sauvegarde : %1$s", &[&when(l)]))
-        } else {
-            soft(tr("Jamais sauvegardé ici"))
-        };
-        let mut info = column![text(t.dest.describe()).size(14).font(MONO), status].spacing(4);
-        if syncing {
-            info = info.push(label(tr("Synchronisé avec vos autres appareils")));
-        } else if t.auto {
-            let next = crate::backup::next_run(t.frequency, t.time, t.weekday, t.last, now);
-            info = info.push(label(trf("%1$s · prochaine : %2$s", &[&t.frequency.label(), &when(next)])));
-        }
-        let open = st.open.as_ref() == Some(&t.id);
-        let id = t.id.clone();
-        let head = row![
-            icon(place_icon(&t.dest)),
-            info.width(Fill),
-            secondary(tr("Sauvegarder"), bm(B::Now(id.clone()))),
-            icon_button(I_SETTINGS, bm(B::Open(if open { None } else { Some(id.clone()) }))),
-        ]
-        .spacing(12)
-        .align_y(Alignment::Center);
-        let mut card = column![head].spacing(12);
-        if open {
-            let mut opts = column![switch(tr("Sauvegarde automatique (tant que Nautile est ouvert)"), t.auto, {
-                let id = id.clone();
-                move |v| bm(B::Auto(id.clone(), v))
-            })]
-            .spacing(10);
-            if t.auto {
-                let idf = id.clone();
-                opts = opts.push(
-                    pick_list(
-                        Frequency::ALL.map(FreqChoice),
-                        Some(FreqChoice(t.frequency)),
-                        move |f: FreqChoice| bm(B::Frequency(idf.clone(), f.0)),
-                    )
-                    .padding([7, 12])
-                    .style(theme::select),
-                );
-                if t.frequency.at_time() {
-                    let idt = id.clone();
-                    let mut r = row![
-                        label(tr("À")),
-                        text_input("03:00", &format!("{:02}:{:02}", t.time / 60, t.time % 60))
-                            .on_input(move |v| bm(B::Time(idt.clone(), v)))
-                            .width(90)
-                            .padding([7, 10])
-                            .size(13)
-                            .style(theme::input),
-                    ]
-                    .spacing(8)
-                    .align_y(Alignment::Center);
-                    if t.frequency == Frequency::Week {
-                        let days = [
-                            tr("lundi"),
-                            tr("mardi"),
-                            tr("mercredi"),
-                            tr("jeudi"),
-                            tr("vendredi"),
-                            tr("samedi"),
-                            tr("dimanche"),
-                        ];
-                        let choices: Vec<DayChoice> = (1..=7).map(|d| DayChoice(d, days[d as usize - 1].clone())).collect();
-                        let current = choices.iter().find(|d| d.0 == t.weekday).cloned();
-                        let idw = id.clone();
-                        r = r.push(
-                            pick_list(choices, current, move |d: DayChoice| bm(B::Weekday(idw.clone(), d.0)))
-                                .padding([7, 12])
-                                .style(theme::select),
-                        );
-                    }
-                    opts = opts.push(r);
-                }
-            }
-            opts = opts.push(
-                button(text(tr("Retirer cet emplacement")).size(13))
-                    .padding([7, 12])
-                    .style(theme::danger)
-                    .on_press(bm(B::Remove(id.clone()))),
-            );
-            card = card.push(opts);
-        }
-        c = c.push(container(card).padding(12).style(theme::card));
-    }
-    match &st.place {
-        None => {
-            c = c.push(
-                row![
-                    secondary(tr("+ Dossier"), bm(B::NewPlace(PlaceKind::Folder))),
-                    secondary("+ WebDAV".into(), bm(B::NewPlace(PlaceKind::WebDav))),
-                    secondary("+ S3".into(), bm(B::NewPlace(PlaceKind::S3))),
-                ]
-                .spacing(8),
-            );
-            c = c.push(label(tr(
-                "Dossier : celui de Google Drive, OneDrive, Nextcloud ou Syncthing sur cet ordinateur convient aussi.",
-            )));
-        }
-        Some(p) => {
-            let inp = |ph: &str, v: &str, f: fn(String) -> F| {
-                text_input(ph, v)
-                    .on_input(move |x| bm(B::Place(f(x))))
-                    .padding([8, 12])
-                    .size(13)
-                    .style(theme::input)
-            };
-            let mut form = column![].spacing(8);
-            match p.kind {
-                PlaceKind::Folder => {
-                    form = form.push(
-                        row![inp(&tr("Dossier"), &p.path, F::Path), secondary(tr("Choisir…"), bm(B::PickFolder))]
-                            .spacing(8)
-                            .align_y(Alignment::Center),
-                    )
-                }
-                PlaceKind::WebDav => {
-                    form = form
-                        .push(inp("https://cloud.example.org/remote.php/dav/files/moi/Nautile/", &p.url, F::Url))
-                        .push(
-                            row![
-                                inp(&tr("Utilisateur"), &p.username, F::Username),
-                                inp(&tr("Mot de passe"), &p.secret, F::Secret).secure(true)
-                            ]
-                            .spacing(8),
-                        )
-                }
-                PlaceKind::S3 => {
-                    form = form
-                        .push(
-                            row![
-                                inp("s3.eu-west-3.amazonaws.com", &p.endpoint, F::Endpoint),
-                                inp("us-east-1", &p.region, F::Region).width(140)
-                            ]
-                            .spacing(8),
-                        )
-                        .push(row![inp("bucket", &p.bucket, F::Bucket), inp("nautile.backup", &p.key, F::Key)].spacing(8))
-                        .push(
-                            row![
-                                inp(&tr("Clé d'accès"), &p.access_key, F::AccessKey),
-                                inp(&tr("Clé secrète"), &p.secret, F::Secret).secure(true)
-                            ]
-                            .spacing(8),
-                        )
-                }
-            }
-            if let Some(e) = &p.error {
-                form = form.push(pink(e.clone()));
-            }
-            form = form.push(
-                row![
-                    secondary(tr("Annuler"), bm(B::CancelPlace)),
-                    primary(
-                        if p.busy {
-                            tr("Vérification…")
-                        } else {
-                            tr("Vérifier et ajouter")
-                        },
-                        (!p.busy && p.dest().is_some()).then_some(bm(B::AddPlace))
-                    ),
-                ]
-                .spacing(8),
-            );
-            c = c.push(container(form).padding(12).style(theme::card));
-        }
-    }
-
-    // Copies kept here.
-    let versions = crate::backup::versions(app);
-    if !versions.is_empty() {
-        c = c.push(label(tr("COPIES SUR CET ORDINATEUR")));
-        for (path, at, size) in versions {
-            c = c.push(
-                row![
-                    text(when(at)).font(MONO).size(13),
-                    label(nautile_net::sftp::human_size(size)),
-                    Space::new().width(Fill),
-                    button(text(tr("Restaurer")).size(12))
-                        .padding([5, 10])
-                        .style(theme::secondary)
-                        .on_press(bm(B::RestoreVersion(path))),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
-            );
-        }
-    }
-    c.into()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct FreqChoice(crate::backup::Frequency);
-
-impl std::fmt::Display for FreqChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0.label())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct DayChoice(u32, String);
-
-impl std::fmt::Display for DayChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.1)
+/// The kind of a place, as on Android's rows.
+fn place_kind(d: &nautile_net::store::Dest) -> String {
+    match d {
+        nautile_net::store::Dest::Folder { .. } => tr("Dossier"),
+        nautile_net::store::Dest::WebDav { .. } => "Nextcloud / WebDAV".into(),
+        nautile_net::store::Dest::S3 { endpoint, .. } => format!("S3 · {endpoint}"),
     }
 }
 
@@ -1328,176 +1007,6 @@ impl std::fmt::Display for TargetChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.1)
     }
-}
-
-/// Synchronisation through a shared file, and straight over Wi-Fi.
-pub(super) fn sync_settings(app: &App) -> Element<'_, Message> {
-    use crate::backup::BackupMsg as B;
-    let s = &app.settings;
-    let st = &app.backup;
-    let mut c = column![
-        soft(tr("Vos appareils partagent un même fichier chiffré : chacun y fusionne ses modifications (la plus récente l'emporte, suppressions comprises).")),
-        switch(tr("Synchroniser mes appareils"), s.sync_enabled, |v| bm(B::SyncEnabled(v))),
-    ]
-    .spacing(12);
-    if s.sync_enabled {
-        let choices: Vec<TargetChoice> = s.targets.iter().map(|t| TargetChoice(t.id.clone(), t.dest.describe())).collect();
-        if choices.is_empty() {
-            c = c.push(pink(tr("Ajoutez d'abord un emplacement de sauvegarde.")));
-        } else {
-            let current = choices.iter().find(|t| Some(&t.0) == s.sync_target.as_ref()).cloned();
-            c = c.push(field(
-                tr("Fichier partagé"),
-                pick_list(choices, current, |t: TargetChoice| bm(B::SyncTarget(t.0)))
-                    .width(Fill)
-                    .padding([8, 12])
-                    .style(theme::select),
-            ));
-            c = c.push(field(
-                tr("Fréquence"),
-                segmented(
-                    vec![
-                        (5, "5 min".into()),
-                        (15, "15 min".into()),
-                        (30, "30 min".into()),
-                        (60, "1 h".into()),
-                    ],
-                    s.sync_minutes(),
-                    |m| bm(B::SyncMinutes(m)),
-                ),
-            ));
-        }
-        if !app.has_backup_password() {
-            c = c.push(pink(tr("Mot de passe de sauvegarde non enregistré")));
-        }
-        let status = if st.syncing {
-            soft(tr("Synchronisation…"))
-        } else if let Some(e) = &s.sync_error {
-            pink(e.clone())
-        } else if let Some(l) = s.last_sync {
-            green(trf("Dernière synchronisation : %1$s", &[&when(l)]))
-        } else {
-            soft(tr("Pas encore synchronisé"))
-        };
-        c = c.push(
-            row![status.width(Fill), secondary(tr("Synchroniser maintenant"), bm(B::SyncNow))]
-                .spacing(12)
-                .align_y(Alignment::Center),
-        );
-        let me = s.device_id.clone().unwrap_or_default();
-        for (id, name, seen) in &s.devices {
-            let this = *id == me;
-            c = c.push(
-                row![
-                    icon(if this { I_DESKTOP } else { I_PHONE }).size(15),
-                    text(if this {
-                        trf("%1$s (cet ordinateur)", &[name])
-                    } else {
-                        name.clone()
-                    })
-                    .size(13)
-                    .width(Fill),
-                    label(when(*seen)).font(MONO),
-                ]
-                .spacing(10)
-                .align_y(Alignment::Center),
-            );
-        }
-    }
-    c.into()
-}
-
-pub(super) fn lan_settings(app: &App) -> Element<'_, Message> {
-    use crate::backup::BackupMsg as B;
-    let s = &app.settings;
-    let st = &app.backup;
-    let mut c = column![
-        soft(tr(
-            "Sans cloud : vos appareils associés se synchronisent directement quand ils sont sur le même réseau."
-        )),
-        switch(tr("Sur le Wi-Fi, sans cloud"), s.lan_enabled, |v| bm(B::LanEnabled(v))),
-    ]
-    .spacing(12);
-    if !s.lan_enabled {
-        return c.into();
-    }
-    if let Some(code) = &st.lan_code {
-        c = c.push(
-            container(
-                column![
-                    label(tr("Tapez ce code sur l'autre appareil")),
-                    text(format!("{} {}", &code[..3], &code[3..])).font(MONO).size(34),
-                    secondary(tr("Annuler"), bm(B::LanCancelCode)),
-                ]
-                .spacing(8)
-                .align_x(Alignment::Center),
-            )
-            .padding(16)
-            .center_x(Fill)
-            .style(theme::card),
-        );
-    } else {
-        c = c.push(row![secondary(tr("Associer : afficher un code"), bm(B::LanShowCode))]);
-    }
-    let paired: Vec<&str> = s.lan_peers.iter().map(|p| p.id.as_str()).collect();
-    let others: Vec<_> = st.lan_found.iter().filter(|f| !paired.contains(&f.id.as_str())).collect();
-    if !others.is_empty() {
-        c = c.push(label(tr("À PROXIMITÉ")));
-        for f in others {
-            let pairing = st.lan_pairing.as_ref().filter(|(p, _)| p.id == f.id);
-            let r: Element<Message> = match pairing {
-                Some((_, code)) => row![
-                    text(f.name.clone()).size(13).width(Fill),
-                    text_input(&tr("Code affiché"), code)
-                        .on_input(|v| bm(B::LanCode(v)))
-                        .on_submit(bm(B::LanPair))
-                        .font(MONO)
-                        .width(120)
-                        .padding([7, 10])
-                        .size(14)
-                        .style(theme::input),
-                    primary(tr("Associer"), (code.len() == 6 && !st.lan_busy).then_some(bm(B::LanPair))),
-                ]
-                .spacing(10)
-                .align_y(Alignment::Center)
-                .into(),
-                None => row![
-                    text(f.name.clone()).size(13).width(Fill),
-                    secondary(tr("Associer…"), bm(B::LanPairWith(f.clone()))),
-                ]
-                .spacing(10)
-                .align_y(Alignment::Center)
-                .into(),
-            };
-            c = c.push(r);
-        }
-    }
-    if !s.lan_peers.is_empty() {
-        c = c.push(label(tr("APPAREILS ASSOCIÉS")));
-        for p in &s.lan_peers {
-            let near = st.lan_found.iter().any(|f| f.id == p.id);
-            let state = if p.last > 0 {
-                trf("synchronisé %1$s", &[&when(p.last)])
-            } else {
-                tr("jamais synchronisé")
-            };
-            c = c.push(
-                row![
-                    text(p.name.clone()).size(13),
-                    label(if near { trf("à portée · %1$s", &[&state]) } else { state }),
-                    Space::new().width(Fill),
-                    icon_button(I_TRASH, bm(B::LanForget(p.id.clone()))),
-                ]
-                .spacing(10)
-                .align_y(Alignment::Center),
-            );
-        }
-        c = c.push(row![secondary(tr("Synchroniser maintenant"), bm(B::LanSyncNow))]);
-    }
-    if let Some(m) = &st.lan_status {
-        c = c.push(soft(m.clone()));
-    }
-    c.into()
 }
 
 // --- AI assistant ---
@@ -2014,6 +1523,1154 @@ pub(super) fn ai_prompt_modal(app: &App, max_height: f32) -> Element<'_, Message
             body,
             Some(foot.into()),
             680.0,
+            max_height,
+        ),
+        None,
+    )
+}
+
+// --- Backups and synchronisation (as Android's BackupSettingsScreen) ---
+
+/// How a card stands: its border follows (green when on, pink on error, amber when something is to do).
+#[derive(Clone, Copy, PartialEq)]
+enum CardTone {
+    Plain,
+    Good,
+    Bad,
+    Warn,
+}
+
+fn toned_card(tone: CardTone) -> impl Fn(&iced::Theme) -> container::Style {
+    move |t| {
+        let n = theme::nt(t);
+        let border = match tone {
+            CardTone::Plain => n.border,
+            CardTone::Good => theme::alpha(n.green, 0.45),
+            CardTone::Bad => theme::alpha(n.pink, 0.55),
+            CardTone::Warn => theme::alpha(n.accent, 0.45),
+        };
+        container::Style {
+            background: Some(n.surface.into()),
+            border: iced::Border {
+                color: border,
+                width: 1.0,
+                radius: 16.0.into(),
+            },
+            ..Default::default()
+        }
+    }
+}
+
+/// The head of a card: its tile, its title with an (i), its state, and its switch.
+fn switch_head<'a>(
+    c: char,
+    lit: bool,
+    title: String,
+    info: Message,
+    subtitle: Element<'a, Message>,
+    on: bool,
+    toggle: impl Fn(bool) -> Message + 'a,
+) -> Element<'a, Message> {
+    let tile = container(kit::icon(c, 22.0))
+        .center(Length::Fixed(42.0))
+        .style(move |t: &iced::Theme| {
+            let n = theme::nt(t);
+            theme::soft_tile(if lit { n.green } else { n.muted }, 12.0)(t)
+        });
+    row![
+        tile,
+        column![
+            row![
+                text(title).size(16).font(BOLD),
+                button(kit::icon(I_INFO, 18.0).style(|t: &iced::Theme| text::Style {
+                    color: Some(theme::nt(t).muted),
+                }))
+                .padding(4)
+                .style(theme::ghost)
+                .on_press(info),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
+            subtitle,
+        ]
+        .spacing(2)
+        .width(Fill),
+        iced::widget::toggler(on).on_toggle(toggle).size(26).style(theme::toggler),
+    ]
+    .spacing(14)
+    .align_y(Alignment::Center)
+    .into()
+}
+
+pub(super) fn backup_settings(app: &App) -> Column<'_, Message> {
+    column![sync_card(app), lan_card(app), backup_card(app)]
+}
+
+fn sync_card(app: &App) -> Element<'_, Message> {
+    use crate::backup::BackupMsg as B;
+    let s = &app.settings;
+    let st = &app.backup;
+    let now = nautile_core::model::now_ms();
+    let on = s.sync_enabled;
+    let error = s.sync_error.clone().filter(|_| on);
+    let subtitle: Element<Message> = if !on {
+        soft(tr("Vos hôtes, clés et snippets sur tous vos appareils")).into()
+    } else if st.syncing {
+        soft(tr("Synchronisation…")).into()
+    } else if st.waiting_vpn {
+        text(tr("En attente du VPN"))
+            .size(13)
+            .style(|t: &iced::Theme| text::Style {
+                color: Some(theme::nt(t).accent),
+            })
+            .into()
+    } else if let Some(at) = st.retry_at.filter(|at| *at > now) {
+        let hm = chrono::DateTime::from_timestamp_millis(at)
+            .map(|d| d.with_timezone(&chrono::Local).format("%H:%M").to_string())
+            .unwrap_or_default();
+        soft(trf("Serveur injoignable, nouvel essai à %1$s", &[&hm])).into()
+    } else if let Some(e) = &error {
+        pink(e.clone()).size(13).into()
+    } else {
+        let devices = s.devices.len().max(1);
+        let when = s
+            .last_sync
+            .map(|l| kit::relative_time(l, now))
+            .unwrap_or_else(|| tr("Pas encore synchronisé"));
+        soft(trf("%1$s · %2$s appareil(s)", &[&when, &devices])).into()
+    };
+    let head = switch_head(
+        I_SYNC,
+        on,
+        tr("Synchroniser mes appareils"),
+        Message::OpenModal(Some(crate::app::Modal::SyncInfo)),
+        subtitle,
+        on,
+        |v| bm(B::SyncEnabled(v)),
+    );
+    let mut body = column![head].spacing(16);
+    if on {
+        if s.targets.is_empty() {
+            body = body.push(
+                row![
+                    pink(tr("Ajoutez d'abord un emplacement de sauvegarde.")).width(Fill),
+                    secondary(tr("Ajouter un emplacement"), Message::OpenModal(Some(crate::app::Modal::AddPlace))),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            );
+        } else {
+            // The devices sharing the file.
+            let me = s.device_id.clone().unwrap_or_default();
+            let mut chips = row![].spacing(8);
+            for (id, name, _) in &s.devices {
+                let this = *id == me;
+                chips = chips.push(
+                    container(
+                        row![
+                            kit::icon(if this { I_COMPUTER } else { I_PHONE }, 16.0),
+                            text(if this {
+                                trf("%1$s (cet ordinateur)", &[name])
+                            } else {
+                                name.clone()
+                            })
+                            .size(13)
+                        ]
+                        .spacing(6)
+                        .align_y(Alignment::Center),
+                    )
+                    .padding([6, 12])
+                    .style(move |t: &iced::Theme| {
+                        let n = theme::nt(t);
+                        theme::chip(if this { n.accent } else { n.text_soft })(t)
+                    }),
+                );
+            }
+            if !s.devices.is_empty() {
+                body = body.push(chips.wrap());
+            }
+            let choices: Vec<TargetChoice> = s.targets.iter().map(|t| TargetChoice(t.id.clone(), t.dest.describe())).collect();
+            let current = choices.iter().find(|t| Some(&t.0) == s.sync_target.as_ref()).cloned();
+            body = body.push(kit::float_box(
+                tr("Fichier partagé"),
+                pick_list(choices, current, |t: TargetChoice| bm(B::SyncTarget(t.0)))
+                    .width(Fill)
+                    .padding([12, 14])
+                    .text_size(14)
+                    .style(theme::select),
+            ));
+            body = body.push(
+                row![
+                    field(
+                        tr("Fréquence"),
+                        segmented(
+                            vec![
+                                (5, "5 min".into()),
+                                (15, "15 min".into()),
+                                (30, "30 min".into()),
+                                (60, "1 h".into())
+                            ],
+                            s.sync_minutes(),
+                            |m| bm(B::SyncMinutes(m)),
+                        )
+                    )
+                    .width(Fill),
+                    field(
+                        tr("Réseau"),
+                        segmented(
+                            vec![(false, tr("Tous")), (true, tr("Seulement via le VPN"))],
+                            s.sync_vpn_only,
+                            |v| bm(B::VpnOnly(v)),
+                        )
+                    )
+                    .width(Fill),
+                ]
+                .spacing(14),
+            );
+            if s.sync_vpn_only {
+                let up = crate::backup::vpn_up();
+                body = body.push(
+                    row![
+                        kit::icon(I_VPN_LOCK, 18.0).style(move |t: &iced::Theme| text::Style {
+                            color: Some(if up { theme::nt(t).green } else { theme::nt(t).accent }),
+                        }),
+                        soft(if up {
+                            tr("VPN actif : la synchronisation passe par lui.")
+                        } else {
+                            tr("Aucun VPN actif : la synchronisation attend qu'il se connecte (WireGuard, Tailscale, OpenVPN…).")
+                        }),
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                );
+            }
+            if !app.has_backup_password() {
+                body = body.push(
+                    row![
+                        pink(tr("Mot de passe de sauvegarde non enregistré")).width(Fill),
+                        secondary(tr("Choisir"), Message::OpenModal(Some(crate::app::Modal::Password))),
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                );
+            }
+            body = body.push(row![secondary(tr("Synchroniser maintenant"), bm(B::SyncNow))]);
+        }
+    }
+    let tone = if error.is_some() {
+        CardTone::Bad
+    } else if on {
+        CardTone::Good
+    } else {
+        CardTone::Plain
+    };
+    container(body).padding(18).width(Fill).style(toned_card(tone)).into()
+}
+
+fn lan_card(app: &App) -> Element<'_, Message> {
+    use crate::backup::BackupMsg as B;
+    let s = &app.settings;
+    let st = &app.backup;
+    let on = s.lan_enabled;
+    let subtitle = if !on {
+        tr("Directement entre vos appareils, sur le même réseau")
+    } else if s.lan_peers.is_empty() {
+        tr("Aucun appareil associé")
+    } else {
+        trf("%1$s appareil(s) associé(s)", &[&s.lan_peers.len()])
+    };
+    let head = switch_head(
+        I_DEVICES,
+        on && !s.lan_peers.is_empty(),
+        tr("Sur le Wi-Fi, sans cloud"),
+        Message::OpenModal(Some(crate::app::Modal::LanInfo)),
+        soft(subtitle).into(),
+        on,
+        |v| bm(B::LanEnabled(v)),
+    );
+    let mut body = column![head].spacing(14);
+    if on {
+        let now = nautile_core::model::now_ms();
+        if !s.lan_peers.is_empty() {
+            let rows: Vec<Element<Message>> = s
+                .lan_peers
+                .iter()
+                .map(|p| {
+                    let near = st.lan_found.iter().any(|f| f.id == p.id);
+                    let state = if p.last > 0 {
+                        trf("Synchro %1$s", &[&kit::relative_time(p.last, now)])
+                    } else {
+                        tr("jamais synchronisé")
+                    };
+                    row![
+                        kit::icon_tile(I_PHONE, theme::nt(&app.theme()).blue),
+                        column![
+                            text(p.name.clone()).size(15).font(BOLD),
+                            soft(if near { trf("à portée · %1$s", &[&state]) } else { state }),
+                        ]
+                        .spacing(2)
+                        .width(Fill),
+                        icon_button(I_CLOSE, bm(B::LanForget(p.id.clone()))),
+                    ]
+                    .spacing(12)
+                    .padding([10, 14])
+                    .align_y(Alignment::Center)
+                    .into()
+                })
+                .collect();
+            body = body.push(kit::card(rows));
+        }
+        let mut actions = row![secondary(tr("Associer"), Message::OpenModal(Some(crate::app::Modal::LanPair)))].spacing(10);
+        if !s.lan_peers.is_empty() {
+            actions = actions.push(secondary(tr("Synchroniser"), bm(B::LanSyncNow)));
+        }
+        body = body.push(actions);
+        if let Some(m) = &st.lan_status {
+            body = body.push(soft(m.clone()));
+        }
+    }
+    let tone = if on && !s.lan_peers.is_empty() {
+        CardTone::Good
+    } else {
+        CardTone::Plain
+    };
+    container(body).padding(18).width(Fill).style(toned_card(tone)).into()
+}
+
+fn backup_card(app: &App) -> Element<'_, Message> {
+    use crate::backup::BackupMsg as B;
+    let s = &app.settings;
+    let st = &app.backup;
+    let now = nautile_core::model::now_ms();
+    let last = last_saved(app);
+    let fresh = last.is_some_and(|l| now - l < 30 * 24 * 3600 * 1000);
+    let failed = s.targets.iter().find_map(|t| t.error.clone());
+    let (title, detail) = match last {
+        Some(l) => (
+            trf("Dernière sauvegarde %1$s", &[&kit::relative_time(l, now)]),
+            if fresh {
+                tr("À jour")
+            } else {
+                tr("Plus de 30 jours : pensez à sauvegarder")
+            },
+        ),
+        None => (
+            tr("Aucune sauvegarde exportée"),
+            tr("Une copie chiffrée, à garder ailleurs que sur cet ordinateur"),
+        ),
+    };
+    let status = row![
+        container(kit::icon(if fresh { I_CLOUD_DONE } else { I_CLOUD_UPLOAD }, 22.0))
+            .center(Length::Fixed(42.0))
+            .style(move |t: &iced::Theme| {
+                let n = theme::nt(t);
+                theme::soft_tile(if fresh { n.green } else { n.accent }, 12.0)(t)
+            }),
+        column![text(title).size(16).font(BOLD), soft(detail)].spacing(2).width(Fill),
+    ]
+    .spacing(14)
+    .align_y(Alignment::Center);
+    let mut body = column![status].spacing(14);
+
+    if !app.has_backup_password() {
+        body = body.push(
+            container(
+                row![
+                    kit::icon(I_VPN_KEY, 20.0),
+                    soft(tr(
+                        "Choisissez d'abord le mot de passe des sauvegardes (le même sur tous vos appareils)."
+                    ))
+                    .width(Fill),
+                    primary(tr("Choisir"), Some(Message::OpenModal(Some(crate::app::Modal::Password)))),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            )
+            .padding([10, 14])
+            .style(|t: &iced::Theme| theme::soft_tile(theme::nt(t).accent, 12.0)(t)),
+        );
+    }
+
+    // The places.
+    body = body.push(label(tr("Emplacements")));
+    let sync_target = s.sync_target.clone().filter(|_| s.sync_enabled);
+    let mut rows: Vec<Element<Message>> = s
+        .targets
+        .iter()
+        .map(|t| {
+            let syncing = sync_target.as_ref() == Some(&t.id);
+            let running = st.running.contains(&t.id) || (syncing && st.syncing);
+            let when = t.last.map(|l| kit::relative_time(l, now)).unwrap_or_else(|| tr("jamais"));
+            let state: Element<Message> = if running {
+                soft(tr("En cours…")).into()
+            } else if let Some(e) = &t.error {
+                pink(trf("Échec : %1$s", &[e])).size(13).into()
+            } else if syncing {
+                soft(trf("Synchronisé · %1$s", &[&when])).into()
+            } else if t.auto {
+                let hm = format!("{:02}:{:02}", t.time / 60, t.time % 60);
+                soft(format!("{} · {} · {}", t.frequency.label(), hm, when)).into()
+            } else {
+                soft(format!("{} · {}", tr("Manuelle"), when)).into()
+            };
+            let mut name = row![text(place_kind(&t.dest)).size(15).font(BOLD)]
+                .spacing(8)
+                .align_y(Alignment::Center);
+            if syncing {
+                name = name.push(
+                    container(text(tr("Synchro")).size(11).font(BOLD))
+                        .padding([2, 8])
+                        .style(|t: &iced::Theme| theme::chip(theme::nt(t).green)(t)),
+                );
+            }
+            button(
+                row![
+                    kit::icon_tile(place_icon(&t.dest), theme::nt(&app.theme()).text_soft),
+                    column![name, text(t.dest.describe()).font(MONO).size(12), state]
+                        .spacing(3)
+                        .width(Fill),
+                    kit::icon(I_GEAR, 22.0),
+                ]
+                .spacing(14)
+                .align_y(Alignment::Center),
+            )
+            .width(Fill)
+            .padding([12, 14])
+            .style(theme::card_pick(false))
+            .on_press(bm(B::Open(Some(t.id.clone()))))
+            .into()
+        })
+        .collect();
+    rows.push(
+        button(
+            row![icon(I_ADD).size(22), text(tr("Ajouter un emplacement")).size(15).font(BOLD)]
+                .spacing(12)
+                .align_y(Alignment::Center),
+        )
+        .width(Fill)
+        .padding([14, 16])
+        .style(|t: &iced::Theme, st| {
+            let mut b = theme::card_pick(false)(t, st);
+            b.text_color = theme::nt(t).accent;
+            b
+        })
+        .on_press(Message::OpenModal(Some(crate::app::Modal::AddPlace)))
+        .into(),
+    );
+    body = body.push(kit::card(rows));
+
+    let mut actions = row![].spacing(10).align_y(Alignment::Center);
+    if !s.targets.is_empty() {
+        actions = actions.push(primary(
+            if s.targets.len() > 1 {
+                tr("Sauvegarder partout")
+            } else {
+                tr("Sauvegarder")
+            },
+            app.has_backup_password().then_some(bm(B::NowAll)),
+        ));
+    }
+    actions = actions.push(secondary(tr("Restaurer…"), Message::ImportPick));
+    body = body.push(actions);
+    body = body.push(
+        button(text(tr("Exporter aussi une copie dans un fichier…")).size(14))
+            .padding([4, 0])
+            .style(|t: &iced::Theme, _| button::Style {
+                text_color: theme::nt(t).accent,
+                ..Default::default()
+            })
+            .on_press(Message::OpenModal(Some(crate::app::Modal::Export))),
+    );
+
+    // Copies kept on this computer.
+    let versions = crate::backup::versions(app);
+    if !versions.is_empty() {
+        body = body.push(label(tr("Versions précédentes")));
+        let rows: Vec<Element<Message>> = versions
+            .into_iter()
+            .map(|(path, at, size)| {
+                row![
+                    kit::icon(I_HISTORY, 20.0).style(|t: &iced::Theme| text::Style {
+                        color: Some(theme::nt(t).muted),
+                    }),
+                    column![text(when(at)).font(MONO).size(13), soft(nautile_net::sftp::human_size(size))]
+                        .spacing(2)
+                        .width(Fill),
+                    secondary(tr("Restaurer"), bm(B::RestoreVersion(path))),
+                ]
+                .spacing(12)
+                .padding([10, 14])
+                .align_y(Alignment::Center)
+                .into()
+            })
+            .collect();
+        body = body.push(kit::card(rows));
+    }
+    body = body.push(soft(tr(
+        "Fichier chiffré (Argon2id + AES-256-GCM) : sans le mot de passe, il est illisible. Il se restaure sur le téléphone comme ici.",
+    )));
+    if app.has_backup_password() {
+        body = body.push(
+            button(text(tr("Changer le mot de passe de sauvegarde")).size(14))
+                .padding([4, 0])
+                .style(|t: &iced::Theme, _| button::Style {
+                    text_color: theme::nt(t).accent,
+                    ..Default::default()
+                })
+                .on_press(Message::OpenModal(Some(crate::app::Modal::Password))),
+        );
+    }
+    let tone = if failed.is_some() {
+        CardTone::Bad
+    } else if !fresh {
+        CardTone::Warn
+    } else {
+        CardTone::Plain
+    };
+    column![
+        container(kit::section_label(tr("Sauvegarde"))).padding([0, 4]),
+        container(body).padding(18).width(Fill).style(toned_card(tone)),
+    ]
+    .spacing(10)
+    .into()
+}
+
+/// A list of explanations with bullets, in a pop-up.
+fn bullets_modal<'a>(title: String, lines: Vec<String>, max_height: f32) -> Element<'a, Message> {
+    let body = column(lines.into_iter().map(|l| {
+        row![
+            text("•").size(15).style(|t: &iced::Theme| text::Style {
+                color: Some(theme::nt(t).accent),
+            }),
+            text(l).size(14).width(Fill),
+        ]
+        .spacing(10)
+        .into()
+    }))
+    .spacing(12);
+    kit::overlay(
+        kit::dialog(
+            kit::dialog_head(title, None, None, Message::OpenModal(None)),
+            body,
+            Some(row![Space::new().width(Fill), primary(tr("Compris"), Some(Message::OpenModal(None)))].into()),
+            520.0,
+            max_height,
+        ),
+        Some(Message::OpenModal(None)),
+    )
+}
+
+pub(super) fn sync_info_modal<'a>(max_height: f32) -> Element<'a, Message> {
+    bullets_modal(
+        tr("La synchronisation"),
+        vec![
+            tr("Hôtes, clés, identités, snippets, tunnels et hôtes connus sont partagés entre vos appareils."),
+            tr("Sur chaque appareil : le même emplacement et le même mot de passe. Un dossier Google Drive, OneDrive ou Syncthing convient aussi."),
+            tr("La modification la plus récente l'emporte, suppressions comprises."),
+            tr("Le fichier synchronisé sert aussi de sauvegarde ; une copie par jour reste sur cet ordinateur."),
+            tr("Les clés API et les réglages d'affichage restent propres à chaque appareil."),
+        ],
+        max_height,
+    )
+}
+
+pub(super) fn lan_info_modal<'a>(max_height: f32) -> Element<'a, Message> {
+    bullets_modal(
+        tr("Sur le Wi-Fi, sans cloud"),
+        vec![
+            tr("Vos appareils échangent directement quand ils sont sur le même réseau : rien ne passe par Internet ni par un cloud."),
+            tr("Associez-les une fois avec un code à 6 chiffres ; ensuite ils se retrouvent tout seuls, à l'ouverture de l'app et après chaque modification."),
+            tr("La liaison est chiffrée (X25519, AES-256-GCM) et seuls les appareils associés sont acceptés."),
+            tr("Elle se combine avec la synchro par fichier : la modification la plus récente l'emporte partout."),
+        ],
+        max_height,
+    )
+}
+
+/// « Associer un appareil »: show a code here, or type the one shown on the other device.
+pub(super) fn lan_pair_modal(app: &App, max_height: f32) -> Element<'_, Message> {
+    use crate::backup::BackupMsg as B;
+    let st = &app.backup;
+    let n = theme::nt(&app.theme());
+    let close = Message::OpenModal(None);
+    let (title, back, body): (String, Option<Message>, Element<Message>) = if let Some(code) = &st.lan_code {
+        (
+            tr("Afficher un code"),
+            Some(bm(B::LanCancelCode)),
+            column![
+                soft(tr("Tapez ce code sur l'autre appareil, dans « Associer » › « Saisir un code ».")).size(14),
+                container(
+                    text(format!("{} {}", &code[..3], &code[3..]))
+                        .font(MONO)
+                        .size(44)
+                        .style(|t: &iced::Theme| text::Style {
+                            color: Some(theme::nt(t).accent),
+                        })
+                )
+                .padding(18)
+                .center_x(Fill),
+                soft(tr("Il change à chaque association et ne sert qu'une fois.")),
+            ]
+            .spacing(12)
+            .into(),
+        )
+    } else if st.lan_join {
+        let paired: Vec<&str> = app.settings.lan_peers.iter().map(|p| p.id.as_str()).collect();
+        let others: Vec<_> = st.lan_found.iter().filter(|f| !paired.contains(&f.id.as_str())).collect();
+        let mut c = column![soft(tr("Les appareils à proximité qui affichent un code :")).size(14)].spacing(12);
+        if others.is_empty() {
+            c = c.push(soft(tr(
+                "Recherche… Ouvrez Nautile sur l'autre appareil et choisissez « Afficher un code ».",
+            )));
+        }
+        let rows: Vec<Element<Message>> = others
+            .into_iter()
+            .map(|f| {
+                let pairing = st.lan_pairing.as_ref().filter(|(p, _)| p.id == f.id);
+                match pairing {
+                    Some((_, code)) => row![
+                        kit::icon_tile(I_PHONE, n.blue),
+                        text(f.name.clone()).size(15).font(BOLD).width(Fill),
+                        container(
+                            text_input(&tr("Code à 6 chiffres"), code)
+                                .on_input(|v| bm(B::LanCode(v)))
+                                .on_submit(bm(B::LanPair))
+                                .font(MONO)
+                                .padding([9, 12])
+                                .size(15)
+                                .style(theme::input)
+                        )
+                        .width(150),
+                        primary(tr("Associer"), (code.len() == 6 && !st.lan_busy).then_some(bm(B::LanPair))),
+                    ]
+                    .spacing(12)
+                    .padding([10, 14])
+                    .align_y(Alignment::Center)
+                    .into(),
+                    None => button(
+                        row![
+                            kit::icon_tile(I_PHONE, n.blue),
+                            text(f.name.clone()).size(15).font(BOLD).width(Fill),
+                            icon(I_CHEVRON_RIGHT).size(22),
+                        ]
+                        .spacing(12)
+                        .align_y(Alignment::Center),
+                    )
+                    .width(Fill)
+                    .padding([10, 14])
+                    .style(theme::card_pick(false))
+                    .on_press(bm(B::LanPairWith(f.clone())))
+                    .into(),
+                }
+            })
+            .collect();
+        if !rows.is_empty() {
+            c = c.push(kit::card(rows));
+        }
+        if let Some(m) = &st.lan_status {
+            c = c.push(soft(m.clone()));
+        }
+        (tr("Saisir un code"), Some(bm(B::LanJoin(false))), c.into())
+    } else {
+        (
+            tr("Associer un appareil"),
+            None,
+            column![
+                kit::kind_row(
+                    I_PHONE,
+                    n.accent,
+                    tr("Afficher un code"),
+                    tr("Cet ordinateur montre un code à taper sur l'autre appareil"),
+                    bm(B::LanShowCode)
+                ),
+                kit::kind_row(
+                    I_KEYBOARD,
+                    n.blue,
+                    tr("Saisir un code"),
+                    tr("L'autre appareil montre le code, vous le tapez ici"),
+                    bm(B::LanJoin(true))
+                ),
+            ]
+            .spacing(2)
+            .into(),
+        )
+    };
+    kit::overlay(
+        kit::dialog(kit::dialog_head(title, None, back, close), body, None, 560.0, max_height),
+        None,
+    )
+}
+
+/// « Ajouter un emplacement »: its kind, then its form.
+pub(super) fn add_place_modal(app: &App, max_height: f32) -> Element<'_, Message> {
+    use crate::backup::{BackupMsg as B, PlaceField as F, PlaceKind};
+    let n = theme::nt(&app.theme());
+    let close = Message::Backup(B::CancelPlace);
+    let Some(p) = &app.backup.place else {
+        let body = column![
+            kit::kind_row(
+                I_FOLDER,
+                n.accent,
+                tr("Dossier"),
+                tr("Un dossier de cet ordinateur : Google Drive, OneDrive, Nextcloud ou Syncthing pour ordinateur, clé USB…"),
+                bm(B::NewPlace(PlaceKind::Folder))
+            ),
+            kit::kind_row(
+                I_HOSTS,
+                n.blue,
+                "Nextcloud".into(),
+                tr("WebDAV, auto-hébergé (Nextcloud, ownCloud, Apache…)"),
+                bm(B::NewPlace(PlaceKind::WebDav))
+            ),
+            kit::kind_row(
+                I_INVENTORY,
+                n.green,
+                tr("Stockage S3"),
+                tr("Backblaze B2, Cloudflare R2, AWS, MinIO, RustFS…"),
+                bm(B::NewPlace(PlaceKind::S3))
+            ),
+        ]
+        .spacing(2);
+        return kit::overlay(
+            kit::dialog(
+                kit::dialog_head(
+                    tr("Ajouter un emplacement"),
+                    Some(tr("Où garder la sauvegarde ?")),
+                    None,
+                    Message::OpenModal(None),
+                ),
+                body,
+                None,
+                560.0,
+                max_height,
+            ),
+            Some(Message::OpenModal(None)),
+        );
+    };
+    let field_of = |name: String, ph: &str, v: &str, f: fn(String) -> F| {
+        kit::float_field(name, text_input(ph, v).on_input(move |x| bm(B::Place(f(x)))))
+    };
+    let mut form = column![].spacing(14);
+    let title = match p.kind {
+        PlaceKind::Folder => {
+            form = form.push(
+                row![
+                    field_of(tr("Dossier"), "/home/moi/Nextcloud/Nautile", &p.path, F::Path),
+                    secondary(tr("Choisir…"), bm(B::PickFolder)),
+                ]
+                .spacing(10)
+                .align_y(Alignment::End),
+            );
+            form = form.push(soft(tr(
+                "Le dossier d'un client de synchronisation (Google Drive, OneDrive, Nextcloud, Syncthing) emporte la sauvegarde ailleurs.",
+            )));
+            tr("Dossier")
+        }
+        PlaceKind::WebDav => {
+            form = form
+                .push(field_of(
+                    tr("Adresse WebDAV"),
+                    "https://cloud.example.org/remote.php/dav/files/moi/Nautile/",
+                    &p.url,
+                    F::Url,
+                ))
+                .push(
+                    row![
+                        field_of(tr("Utilisateur"), "moi", &p.username, F::Username),
+                        kit::float_field(
+                            tr("Mot de passe"),
+                            text_input(&tr("Mot de passe d'application"), &p.secret)
+                                .on_input(|x| bm(B::Place(F::Secret(x))))
+                                .secure(true)
+                        ),
+                    ]
+                    .spacing(10),
+                )
+                .push(soft(tr("Nextcloud : Paramètres › Sécurité › mot de passe d'application.")));
+            "Nextcloud / WebDAV".into()
+        }
+        PlaceKind::S3 => {
+            let preset = |name: &str, endpoint: &str, region: &str| -> Element<Message> {
+                button(text(name.to_owned()).size(13))
+                    .padding([6, 12])
+                    .style(theme::count_chip(p.endpoint == endpoint, None))
+                    .on_press(Message::Batch(vec![
+                        bm(B::Place(F::Endpoint(endpoint.to_owned()))),
+                        bm(B::Place(F::Region(region.to_owned()))),
+                    ]))
+                    .into()
+            };
+            form = form.push(
+                row![
+                    preset("Backblaze B2", "s3.eu-central-003.backblazeb2.com", "eu-central-003"),
+                    preset("Cloudflare R2", "ID-DU-COMPTE.r2.cloudflarestorage.com", "auto"),
+                    preset("AWS", "s3.eu-west-3.amazonaws.com", "eu-west-3"),
+                    preset("MinIO", "http://192.168.1.10:9000", "us-east-1"),
+                ]
+                .spacing(8)
+                .wrap(),
+            );
+            form = form
+                .push(
+                    row![
+                        field_of(tr("Adresse"), "s3.eu-central-003.backblazeb2.com", &p.endpoint, F::Endpoint),
+                        container(field_of(tr("Région"), "us-east-1", &p.region, F::Region)).width(170),
+                    ]
+                    .spacing(10),
+                )
+                .push(
+                    row![
+                        field_of("Bucket".into(), "nautile", &p.bucket, F::Bucket),
+                        field_of(tr("Chemin du fichier"), "nautile.backup", &p.key, F::Key),
+                    ]
+                    .spacing(10),
+                )
+                .push(
+                    row![
+                        field_of(tr("Clé d'accès (ID)"), "", &p.access_key, F::AccessKey),
+                        kit::float_field(
+                            tr("Clé secrète"),
+                            text_input("", &p.secret).on_input(|x| bm(B::Place(F::Secret(x)))).secure(true)
+                        ),
+                    ]
+                    .spacing(10),
+                );
+            tr("Stockage S3")
+        }
+    };
+    if let Some(e) = &p.error {
+        form = form.push(pink(e.clone()));
+    }
+    let foot = row![
+        Space::new().width(Fill),
+        secondary(tr("Annuler"), close.clone()),
+        primary(
+            if p.busy {
+                tr("Vérification…")
+            } else {
+                tr("Vérifier et ajouter")
+            },
+            (!p.busy && p.dest().is_some()).then_some(bm(B::AddPlace))
+        ),
+    ]
+    .spacing(10);
+    kit::overlay(
+        kit::dialog(
+            kit::dialog_head(title, None, Some(close.clone()), Message::OpenModal(None)),
+            form,
+            Some(foot.into()),
+            640.0,
+            max_height,
+        ),
+        None,
+    )
+}
+
+/// The settings of one place: automatic backups and their schedule, sync, removal.
+pub(super) fn target_modal(app: &App, max_height: f32) -> Element<'_, Message> {
+    use crate::backup::{BackupMsg as B, Frequency};
+    let close = bm(B::Open(None));
+    let Some(t) = app
+        .backup
+        .open
+        .as_ref()
+        .and_then(|id| app.settings.targets.iter().find(|t| &t.id == id))
+    else {
+        return Space::new().into();
+    };
+    let id = t.id.clone();
+    let now = nautile_core::model::now_ms();
+    let syncing = app.settings.sync_enabled && app.settings.sync_target.as_ref() == Some(&t.id);
+    let mut body = column![].spacing(16);
+    if syncing {
+        body = body.push(soft(tr(
+            "C'est le fichier de synchronisation : il est mis à jour à chaque synchronisation, une copie par jour reste sur cet ordinateur.",
+        )));
+    } else {
+        let summary = if t.auto {
+            let next = crate::backup::next_run(t.frequency, t.time, t.weekday, t.last, now);
+            trf("%1$s · prochaine : %2$s", &[&t.frequency.label(), &when(next)])
+        } else {
+            tr("Seulement quand vous le demandez")
+        };
+        let idv = id.clone();
+        body = body.push(kit::card(vec![kit::toggle_row(
+            None,
+            tr("Sauvegarde automatique"),
+            summary,
+            t.auto,
+            move |v| bm(B::Auto(idv.clone(), v)),
+        )]));
+        if t.auto {
+            let idf = id.clone();
+            body = body.push(field(
+                tr("Fréquence"),
+                segmented(
+                    Frequency::ALL
+                        .iter()
+                        .map(|f| {
+                            let short = match f {
+                                Frequency::Hours6 => "6 h".to_owned(),
+                                Frequency::Hours12 => "12 h".to_owned(),
+                                Frequency::Day => tr("Jour"),
+                                Frequency::Week => tr("Semaine"),
+                                Frequency::Month => tr("Mois"),
+                            };
+                            (*f, short)
+                        })
+                        .collect(),
+                    t.frequency,
+                    move |f| bm(B::Frequency(idf.clone(), f)),
+                ),
+            ));
+            if t.frequency.at_time() {
+                let idt = id.clone();
+                let mut r = row![container(kit::float_field(
+                    tr("Heure"),
+                    text_input("03:00", &format!("{:02}:{:02}", t.time / 60, t.time % 60))
+                        .on_input(move |v| bm(B::Time(idt.clone(), v)))
+                        .font(MONO)
+                ))
+                .width(140)]
+                .spacing(14)
+                .align_y(Alignment::End);
+                if t.frequency == Frequency::Week {
+                    let days = [tr("L"), tr("Ma"), tr("Me"), tr("J"), tr("V"), tr("S"), tr("D")];
+                    let mut d = row![].spacing(6);
+                    for (i, name) in days.into_iter().enumerate() {
+                        let day = i as u32 + 1;
+                        let selected = t.weekday == day;
+                        d = d.push(
+                            button(text(name).size(13).font(BOLD).center().width(Fill))
+                                .width(40)
+                                .height(40)
+                                .padding(0)
+                                .style(move |th: &iced::Theme, s| {
+                                    let mut b = theme::segment(selected)(th, s);
+                                    b.border.radius = 20.0.into();
+                                    if !selected {
+                                        b.border.width = 1.0;
+                                        b.border.color = theme::nt(th).border;
+                                    }
+                                    b
+                                })
+                                .on_press(bm(B::Weekday(id.clone(), day))),
+                        );
+                    }
+                    r = r.push(column![label(tr("Jour")), d].spacing(6));
+                }
+                body = body.push(r);
+            }
+        }
+    }
+    let mut more: Vec<Element<Message>> = Vec::new();
+    if !syncing {
+        more.push(
+            button(
+                row![kit::icon(I_SYNC, 20.0), text(tr("Utiliser pour la synchronisation")).size(15)]
+                    .spacing(12)
+                    .align_y(Alignment::Center),
+            )
+            .width(Fill)
+            .padding([14, 16])
+            .style(theme::card_pick(false))
+            .on_press(Message::Batch(vec![bm(B::SyncTarget(id.clone())), bm(B::SyncEnabled(true))]))
+            .into(),
+        );
+    }
+    more.push(
+        button(
+            row![kit::icon(I_TRASH, 20.0), text(tr("Retirer cet emplacement")).size(15)]
+                .spacing(12)
+                .align_y(Alignment::Center),
+        )
+        .width(Fill)
+        .padding([14, 16])
+        .style(|t: &iced::Theme, st| {
+            let mut b = theme::card_pick(false)(t, st);
+            b.text_color = theme::nt(t).pink;
+            b
+        })
+        .on_press(bm(B::Remove(id.clone())))
+        .into(),
+    );
+    body = body.push(kit::card(more));
+    let foot = row![
+        Space::new().width(Fill),
+        primary(
+            if syncing {
+                tr("Synchroniser maintenant")
+            } else {
+                tr("Sauvegarder ici maintenant")
+            },
+            Some(if syncing { bm(B::SyncNow) } else { bm(B::Now(id.clone())) })
+        ),
+    ];
+    let head = row![
+        kit::icon_tile(place_icon(&t.dest), theme::nt(&app.theme()).accent),
+        column![
+            text(place_kind(&t.dest)).size(20).font(BOLD),
+            text(t.dest.describe()).font(MONO).size(12).style(|th: &iced::Theme| text::Style {
+                color: Some(theme::nt(th).muted),
+            }),
+        ]
+        .spacing(2)
+        .width(Fill),
+        button(kit::icon('\u{E5CD}', 22.0))
+            .padding(6)
+            .style(theme::ghost)
+            .on_press(close.clone()),
+    ]
+    .spacing(14)
+    .align_y(Alignment::Center);
+    kit::overlay(
+        kit::dialog(
+            container(head)
+                .padding(Padding {
+                    top: 18.0,
+                    right: 14.0,
+                    bottom: 10.0,
+                    left: 22.0,
+                })
+                .into(),
+            body,
+            Some(foot.into()),
+            620.0,
+            max_height,
+        ),
+        Some(close),
+    )
+}
+
+/// The backup password: chosen once, the same on every device.
+pub(super) fn password_modal(app: &App, max_height: f32) -> Element<'_, Message> {
+    use crate::backup::BackupMsg as B;
+    let st = &app.backup;
+    let has = app.has_backup_password();
+    let ok = st.password.chars().count() >= 8 && st.password == st.password_confirm;
+    let body = column![
+        soft(if has {
+            tr("Le mot de passe de sauvegarde est enregistré sur cet ordinateur : les sauvegardes automatiques et la synchronisation s'en servent.")
+        } else {
+            tr("Choisissez le mot de passe des sauvegardes (le même que sur vos autres appareils pour la synchronisation).")
+        })
+        .size(14),
+        kit::float_field(
+            if has { tr("Nouveau mot de passe") } else { tr("Mot de passe (8 caractères minimum)") },
+            text_input("", &st.password).on_input(|v| bm(B::PasswordInput(v))).secure(true)
+        ),
+        kit::float_field(
+            tr("Confirmer"),
+            text_input("", &st.password_confirm)
+                .on_input(|v| bm(B::PasswordConfirm(v)))
+                .on_submit(bm(B::SavePassword))
+                .secure(true)
+        ),
+        label(tr("Sans lui, une sauvegarde ne peut pas être ouverte : notez-le dans votre gestionnaire de mots de passe.")),
+    ]
+    .spacing(14);
+    let foot = row![
+        Space::new().width(Fill),
+        secondary(tr("Annuler"), Message::OpenModal(None)),
+        primary(
+            tr("Enregistrer"),
+            ok.then_some(Message::Batch(vec![bm(B::SavePassword), Message::OpenModal(None)]))
+        ),
+    ]
+    .spacing(10);
+    kit::overlay(
+        kit::dialog(
+            kit::dialog_head(tr("Mot de passe de sauvegarde"), None, None, Message::OpenModal(None)),
+            body,
+            Some(foot.into()),
+            520.0,
+            max_height,
+        ),
+        None,
+    )
+}
+
+/// « Exporter une copie dans un fichier » with its own password.
+pub(super) fn export_modal(app: &App, max_height: f32) -> Element<'_, Message> {
+    let ex = &app.export;
+    let ok = ex.password.chars().count() >= 8 && ex.password == ex.confirm && !ex.busy;
+    let body = column![
+        soft(tr(
+            "Un fichier chiffré (Argon2id + AES-256), à rouvrir sur un autre appareil avec ce mot de passe."
+        ))
+        .size(14),
+        kit::float_field(
+            tr("Mot de passe (8 caractères minimum)"),
+            text_input("", &ex.password).on_input(Message::ExportPassword).secure(true)
+        ),
+        kit::float_field(
+            tr("Confirmer"),
+            text_input("", &ex.confirm)
+                .on_input(Message::ExportConfirm)
+                .on_submit(Message::ExportRun)
+                .secure(true)
+        ),
+    ]
+    .spacing(14);
+    let foot = row![
+        Space::new().width(Fill),
+        secondary(tr("Annuler"), Message::OpenModal(None)),
+        primary(
+            if ex.busy { tr("Chiffrement…") } else { tr("Exporter…") },
+            ok.then_some(Message::ExportRun)
+        ),
+    ]
+    .spacing(10);
+    kit::overlay(
+        kit::dialog(
+            kit::dialog_head(tr("Exporter une copie"), None, None, Message::OpenModal(None)),
+            body,
+            Some(foot.into()),
+            520.0,
+            max_height,
+        ),
+        None,
+    )
+}
+
+/// « Restaurer » a chosen backup file: its password, then everything is merged.
+pub(super) fn restore_modal(app: &App, max_height: f32) -> Element<'_, Message> {
+    let imp = &app.import;
+    let name = imp.file.as_ref().map(|f| f.0.clone()).unwrap_or_default();
+    let body = column![
+        row![
+            kit::icon_tile(I_DOWNLOAD_FILE, theme::nt(&app.theme()).blue),
+            text(name).size(15).font(MONO)
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center),
+        soft(tr(
+            "Un fichier nautile.backup de votre téléphone ou d'un autre ordinateur : tout est fusionné, rien n'est effacé ici."
+        )),
+        kit::float_field(
+            tr("Mot de passe de la sauvegarde"),
+            text_input("", &imp.password)
+                .on_input(Message::ImportPassword)
+                .on_submit(Message::ImportRun)
+                .secure(true)
+        ),
+    ]
+    .spacing(14);
+    let foot = row![
+        Space::new().width(Fill),
+        secondary(tr("Annuler"), Message::ImportCancel),
+        primary(
+            if imp.busy { tr("Déchiffrement…") } else { tr("Restaurer") },
+            (!imp.busy && !imp.password.is_empty()).then_some(Message::ImportRun)
+        ),
+    ]
+    .spacing(10);
+    kit::overlay(
+        kit::dialog(
+            kit::dialog_head(tr("Restaurer une sauvegarde"), None, None, Message::ImportCancel),
+            body,
+            Some(foot.into()),
+            540.0,
             max_height,
         ),
         None,

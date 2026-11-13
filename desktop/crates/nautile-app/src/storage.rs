@@ -119,6 +119,8 @@ pub struct Settings {
     /// The colour of the buttons.
     pub accent: crate::theme::Accent,
     pub button_style: crate::theme::ButtonStyle,
+    /// Synchronise only when a VPN is up (the shared file is on a private network).
+    pub sync_vpn_only: bool,
     /// The AI providers offered in the assistant (Android's switches).
     pub ai_enabled: Vec<nautile_net::ai::ProviderKind>,
     /// The user's own system prompts, and the one in use (`None`: the default one).

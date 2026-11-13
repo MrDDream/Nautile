@@ -264,6 +264,67 @@ pub struct BackupState {
     lan_last_round: i64,
     /// When each automatic backup runs next (computed once, again after it ran or its settings changed).
     scheduled: std::collections::HashMap<String, i64>,
+    /// « Seulement via le VPN » and no VPN is up: the synchronisation waits.
+    pub waiting_vpn: bool,
+    /// The network was unreachable: the next try (silent) and how many came before.
+    pub retry_at: Option<i64>,
+    net_failures: u32,
+    /// The pairing pop-up is on « Saisir un code ».
+    pub lan_join: bool,
+}
+
+/// Whether an interface name is a VPN's: WireGuard, OpenVPN, Tailscale, ZeroTier, IPsec, PPP… on Linux,
+/// Windows and macOS.
+pub fn is_vpn_interface(name: &str) -> bool {
+    let n = name.to_lowercase();
+    [
+        "wg",
+        "tun",
+        "tap",
+        "utun",
+        "ppp",
+        "ipsec",
+        "tailscale",
+        "zt",
+        "nordlynx",
+        "proton",
+        "mullvad",
+    ]
+    .iter()
+    .any(|p| n.starts_with(p))
+        || ["wireguard", "openvpn", "vpn", "tailscale", "zerotier", "tap-windows", "wintun"]
+            .iter()
+            .any(|w| n.contains(w))
+}
+
+/// A VPN is up on this computer.
+pub fn vpn_up() -> bool {
+    if_addrs::get_if_addrs()
+        .map(|list| list.iter().any(|i| !i.is_loopback() && is_vpn_interface(&i.name)))
+        .unwrap_or(false)
+}
+
+/// Whether an error means the server could not be reached (try again later, without alarming).
+pub fn is_network_error(e: &str) -> bool {
+    let e = e.to_lowercase();
+    [
+        "dns",
+        "resolve",
+        "lookup",
+        "not known",
+        "connection refused",
+        "refused",
+        "timed out",
+        "timeout",
+        "unreachable",
+        "network",
+        "no route",
+        "connect",
+        "host not found",
+        "io:",
+    ]
+    .iter()
+    .any(|w| e.contains(w))
 }
 
 #[derive(Debug, Clone)]
@@ -304,6 +365,12 @@ pub enum BackupMsg {
     LanSyncNow,
     LanRound(usize),
     LanForget(String),
+    /// « Sauvegarder partout ».
+    NowAll,
+    /// The pairing pop-up: « Saisir un code » (true) or the choice.
+    LanJoin(bool),
+    /// « Seulement via le VPN ».
+    VpnOnly(bool),
 }
 
 #[derive(Debug, Clone)]
@@ -393,7 +460,16 @@ impl App {
         for id in due {
             tasks.push(self.backup_now(id));
         }
-        if sync_target.is_some() && !self.backup.syncing {
+        let vpn_wait = sync_target.is_some() && self.settings.sync_vpn_only && !vpn_up();
+        if vpn_wait != self.backup.waiting_vpn {
+            self.backup.waiting_vpn = vpn_wait;
+            if !vpn_wait {
+                // The VPN came up: now, without waiting for the next retry.
+                self.backup.retry_at = None;
+            }
+        }
+        let retry_later = self.backup.retry_at.is_some_and(|at| now < at);
+        if sync_target.is_some() && !self.backup.syncing && !vpn_wait && !retry_later {
             let last_change = self.db.as_ref().and_then(|db| db.store().last_change().ok()).unwrap_or(0);
             let interval = self.settings.sync_minutes() as i64 * 60_000;
             let dirty = last_change > self.settings.synced_change;
@@ -547,6 +623,15 @@ impl App {
     fn sync_failed(&mut self, e: String) -> Task<Message> {
         self.backup.syncing = false;
         self.backup.sync_attempt = 0;
+        if is_network_error(&e) {
+            // A VPN not up yet, a server asleep: again in 1, 2, then 5 minutes, without a red error.
+            let wait = [1, 2, 5][self.backup.net_failures.min(2) as usize] * 60_000;
+            self.backup.net_failures += 1;
+            self.backup.retry_at = Some(now_ms() + wait);
+            if self.backup.net_failures < 4 {
+                return Task::none();
+            }
+        }
         self.settings.sync_error = Some(e);
         self.save_settings();
         Task::none()
@@ -668,13 +753,17 @@ impl App {
                         }
                         self.backup.place = None;
                         self.backup.open = Some(id);
+                        self.modal = Some(crate::app::Modal::Target);
                         self.save_settings();
                         return self.say(tr("Emplacement ajouté"));
                     }
                 }
             }
             BackupMsg::CancelPlace => self.backup.place = None,
-            BackupMsg::Open(id) => self.backup.open = id,
+            BackupMsg::Open(id) => {
+                self.modal = id.is_some().then_some(crate::app::Modal::Target);
+                self.backup.open = id;
+            }
             BackupMsg::Remove(id) => {
                 self.settings.targets.retain(|t| t.id != id);
                 if self.settings.sync_target.as_ref() == Some(&id) {
@@ -683,6 +772,8 @@ impl App {
                 if let Some(db) = &self.db {
                     let _ = db.set_secret(&format!("target-{id}"), None);
                 }
+                self.backup.open = None;
+                self.modal = None;
                 self.save_settings();
             }
             BackupMsg::Auto(id, v) => {
@@ -717,6 +808,17 @@ impl App {
                 self.save_settings();
             }
             BackupMsg::Now(id) => return self.backup_now(id),
+            BackupMsg::NowAll => {
+                let ids: Vec<String> = self.settings.targets.iter().map(|t| t.id.clone()).collect();
+                return Task::batch(ids.into_iter().map(|id| self.backup_now(id)));
+            }
+            BackupMsg::LanJoin(v) => self.backup.lan_join = v,
+            BackupMsg::VpnOnly(v) => {
+                self.settings.sync_vpn_only = v;
+                self.backup.retry_at = None;
+                self.save_settings();
+                return self.backup_tick();
+            }
             BackupMsg::Done(id, r) => {
                 self.backup.running.retain(|x| *x != id);
                 self.backup.scheduled.remove(&id);
@@ -760,6 +862,8 @@ impl App {
                     let now = now_ms();
                     self.backup.syncing = false;
                     self.backup.sync_attempt = 0;
+                    self.backup.net_failures = 0;
+                    self.backup.retry_at = None;
                     self.settings.synced_change = change;
                     self.settings.last_sync = Some(now);
                     self.settings.sync_error = None;
@@ -942,5 +1046,44 @@ mod tests {
         let id = uuid();
         assert_eq!(id.len(), 36);
         assert_eq!(&id[14..15], "4");
+    }
+}
+
+#[cfg(test)]
+mod vpn_tests {
+    use super::*;
+
+    #[test]
+    fn vpn_interfaces_are_recognised_on_every_system() {
+        for name in [
+            "wg0",
+            "tun0",
+            "tailscale0",
+            "utun3",
+            "ppp0",
+            "zt7nnig26",
+            "WireGuard Tunnel",
+            "OpenVPN TAP-Windows6",
+            "Tailscale",
+            "ProtonVPN",
+            "nordlynx",
+            "Mullvad",
+        ] {
+            assert!(is_vpn_interface(name), "{name}");
+        }
+        for name in [
+            "eth0", "enp3s0", "wlan0", "wlp2s0", "lo", "en0", "Ethernet", "Wi-Fi", "docker0", "br-1a2b", "virbr0",
+        ] {
+            assert!(!is_vpn_interface(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn unreachable_servers_are_retried_silently() {
+        assert!(is_network_error("io: Connection refused (os error 111)"));
+        assert!(is_network_error("Host not found: cloud.home.lan"));
+        assert!(is_network_error("timeout: global"));
+        assert!(!is_network_error("Le mot de passe ne déchiffre pas le fichier de synchronisation"));
+        assert!(!is_network_error("HTTP 401"));
     }
 }

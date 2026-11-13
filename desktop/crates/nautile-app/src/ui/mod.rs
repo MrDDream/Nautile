@@ -43,7 +43,6 @@ const I_SHIELD: char = '\u{E8E8}'; // verified_user
 const I_PLAY: char = '\u{E037}'; // play_arrow
 const I_STOP: char = '\u{E047}'; // stop
 const I_LOCK: char = '\u{E897}'; // lock
-const I_CLOUD: char = '\u{E2BD}'; // cloud
 const I_PHONE: char = '\u{E324}'; // phone_android
 const I_PALETTE: char = '\u{E40A}'; // palette
 const I_CLOUD_SYNC: char = '\u{EB5A}'; // cloud_sync
@@ -60,6 +59,18 @@ const I_DOWN_ARROW: char = '\u{E5DB}'; // arrow_downward
 const I_TUNE: char = '\u{E429}'; // tune
 const I_DESCRIPTION: char = '\u{E873}'; // description
 const I_GEAR: char = '\u{E8B8}'; // settings
+const I_SYNC: char = '\u{E627}'; // sync
+const I_DEVICES: char = '\u{E1B1}'; // devices
+const I_INFO: char = '\u{E88E}'; // info
+const I_CLOUD_DONE: char = '\u{E2BF}'; // cloud_done
+const I_CLOUD_UPLOAD: char = '\u{E2C3}'; // cloud_upload
+const I_INVENTORY: char = '\u{E1A1}'; // inventory_2
+const I_HISTORY: char = '\u{E889}'; // history
+const I_DOWNLOAD_FILE: char = '\u{E2C4}'; // file_download
+const I_VPN_KEY: char = '\u{E0DA}'; // vpn_key
+const I_VPN_LOCK: char = '\u{E62F}'; // vpn_lock
+const I_CHEVRON_RIGHT: char = '\u{E5CC}'; // chevron_right
+const I_KEYBOARD: char = '\u{E312}'; // keyboard
 const I_PLUS: char = '\u{E145}'; // add
 
 pub fn icon<'a>(c: char) -> iced::widget::Text<'a> {
@@ -188,7 +199,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
         (Some(crate::app::Modal::AiProvider(k)), None) => layers = layers.push(ai_provider_modal(app, *k, max_h)),
         (Some(crate::app::Modal::AiModels(k)), None) => layers = layers.push(ai_models_modal(app, *k, max_h)),
         (Some(crate::app::Modal::AiPrompt), None) => layers = layers.push(ai_prompt_modal(app, max_h)),
+        (Some(crate::app::Modal::SyncInfo), None) => layers = layers.push(sync_info_modal(max_h)),
+        (Some(crate::app::Modal::LanInfo), None) => layers = layers.push(lan_info_modal(max_h)),
+        (Some(crate::app::Modal::LanPair), None) => layers = layers.push(lan_pair_modal(app, max_h)),
+        (Some(crate::app::Modal::AddPlace), None) => layers = layers.push(add_place_modal(app, max_h)),
+        (Some(crate::app::Modal::Target), None) => layers = layers.push(target_modal(app, max_h)),
+        (Some(crate::app::Modal::Password), None) => layers = layers.push(password_modal(app, max_h)),
+        (Some(crate::app::Modal::Export), None) => layers = layers.push(export_modal(app, max_h)),
         (None, None) => {}
+    }
+    if app.import.file.is_some() {
+        layers = layers.push(restore_modal(app, max_h));
     }
     if let Some(id) = app.closing {
         layers = layers.push(close_dialog(app, id));

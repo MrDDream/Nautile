@@ -77,6 +77,7 @@ open class NautileApp : Application() {
         // Pull the other devices' changes at start, then follow local edits.
         appScope.launch(Dispatchers.IO) {
             runCatching { sync.watchLocalChanges() }
+            runCatching { sync.watchVpn() }
             if (backupPrefs.syncEnabled.value) sync.requestSoon(3_000)
         }
         appScope.launch { runCatching { lanSync.start() } }

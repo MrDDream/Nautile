@@ -37,6 +37,20 @@ pub enum Modal {
     AiModels(nautile_net::ai::ProviderKind),
     /// A system prompt of the user's.
     AiPrompt,
+    /// What the synchronisation does (five points).
+    SyncInfo,
+    /// What the Wi-Fi synchronisation does.
+    LanInfo,
+    /// Pairing a device for the Wi-Fi synchronisation.
+    LanPair,
+    /// « Ajouter un emplacement »: the kinds, then the form.
+    AddPlace,
+    /// The settings of the place in [crate::backup::BackupState::open].
+    Target,
+    /// The backup password.
+    Password,
+    /// « Exporter une copie dans un fichier ».
+    Export,
 }
 
 /// A sub-page of the settings (`None` in [App::settings_page]: their home).
@@ -383,6 +397,8 @@ pub enum Message {
     SystemTheme(iced::theme::Mode),
     /// Does nothing (previews).
     Noop,
+    /// Several messages, in order (a button that does two things).
+    Batch(Vec<Message>),
     TermTab(TermTab),
     TermFamily(String),
     TermCursor(String),
@@ -463,6 +479,7 @@ pub enum Message {
     ImportPick,
     ImportPicked(Option<(String, String)>),
     ImportPassword(String),
+    ImportCancel,
     ImportRun,
     ImportDecoded(Box<Result<BackupData, String>>),
     ImportDone(Result<sync::Stats, String>),
@@ -822,11 +839,24 @@ impl App {
             Message::OpenModal(m) => {
                 self.modal = m;
                 if m.is_none() {
+                    // Whatever was half done in the pop-up is dropped.
                     self.editor = None;
+                    self.backup.place = None;
+                    self.backup.open = None;
+                    self.backup.lan_join = false;
+                    if self.backup.lan_code.take().is_some() {
+                        if let Some(l) = &self.backup.lan {
+                            l.cancel_code();
+                        }
+                    }
                 }
             }
             Message::Escape => {
-                if self.closing.is_some() {
+                if self.import.file.is_some() {
+                    self.import = ImportState::default();
+                } else if self.modal.is_some() && self.editor.is_none() {
+                    return self.update(Message::OpenModal(None));
+                } else if self.closing.is_some() {
                     self.closing = None;
                 } else if self.snippet_run.is_some() {
                     self.snippet_run = None;
@@ -838,6 +868,7 @@ impl App {
             }
             Message::WindowResized(size) => self.window = size,
             Message::Noop => {}
+            Message::Batch(list) => return Task::batch(list.into_iter().map(|m| self.update(m)).collect::<Vec<_>>()),
             Message::TermTab(t) => self.term_tab = t,
             Message::TermFamily(id) => {
                 self.settings.terminal_family = Some(id.clone());
@@ -1547,6 +1578,7 @@ impl App {
                 }
             }
             Message::ImportPassword(v) => self.import.password = v,
+            Message::ImportCancel => self.import = ImportState::default(),
             Message::ImportRun => {
                 let Some((_, text)) = self.import.file.clone() else {
                     return Task::none();

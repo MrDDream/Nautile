@@ -41,6 +41,11 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
     private val http by lazy { OkHttpClient.Builder().callTimeout(2, TimeUnit.MINUTES).build() }
     private val prefs get() = app.backupPrefs
     private var pending: Job? = null
+    /** Servers unreachable in a row: retried silently (a VPN not up yet, a server asleep). */
+    private var netFailures = 0
+    private val _waitingVpn = MutableStateFlow(false)
+    /** « Seulement via le VPN » and no VPN is up: the synchronisation waits for it. */
+    val waitingVpn: StateFlow<Boolean> = _waitingVpn.asStateFlow()
 
 
     /** Downloads, merges and uploads. [password] overrides the stored one (first synchronisation). */
@@ -49,6 +54,11 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
         try {
             val pw = password ?: prefs.password() ?: error(tr("Mot de passe de sauvegarde non enregistré"))
             val dest = prefs.syncTarget ?: error(tr("Aucun emplacement de synchronisation choisi"))
+            if (prefs.network.value == BackupNetwork.VPN && !AutoBackup.isLocal(dest.dest) && !AutoBackup.vpnUp(app)) {
+                _waitingVpn.value = true
+                return@withLock Result.failure(IOException(tr("En attente du VPN")))
+            }
+            _waitingVpn.value = false
             val merge = SyncMerge(app.database)
             var attempt = 0
             while (true) {
@@ -73,6 +83,7 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
                     }
                     prefs.syncedChange = merge.lastChange()
                     prefs.markSynced(devices, now)
+                    netFailures = 0
                     return@withLock Result.success(stats)
                 } catch (e: ConflictException) {
                     // Another device wrote in between: start again from its version.
@@ -82,6 +93,12 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
             }
             @Suppress("UNREACHABLE_CODE") error("unreachable")
         } catch (e: Exception) {
+            if (unreachable(e) && netFailures < 3) {
+                // Again in 1, 2, then 5 minutes, without showing an error.
+                val wait = longArrayOf(60_000, 120_000, 300_000)[netFailures++]
+                requestSoon(wait)
+                return@withLock Result.failure(IOException(e.message ?: e.javaClass.simpleName, e))
+            }
             val reason = when (e) {
                 is com.nautile.data.backup.WrongBackupPasswordException -> tr("Le mot de passe ne déchiffre pas le fichier de synchronisation")
                 else -> e.message ?: e.javaClass.simpleName
@@ -91,6 +108,28 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
         } finally {
             _running.value = false
         }
+    }
+
+    private fun unreachable(e: Throwable): Boolean = generateSequence(e) { it.cause }.any {
+        it is java.net.UnknownHostException || it is java.net.ConnectException ||
+            it is java.net.SocketTimeoutException || it is java.net.NoRouteToHostException
+    }
+
+    /** Synchronises as soon as a VPN comes up, when the synchronisation waits for one. */
+    fun watchVpn() {
+        val cm = app.getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        val request = android.net.NetworkRequest.Builder()
+            .addTransportType(android.net.NetworkCapabilities.TRANSPORT_VPN)
+            .removeCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        cm.registerNetworkCallback(request, object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                if (prefs.network.value == BackupNetwork.VPN) {
+                    netFailures = 0
+                    requestSoon(2_000)
+                }
+            }
+        })
     }
 
     /** Whether the destination already holds a file (another device set it up). */

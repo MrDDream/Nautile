@@ -127,7 +127,7 @@ internal fun BackupOptions(target: com.nautile.app.backup.BackupTarget, needsNet
             tr("Réseau"),
             BackupNetwork.entries.map { it to networkLabel(it) },
             network, onDismiss = { pick = null },
-            detail = { if (it == BackupNetwork.WIFI) tr("Attend un Wi-Fi : aucune donnée mobile consommée") else tr("Wi-Fi ou 4G/5G, dès qu'une connexion est disponible") },
+            detail = { networkDetail(it) },
         ) { onUpdate(target.copy(network = it)); pick = null }
         Pick.TIME -> TimeDialog(
             initial = time, weekday = weekday.takeIf { frequency == BackupFrequency.WEEK },
@@ -160,7 +160,7 @@ internal fun SyncOptions(prefs: BackupPrefs, needsNetwork: Boolean, onChange: ()
         ) { prefs.setSyncMinutes(it); pick = null; onChange() }
         Pick.NETWORK -> ChoiceDialog(
             tr("Réseau"), BackupNetwork.entries.map { it to networkLabel(it) }, network, onDismiss = { pick = null },
-            detail = { if (it == BackupNetwork.WIFI) tr("Attend un Wi-Fi : aucune donnée mobile consommée") else tr("Wi-Fi ou 4G/5G, dès qu'une connexion est disponible") },
+            detail = { networkDetail(it) },
         ) { prefs.setNetwork(it); pick = null; onChange() }
         else -> {}
     }
@@ -277,6 +277,13 @@ internal fun frequencyLabel(f: BackupFrequency) = when (f) {
 private fun networkLabel(n: BackupNetwork) = when (n) {
     BackupNetwork.WIFI -> tr("Wi-Fi seulement")
     BackupNetwork.ANY -> tr("Wi-Fi ou mobile")
+    BackupNetwork.VPN -> tr("Seulement via le VPN")
+}
+
+private fun networkDetail(n: BackupNetwork) = when (n) {
+    BackupNetwork.WIFI -> tr("Attend un Wi-Fi : aucune donnée mobile consommée")
+    BackupNetwork.ANY -> tr("Wi-Fi ou 4G/5G, dès qu'une connexion est disponible")
+    BackupNetwork.VPN -> tr("Attend que le VPN (WireGuard, Tailscale…) soit connecté, puis synchronise aussitôt")
 }
 
 private fun locale() = if (I18n.english) Locale.ENGLISH else Locale.FRENCH
