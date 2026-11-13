@@ -288,6 +288,48 @@ impl Db {
         Ok(())
     }
 
+    /// Notes a connection for « Connexions › Historique » (kept on this computer; 500 at most).
+    pub fn log_connection(&self, e: &ConnectionLog) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO connection_log (hostId, alias, protocol, username, hostname, port, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![e.host_id, e.alias, e.protocol, e.username, e.hostname, e.port, e.at],
+        )?;
+        self.conn.execute(
+            "DELETE FROM connection_log WHERE id NOT IN (SELECT id FROM connection_log ORDER BY at DESC LIMIT 500)",
+            [],
+        )?;
+        Ok(())
+    }
+
+    /// The connections made, newest first.
+    pub fn connection_log(&self, limit: usize) -> Vec<ConnectionLog> {
+        let Ok(mut st) = self
+            .conn
+            .prepare("SELECT id, hostId, alias, protocol, username, hostname, port, at FROM connection_log ORDER BY at DESC LIMIT ?1")
+        else {
+            return Vec::new();
+        };
+        st.query_map([limit as i64], |r| {
+            Ok(ConnectionLog {
+                id: r.get(0)?,
+                host_id: r.get(1)?,
+                alias: r.get(2)?,
+                protocol: r.get(3)?,
+                username: r.get(4)?,
+                hostname: r.get(5)?,
+                port: r.get(6)?,
+                at: r.get(7)?,
+            })
+        })
+        .map(|rows| rows.flatten().collect())
+        .unwrap_or_default()
+    }
+
+    pub fn delete_connection_log(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM connection_log WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
     pub fn store(&self) -> Store<'_> {
         Store(&self.conn)
     }
@@ -559,4 +601,19 @@ mod forward_tests {
         let all: Result<Vec<PortForward>> = s.all();
         assert_eq!(all.unwrap().len(), 1);
     }
+}
+
+/// One connection made from this computer (Android's `ConnectionLog`, same table).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionLog {
+    pub id: i64,
+    /// The saved host; `None` for a quick connection (`root@192.168.1.2`).
+    pub host_id: Option<i64>,
+    pub alias: String,
+    /// The protocol's name, as Android stores it (`SSH`, `RDP`…).
+    pub protocol: String,
+    pub username: String,
+    pub hostname: String,
+    pub port: i32,
+    pub at: i64,
 }

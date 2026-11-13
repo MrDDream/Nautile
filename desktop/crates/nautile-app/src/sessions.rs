@@ -97,6 +97,23 @@ impl App {
         self.tabs.iter_mut().find(|t| t.id == id)
     }
 
+    /// A saved host, or one typed in the search bar (negative id, never saved).
+    pub fn host_by(&self, id: i64) -> Option<&Host> {
+        self.hosts
+            .iter()
+            .find(|h| h.id == id)
+            .or_else(|| self.quick.iter().find(|h| h.id == id))
+    }
+
+    /// Connects to a machine typed in the search bar, without saving it.
+    pub fn quick_connect(&mut self, mut h: Host) -> Task<Message> {
+        let id = -(self.quick.len() as i64) - 1;
+        h.id = id;
+        self.quick.push(h);
+        self.search.clear();
+        self.connect(id)
+    }
+
     pub fn term_theme(&self) -> themes::TermTheme {
         themes::by_id(self.settings.terminal_theme())
     }
@@ -118,7 +135,7 @@ impl App {
         let Some(t) = self.active_tab.and_then(|id| self.tab(id)) else {
             return;
         };
-        let Some(h) = t.host_id.and_then(|h| self.hosts.iter().find(|x| x.id == h)) else {
+        let Some(h) = t.host_id.and_then(|h| self.host_by(h)) else {
             return;
         };
         if let Some(p) = self.host_password(h) {
@@ -142,7 +159,7 @@ impl App {
             }
             seen.push(h.id);
             chain.insert(0, self.target(&h)?);
-            current = h.jump_host_id.and_then(|j| self.hosts.iter().find(|x| x.id == j).cloned());
+            current = h.jump_host_id.and_then(|j| self.host_by(j).cloned());
             first = h;
         }
         Ok((chain, first))
@@ -278,7 +295,7 @@ impl App {
     fn start(&mut self, id: u64) -> Task<Message> {
         let Some(tab) = self.tab(id) else { return Task::none() };
         let (cols, rows) = (tab.term.cols(), tab.term.rows());
-        let host = tab.host_id.and_then(|h| self.hosts.iter().find(|x| x.id == h).cloned());
+        let host = tab.host_id.and_then(|h| self.host_by(h).cloned());
         if let (Protocol::Vnc | Protocol::Rdp, Some(h)) = (tab.protocol, host.clone()) {
             let r = if h.protocol == Protocol::Vnc {
                 nautile_remote::vnc::spawn(
@@ -332,7 +349,7 @@ impl App {
 
     /// Opens a session to a saved host.
     pub fn connect(&mut self, host_id: i64) -> Task<Message> {
-        let Some(h) = self.hosts.iter().find(|h| h.id == host_id).cloned() else {
+        let Some(h) = self.host_by(host_id).cloned() else {
             return Task::none();
         };
         self.editor = None;
@@ -443,6 +460,19 @@ impl App {
                 if let (Some(h), Some(db)) = (host.and_then(|h| self.hosts.iter_mut().find(|x| x.id == h)), &self.db) {
                     h.last_connected_at = Some(now_ms());
                     let _ = db.store().update(&*h);
+                }
+                // « Connexions › Historique », quick connections included.
+                if let (Some(h), Some(db)) = (host.and_then(|h| self.host_by(h)), &self.db) {
+                    let _ = db.log_connection(&nautile_core::db::ConnectionLog {
+                        id: 0,
+                        host_id: (h.id > 0).then_some(h.id),
+                        alias: h.alias.clone(),
+                        protocol: protocol_name(h.protocol),
+                        username: h.username.clone(),
+                        hostname: h.hostname.clone(),
+                        port: h.port,
+                        at: now_ms(),
+                    });
                 }
             }
             Event::Output(bytes) => {
@@ -772,4 +802,12 @@ impl App {
                 .collect(),
         }
     }
+}
+
+/// A protocol's name as Android stores it (`SSH`, `RDP`…).
+pub fn protocol_name(p: Protocol) -> String {
+    serde_json::to_value(p)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default()
 }

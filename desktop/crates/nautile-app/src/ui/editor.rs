@@ -618,6 +618,14 @@ pub(super) fn new_host_modal(app: &App, max_height: f32) -> Element<'_, Message>
             tr("Terminal local"),
             tr("Le shell de cet ordinateur (PowerShell, bash…)")
         ),
+        container(Space::new().height(1)).width(Fill).style(theme::divider),
+        kit::kind_row(
+            I_FILE_OPEN,
+            n.text_soft,
+            tr("Importer"),
+            tr("~/.ssh/config ou CSV (hostname, alias, port, user, group, tags)"),
+            Message::ImportHostsPick
+        ),
     ]
     .spacing(2);
     kit::overlay(
@@ -780,4 +788,77 @@ fn tag_chips<'a>(app: &'a App, current: &str) -> Element<'a, Message> {
         );
     }
     r.wrap().into()
+}
+
+/// « Importer »: the hosts read from the file, before they are saved.
+pub(super) fn import_hosts_modal(app: &App, max_height: f32) -> Element<'_, Message> {
+    let items = &app.host_import;
+    let existing = items.iter().filter(|i| app.hosts.iter().any(|h| h.alias == i.alias)).count();
+    let rows: Vec<Element<Message>> = items
+        .iter()
+        .map(|i| {
+            let there = app.hosts.iter().any(|h| h.alias == i.alias);
+            let mut addr = String::new();
+            if !i.username.is_empty() {
+                addr.push_str(&i.username);
+                addr.push('@');
+            }
+            addr.push_str(&i.hostname);
+            if i.port != 22 {
+                addr.push_str(&format!(":{}", i.port));
+            }
+            let mut extra = Vec::new();
+            if let Some(g) = &i.group {
+                extra.push(g.clone());
+            }
+            if let Some(j) = &i.proxy_jump {
+                extra.push(trf("via %1$s", &[j]));
+            }
+            if i.identity_file.is_some() {
+                extra.push(tr("clé"));
+            }
+            row![
+                kit::host_avatar(None, &i.alias, theme::nt(&app.theme()).muted, 32.0),
+                column![
+                    text(i.alias.clone()).size(15).font(BOLD),
+                    text(addr).font(MONO).size(12).style(|t: &iced::Theme| text::Style {
+                        color: Some(theme::nt(t).muted),
+                    }),
+                ]
+                .spacing(2)
+                .width(Fill),
+                soft(if there { tr("déjà présent") } else { extra.join(" · ") }),
+            ]
+            .spacing(12)
+            .padding([10, 14])
+            .align_y(Alignment::Center)
+            .into()
+        })
+        .collect();
+    let new = items.len() - existing;
+    let foot = row![
+        Space::new().width(Fill),
+        secondary(tr("Annuler"), Message::OpenModal(None)),
+        primary(trf("Importer %1$s hôte(s)", &[&new]), (new > 0).then_some(Message::ImportHostsRun)),
+    ]
+    .spacing(10);
+    kit::overlay(
+        kit::dialog(
+            kit::dialog_head(
+                tr("Importer des hôtes"),
+                Some(if existing > 0 {
+                    trf("%1$s trouvé(s), %2$s déjà présent(s)", &[&items.len(), &existing])
+                } else {
+                    trf("%1$s trouvé(s)", &[&items.len()])
+                }),
+                None,
+                Message::OpenModal(None),
+            ),
+            kit::card(rows),
+            Some(foot.into()),
+            620.0,
+            max_height,
+        ),
+        None,
+    )
 }

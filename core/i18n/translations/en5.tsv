@@ -283,3 +283,18 @@ L'APK vient de la page des versions sur GitHub, vérifié par sa somme SHA-256, 
 Code source	Source code
 Nautile sur GitHub	Nautile on GitHub
 Version %1\$s · mises à jour	Version %1\$s · updates
+Importer des hôtes	Import hosts
+Sans l'enregistrer ; il reste dans Connexions › Historique.	Without saving it; it stays in Connections › History.
+Fichiers SFTP	SFTP files
+Connecté	Connected
+Coupé	Disconnected
+Fermé	Closed
+Ouvertes	Open
+%1\$s session(s)	%1\$s session(s)
+Aucune connexion pour l'instant	No connections yet
+Les sessions ouvertes et l'historique des connexions apparaissent ici, pour y revenir en un clic.	Open sessions and the connection history show here, to go back in one click.
+clé	key
+déjà présent	already there
+Importer %1\$s hôte(s)	Import %1\$s host(s)
+%1\$s trouvé(s), %2\$s déjà présent(s)	%1\$s found, %2\$s already there
+%1\$s trouvé(s)	%1\$s found

@@ -18,6 +18,8 @@ pub const COLORS: [i64; 5] = [0xFFFF_B547, 0xFF7A_A2F7, 0xFF5B_D69A, 0xFFF3_8BA8
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     Hosts,
+    /// The sessions open now and the connections made before.
+    Connections,
     Snippets,
     Keys,
     Tunnels,
@@ -53,6 +55,8 @@ pub enum Modal {
     Export,
     /// A new version, its notes and « Télécharger et installer ».
     Update,
+    /// The hosts read from a ~/.ssh/config or a CSV, before they are saved.
+    ImportHosts,
 }
 
 /// A sub-page of the settings (`None` in [App::settings_page]: their home).
@@ -419,6 +423,16 @@ pub enum Message {
     DeleteLog(std::path::PathBuf),
     Tray(crate::tray::TrayEvent),
     Update(crate::update::UpdateMsg),
+    /// Connects to what is typed in the search bar, with this protocol.
+    QuickConnect(Protocol),
+    /// Connects again from « Connexions › Historique ».
+    Reconnect2(i64),
+    /// Saves a quick connection of the history as a host.
+    SaveLogged(i64),
+    ForgetLogged(i64),
+    ImportHostsPick,
+    ImportHostsRead(Option<Result<Vec<nautile_core::import::ImportedHost>, String>>),
+    ImportHostsRun,
     /// The window's close button: hide in the notification area, or quit.
     CloseRequested(iced::window::Id),
     WindowMoved(iced::Point),
@@ -616,6 +630,10 @@ pub struct App {
     pub focused: bool,
     pub window_pos: Option<iced::Point>,
     pub updates: crate::update::UpdateState,
+    /// Machines typed in the search bar and connected to without being saved (negative ids).
+    pub quick: Vec<Host>,
+    /// « Importer »: the hosts read, before they are saved.
+    pub host_import: Vec<nautile_core::import::ImportedHost>,
 }
 
 impl App {
@@ -705,6 +723,8 @@ impl App {
             focused: true,
             window_pos: None,
             updates: Default::default(),
+            quick: Vec::new(),
+            host_import: Vec::new(),
         };
         // Before several providers could be on, the chosen one was the only one.
         if app.settings.ai_enabled.is_empty() {
@@ -714,6 +734,7 @@ impl App {
         }
         app.page = match app.settings.last_page.as_deref() {
             Some("snippets") => Page::Snippets,
+            Some("connections") => Page::Connections,
             Some("keys") => Page::Keys,
             Some("tunnels") => Page::Tunnels,
             Some("settings") => Page::Settings,
@@ -984,6 +1005,75 @@ impl App {
                 let _ = opener::open(&p);
             }
             Message::Update(m) => return self.update_msg(m),
+            Message::QuickConnect(p) => {
+                if let Some(t) = nautile_core::quick::parse(&self.search) {
+                    return self.quick_connect(t.with_protocol(p).to_host());
+                }
+            }
+            Message::Reconnect2(log) => {
+                let Some(e) = self
+                    .db
+                    .as_ref()
+                    .and_then(|db| db.connection_log(500).into_iter().find(|e| e.id == log))
+                else {
+                    return Task::none();
+                };
+                if let Some(h) = e.host_id.filter(|h| self.hosts.iter().any(|x| x.id == *h)) {
+                    return self.connect(h);
+                }
+                return self.quick_connect(logged_host(&e));
+            }
+            Message::SaveLogged(log) => {
+                if let Some(e) = self
+                    .db
+                    .as_ref()
+                    .and_then(|db| db.connection_log(500).into_iter().find(|e| e.id == log))
+                {
+                    let mut f = HostForm::from(Some(logged_host(&e)));
+                    f.original = None;
+                    self.editor = Some(Editor::Host(Box::new(f)));
+                }
+            }
+            Message::ImportHostsPick => {
+                let ssh = dirs::home_dir().map(|h| h.join(".ssh"));
+                return Task::perform(
+                    async move {
+                        let mut d = rfd::AsyncFileDialog::new().set_title(tr("Importer des hôtes"));
+                        if let Some(dir) = ssh.filter(|d| d.is_dir()) {
+                            d = d.set_directory(dir);
+                        }
+                        let file = d.pick_file().await?;
+                        let text = String::from_utf8_lossy(&file.read().await).into_owned();
+                        Some(nautile_core::import::parse(&text))
+                    },
+                    Message::ImportHostsRead,
+                );
+            }
+            Message::ImportHostsRead(r) => match r {
+                None => {}
+                Some(Ok(list)) if !list.is_empty() => {
+                    self.host_import = list;
+                    self.modal = Some(Modal::ImportHosts);
+                }
+                Some(Ok(_)) => return self.say(tr("Aucun hôte trouvé dans ce fichier")),
+                Some(Err(e)) => return self.say(trf("Import impossible : %1$s", &[&e])),
+            },
+            Message::ImportHostsRun => {
+                let items = std::mem::take(&mut self.host_import);
+                self.modal = None;
+                let (added, skipped) = self.import_hosts(&items);
+                self.reload();
+                let mut msg = trf("%1$s hôte(s) importé(s)", &[&added]);
+                if skipped > 0 {
+                    msg += &trf(", %1$s déjà présent(s)", &[&skipped]);
+                }
+                return self.say(msg);
+            }
+            Message::ForgetLogged(log) => {
+                if let Some(db) = &self.db {
+                    let _ = db.delete_connection_log(log);
+                }
+            }
             Message::Tray(e) => {
                 use crate::tray::TrayEvent as T;
                 return match e {
@@ -1908,6 +1998,42 @@ fn sidebar_drag(e: iced::Event, _: iced::event::Status, _: iced::window::Id) -> 
     }
 }
 
+/// The key of an `IdentityFile` (`~/.ssh/id_ed25519`), added to the keychain unless already there (same
+/// fingerprint); `None` when it cannot be read here or needs its passphrase.
+fn import_key_file(file: &str, store: &nautile_core::db::Store<'_>, keys: &mut Vec<SshKey>) -> Option<i64> {
+    let path = match file.strip_prefix("~/") {
+        Some(rest) => dirs::home_dir()?.join(rest),
+        None => std::path::PathBuf::from(file),
+    };
+    let text = std::fs::read_to_string(&path).ok()?;
+    let name = path.file_name()?.to_string_lossy().into_owned();
+    let k = nautile_net::keys::parse(&text, None, &name).ok()?;
+    if let Some(existing) = keys.iter().find(|x| x.fingerprint == k.fingerprint) {
+        return Some(existing.id);
+    }
+    let key: SshKey = serde_json::from_value(serde_json::json!({
+        "name": name, "keyType": k.key_type, "description": k.description,
+        "publicKey": k.public_key, "privateKey": k.private_key, "fingerprint": k.fingerprint,
+        "encrypted": k.encrypted, "savedPassphrase": null, "generated": false,
+        "createdAt": nautile_core::model::now_ms(),
+    }))
+    .ok()?;
+    let id = store.insert(&key).ok()?;
+    let mut key = key;
+    key.id = id;
+    keys.push(key);
+    Some(id)
+}
+
+/// A host rebuilt from a line of the history (for a quick connection, never saved).
+fn logged_host(e: &nautile_core::db::ConnectionLog) -> Host {
+    let mut h = Host::new(e.alias.clone(), e.hostname.clone());
+    h.username = e.username.clone();
+    h.port = e.port;
+    h.protocol = serde_json::from_value(serde_json::Value::String(e.protocol.clone())).unwrap_or(Protocol::Ssh);
+    h
+}
+
 fn shortcut(e: iced::keyboard::Event) -> Option<Message> {
     use iced::keyboard::{key::Named, Event, Key};
     let Event::KeyPressed { key, modifiers: m, .. } = e else {
@@ -1938,6 +2064,76 @@ impl App {
     }
 
     /// Closes a session, asking first when it is connected (« Confirmer la fermeture »).
+    /// Saves imported hosts: existing aliases are skipped, groups are created, keys of IdentityFile are added
+    /// to the keychain when they can be read here, jump hosts are linked once all hosts exist.
+    fn import_hosts(&mut self, items: &[nautile_core::import::ImportedHost]) -> (usize, usize) {
+        let Some(db) = &self.db else { return (0, 0) };
+        let store = db.store();
+        let mut groups: Vec<HostGroup> = self.groups.clone();
+        let mut keys: Vec<SshKey> = self.keys.clone();
+        let mut ids: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+        let (mut added, mut skipped) = (0, 0);
+        for item in items {
+            if let Some(h) = self.hosts.iter().find(|h| h.alias == item.alias) {
+                ids.insert(item.alias.clone(), h.id);
+                skipped += 1;
+                continue;
+            }
+            let mut h = Host::new(item.alias.clone(), item.hostname.clone());
+            h.port = item.port;
+            h.username = item.username.clone();
+            h.tags = item.tags.join(",");
+            if let Some(name) = &item.group {
+                let gid = match groups.iter().find(|g| &g.name == name) {
+                    Some(g) => Some(g.id),
+                    None => {
+                        let g: Result<HostGroup, _> =
+                            serde_json::from_value(serde_json::json!({ "name": name, "sortOrder": groups.len() }));
+                        g.ok().and_then(|g| store.insert(&g).ok().map(|id| (g, id))).map(|(mut g, id)| {
+                            g.id = id;
+                            groups.push(g);
+                            id
+                        })
+                    }
+                };
+                h.group_id = gid;
+            }
+            if let Some(file) = &item.identity_file {
+                if let Some(key_id) = import_key_file(file, &store, &mut keys) {
+                    h.auth_method = AuthMethod::Key;
+                    h.key_id = Some(key_id);
+                }
+            }
+            if let Ok(id) = store.insert(&h) {
+                ids.insert(item.alias.clone(), id);
+                added += 1;
+            }
+        }
+        for item in items {
+            let Some(jump) = item.proxy_jump.as_ref().map(|j| {
+                let j = j.rsplit('@').next().unwrap_or(j);
+                j.split(':').next().unwrap_or(j).to_owned()
+            }) else {
+                continue;
+            };
+            let (Some(id), Some(jump_id)) = (
+                ids.get(&item.alias).copied(),
+                ids.get(&jump)
+                    .copied()
+                    .or_else(|| self.hosts.iter().find(|h| h.alias == jump).map(|h| h.id)),
+            ) else {
+                continue;
+            };
+            if let Ok(Some(mut h)) = store.get::<Host>(id) {
+                if h.jump_host_id.is_none() {
+                    h.jump_host_id = Some(jump_id);
+                    let _ = store.update(&h);
+                }
+            }
+        }
+        (added, skipped)
+    }
+
     /// Keeps the window's size and place and the page shown, for the next start.
     fn remember_window(&mut self) {
         self.settings.window = Some(crate::storage::WindowState {
@@ -1949,6 +2145,7 @@ impl App {
         self.settings.last_page = Some(
             match self.page {
                 Page::Hosts => "hosts",
+                Page::Connections => "connections",
                 Page::Snippets => "snippets",
                 Page::Keys => "keys",
                 Page::Tunnels => "tunnels",

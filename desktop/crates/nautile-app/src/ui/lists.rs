@@ -112,6 +112,38 @@ pub(super) fn hosts(app: &App) -> Element<'_, Message> {
         left: 28.0,
     });
 
+    // « root@192.168.1.2 » typed in the search: connect without saving it (as on Android).
+    let quick = nautile_core::quick::parse(&app.search).filter(|_| nautile_core::quick::looks_like_target(&app.search));
+    if let Some(t) = &quick {
+        let mut chips = row![].spacing(8);
+        for p in [Protocol::Ssh, Protocol::Mosh, Protocol::Telnet, Protocol::Rdp, Protocol::Vnc] {
+            let main = p == t.protocol;
+            chips = chips.push(
+                button(text(crate::app::protocol_label(p)).size(13).font(BOLD))
+                    .padding([7, 14])
+                    .style(if main { theme::primary } else { theme::secondary })
+                    .on_press(Message::QuickConnect(p)),
+            );
+        }
+        let card = container(
+            row![
+                kit::icon_tile(I_TERMINAL, theme::nt(&app.theme()).accent),
+                column![
+                    text(trf("Se connecter à %1$s", &[&t.label()])).size(15).font(BOLD),
+                    soft(tr("Sans l'enregistrer ; il reste dans Connexions › Historique.")),
+                ]
+                .spacing(2)
+                .width(Fill),
+                chips,
+            ]
+            .spacing(14)
+            .align_y(Alignment::Center),
+        )
+        .padding([12, 14])
+        .style(theme::card);
+        list = list.push(card);
+    }
+
     // The groups as filters, with their number of hosts.
     let mut chips = row![kit::count_chip(
         tr("Tous"),
@@ -171,7 +203,7 @@ pub(super) fn hosts(app: &App) -> Element<'_, Message> {
             tr("Aucun hôte pour l'instant"),
             tr("Ajoutez un serveur, ou restaurez la sauvegarde de votre téléphone dans les réglages."),
         ));
-    } else if shown.is_empty() {
+    } else if shown.is_empty() && quick.is_none() {
         list = list.push(soft(trf("Aucun hôte ne correspond à « %1$s ».", &[&app.search])));
     }
 
@@ -620,4 +652,176 @@ pub(super) fn tunnels(app: &App) -> Element<'_, Message> {
         scrollable(list).height(Fill)
     ]
     .into()
+}
+
+/// « Connexions »: the sessions open now (with their last lines), then every connection made, by day.
+pub(super) fn connections(app: &App) -> Element<'_, Message> {
+    let n = theme::nt(&app.theme());
+    let mut list = Column::new().spacing(22).padding(Padding {
+        top: 4.0,
+        right: 28.0,
+        bottom: 28.0,
+        left: 28.0,
+    });
+    if !app.tabs.is_empty() {
+        let cards: Vec<Element<Message>> = app
+            .tabs
+            .iter()
+            .map(|t| {
+                let preview: Element<Message> = if t.remote.is_some() {
+                    soft(tr("Bureau à distance")).into()
+                } else if t.files.is_some() {
+                    soft(tr("Fichiers SFTP")).into()
+                } else {
+                    let screen = t.term.screen_text();
+                    let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
+                    let tail = lines[lines.len().saturating_sub(3)..].join("\n");
+                    let theme = app.term_theme();
+                    let (bg, fg) = (theme.background, theme.foreground);
+                    container(
+                        text(if tail.is_empty() { "…".to_owned() } else { tail })
+                            .font(MONO)
+                            .size(12)
+                            .color(fg),
+                    )
+                    .padding([8, 10])
+                    .width(Fill)
+                    .style(move |_| container::Style {
+                        background: Some(bg.into()),
+                        border: iced::border::rounded(8),
+                        ..Default::default()
+                    })
+                    .into()
+                };
+                let state = match &t.state {
+                    TabState::Open => tr("Connecté"),
+                    TabState::Connecting(_) => tr("Connexion…"),
+                    TabState::Closed(Some(_)) => tr("Coupé"),
+                    TabState::Closed(None) => tr("Fermé"),
+                };
+                let os = t.host_id.and_then(|h| app.host_by(h)).and_then(|h| h.os_id.clone());
+                button(
+                    column![
+                        row![
+                            kit::host_avatar(os.as_deref(), &t.name, argb(t.color), 36.0),
+                            column![text(t.name.clone()).size(15).font(BOLD), soft(state)]
+                                .spacing(2)
+                                .width(Fill),
+                            icon_button(I_CLOSE, Message::CloseTab(t.id)),
+                        ]
+                        .spacing(12)
+                        .align_y(Alignment::Center),
+                        preview,
+                    ]
+                    .spacing(10),
+                )
+                .width(Fill)
+                .padding(14)
+                .style(theme::card_pick(false))
+                .on_press(Message::SelectTab(Some(t.id)))
+                .into()
+            })
+            .collect();
+        list = list.push(
+            column![
+                kit::section_head(Some(n.green), tr("Ouvertes"), trf("%1$s session(s)", &[&app.tabs.len()]), None),
+                kit::card(cards),
+            ]
+            .spacing(10),
+        );
+    }
+
+    let log = app.db.as_ref().map(|db| db.connection_log(300)).unwrap_or_default();
+    if log.is_empty() && app.tabs.is_empty() {
+        list = list.push(empty(
+            I_HISTORY,
+            tr("Aucune connexion pour l'instant"),
+            tr("Les sessions ouvertes et l'historique des connexions apparaissent ici, pour y revenir en un clic."),
+        ));
+    }
+    // By day: « Aujourd'hui », « Hier », then the date.
+    let today = chrono::Local::now().date_naive();
+    let mut day: Option<chrono::NaiveDate> = None;
+    let mut rows: Vec<Element<Message>> = Vec::new();
+    let flush = |list: Column<'static, Message>,
+                 day: Option<chrono::NaiveDate>,
+                 rows: &mut Vec<Element<'static, Message>>|
+     -> Column<'static, Message> {
+        let Some(d) = day else { return list };
+        if rows.is_empty() {
+            return list;
+        }
+        let name = if d == today {
+            tr("Aujourd'hui")
+        } else if Some(d) == today.pred_opt() {
+            tr("Hier")
+        } else {
+            d.format("%d/%m/%Y").to_string()
+        };
+        list.push(column![kit::section_head(None, name, String::new(), None), kit::card(std::mem::take(rows))].spacing(10))
+    };
+    for e in log {
+        let at = chrono::DateTime::from_timestamp_millis(e.at).map(|d| d.with_timezone(&chrono::Local));
+        let d = at.map(|a| a.date_naive());
+        if d != day {
+            list = flush(list, day, &mut rows);
+            day = d;
+        }
+        let saved = e.host_id.and_then(|h| app.hosts.iter().find(|x| x.id == h));
+        let addr = {
+            let mut s = String::new();
+            if !e.username.is_empty() {
+                s.push_str(&e.username);
+                s.push('@');
+            }
+            s.push_str(&e.hostname);
+            s.push_str(&format!(":{}", e.port));
+            s
+        };
+        let mut r = row![
+            kit::host_avatar(
+                saved.and_then(|h| h.os_id.as_deref()),
+                &e.alias,
+                saved.map(|h| argb(h.color)).unwrap_or(n.muted),
+                36.0
+            ),
+            column![
+                row![
+                    text(saved.map(|h| h.alias.clone()).unwrap_or(e.alias.clone())).size(15).font(BOLD),
+                    container(text(e.protocol.clone()).size(11).font(BOLD))
+                        .padding([1, 7])
+                        .style(|t: &iced::Theme| theme::chip(theme::nt(t).blue)(t)),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+                text(addr).font(MONO).size(12).style(|t: &iced::Theme| text::Style {
+                    color: Some(theme::nt(t).muted),
+                }),
+            ]
+            .spacing(2)
+            .width(Fill),
+            soft(at.map(|a| a.format("%H:%M").to_string()).unwrap_or_default()),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center);
+        if saved.is_none() {
+            r = r.push(
+                button(text(tr("Enregistrer")).size(13))
+                    .padding([6, 12])
+                    .style(theme::secondary)
+                    .on_press(Message::SaveLogged(e.id)),
+            );
+        }
+        r = r.push(icon_button(I_CLOSE, Message::ForgetLogged(e.id)));
+        rows.push(
+            button(r)
+                .width(Fill)
+                .padding([10, 14])
+                .style(theme::card_pick(false))
+                .on_press(Message::Reconnect2(e.id))
+                .into(),
+        );
+    }
+    list = flush(list, day, &mut rows);
+    column![header(tr("Connexions"), None, None, vec![]), scrollable(list).height(Fill)].into()
 }

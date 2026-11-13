@@ -359,7 +359,7 @@ impl Files {
 impl App {
     /// Opens a file browser on a saved SSH host.
     pub fn open_files(&mut self, host_id: i64) -> Task<Message> {
-        let Some(h) = self.hosts.iter().find(|h| h.id == host_id).cloned() else {
+        let Some(h) = self.host_by(host_id).cloned() else {
             return Task::none();
         };
         if !matches!(h.protocol, Protocol::Ssh | Protocol::Mosh) {

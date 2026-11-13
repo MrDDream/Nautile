@@ -4,9 +4,11 @@
 pub mod backup;
 pub mod db;
 pub mod i18n;
+pub mod import;
 pub mod lan;
 pub mod lock;
 pub mod model;
+pub mod quick;
 pub mod sync;
 
 pub use i18n::{tr, trf};

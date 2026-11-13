@@ -352,7 +352,7 @@ impl App {
         let Some(t) = self.active_tab.and_then(|id| self.tab(id)) else {
             return String::new();
         };
-        match t.host_id.and_then(|h| self.hosts.iter().find(|x| x.id == h)) {
+        match t.host_id.and_then(|h| self.host_by(h)) {
             Some(h) => format!("{} ({}, {})", h.alias, h.address(), crate::app::protocol_label(h.protocol)),
             None => format!("{} ({})", tr("cet ordinateur"), std::env::consts::OS),
         }

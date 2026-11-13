@@ -425,6 +425,75 @@ fn update_available() {
 }
 
 #[test]
+fn quick_connect() {
+    each(|app| {
+        let _ = app.update(Message::Search("root@192.168.1.40".into()));
+        "quick-connect"
+    });
+}
+
+#[test]
+fn connections() {
+    each(|app| {
+        use nautile_core::db::ConnectionLog;
+        let _ = with_session(app);
+        let now = nautile_core::model::now_ms();
+        let docker = app.hosts.iter().find(|h| h.alias == "docker-01").unwrap().clone();
+        let db = app.db.as_ref().unwrap();
+        let log = |host: Option<i64>, alias: &str, p: &str, user: &str, host_name: &str, port: i32, ago: i64| ConnectionLog {
+            id: 0,
+            host_id: host,
+            alias: alias.into(),
+            protocol: p.into(),
+            username: user.into(),
+            hostname: host_name.into(),
+            port,
+            at: now - ago,
+        };
+        for e in [
+            log(Some(docker.id), "docker-01", "SSH", "mrd", "10.0.0.20", 22, 4 * 60_000),
+            log(None, "root@192.168.1.40", "SSH", "root", "192.168.1.40", 22, 50 * 60_000),
+            log(None, "admin@pc-salon", "RDP", "admin", "pc-salon", 3389, 26 * 3_600_000),
+        ] {
+            db.log_connection(&e).unwrap();
+        }
+        let _ = app.update(Message::Nav(Page::Connections));
+        "connections"
+    });
+}
+
+fn sample_import() -> Vec<nautile_core::import::ImportedHost> {
+    nautile_core::import::parse(
+        "Host bastion\n  HostName bastion.example.org\n  User ops\n\nHost db-1\n  HostName 10.1.0.5\n  ProxyJump bastion\n  User postgres\n\nHost docker-01\n  HostName 10.0.0.20\n",
+    )
+    .unwrap()
+}
+
+#[test]
+fn import_hosts_preview() {
+    each(|app| {
+        let _ = app.update(Message::ImportHostsRead(Some(Ok(sample_import()))));
+        "import-hosts"
+    });
+}
+
+#[test]
+fn importing_hosts_links_jump_hosts_and_skips_existing_ones() {
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = demo(false, true);
+    let before = app.hosts.len();
+    let _ = app.update(Message::ImportHostsRead(Some(Ok(sample_import()))));
+    let _ = app.update(Message::ImportHostsRun);
+    assert_eq!(app.hosts.len(), before + 2, "docker-01 already there");
+    let bastion = app.hosts.iter().find(|h| h.alias == "bastion").unwrap().id;
+    let db = app.hosts.iter().find(|h| h.alias == "db-1").unwrap();
+    assert_eq!(
+        (db.hostname.as_str(), db.username.as_str(), db.jump_host_id),
+        ("10.1.0.5", "postgres", Some(bastion))
+    );
+}
+
+#[test]
 fn settings_lock() {
     each(|app| {
         let _ = app.update(Message::Nav(Page::Settings));

@@ -71,6 +71,7 @@ const I_VPN_KEY: char = '\u{E0DA}'; // vpn_key
 const I_VPN_LOCK: char = '\u{E62F}'; // vpn_lock
 const I_CHEVRON_RIGHT: char = '\u{E5CC}'; // chevron_right
 const I_KEYBOARD: char = '\u{E312}'; // keyboard
+const I_FILE_OPEN: char = '\u{EAF3}'; // file_open
 const I_PLUS: char = '\u{E145}'; // add
 
 pub fn icon<'a>(c: char) -> iced::widget::Text<'a> {
@@ -178,6 +179,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         Some(t) => session(app, t),
         None => match app.page {
             Page::Hosts => hosts(app),
+            Page::Connections => connections(app),
             Page::Snippets => snippets(app),
             Page::Keys => keys(app),
             Page::Tunnels => tunnels(app),
@@ -207,6 +209,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         (Some(crate::app::Modal::Password), None) => layers = layers.push(password_modal(app, max_h)),
         (Some(crate::app::Modal::Export), None) => layers = layers.push(export_modal(app, max_h)),
         (Some(crate::app::Modal::Update), None) => layers = layers.push(update_modal(app, max_h)),
+        (Some(crate::app::Modal::ImportHosts), None) => layers = layers.push(import_hosts_modal(app, max_h)),
         (None, None) => {}
     }
     if app.import.file.is_some() {
@@ -277,6 +280,12 @@ fn sidebar(app: &App) -> Element<'_, Message> {
         container(brand).padding([0, if compact { 10 } else { 6 }]),
         Space::new().height(20),
         item(I_HOSTS, tr("Hôtes"), Page::Hosts, Some(app.hosts.len())),
+        item(
+            I_HISTORY,
+            tr("Connexions"),
+            Page::Connections,
+            (!app.tabs.is_empty()).then_some(app.tabs.len())
+        ),
         item(I_SNIPPETS, tr("Snippets"), Page::Snippets, Some(app.snippets.len())),
         item(I_KEYS, tr("Trousseau"), Page::Keys, Some(app.keys.len())),
         item(I_TUNNEL, tr("Tunnels"), Page::Tunnels, Some(app.forwards.len())),
