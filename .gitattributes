@@ -1,0 +1,2 @@
+# Compatibility files are compared byte for byte: no line-ending conversion.
+desktop/tests/fixtures/** -text

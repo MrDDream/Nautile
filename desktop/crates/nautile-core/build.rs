@@ -48,7 +48,7 @@ fn main() {
     let mut pairs = std::collections::BTreeMap::new();
     for f in &files {
         println!("cargo:rerun-if-changed={}", f.display());
-        for line in std::fs::read_to_string(f).unwrap().split('\n') {
+        for line in std::fs::read_to_string(f).unwrap().lines() {
             if line.trim().is_empty() {
                 continue;
             }
