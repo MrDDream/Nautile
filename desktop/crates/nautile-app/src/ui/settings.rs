@@ -246,6 +246,27 @@ pub(super) fn settings_home(app: &App) -> Element<'_, Message> {
             page: P::Appearance,
         },
         Entry {
+            icon: I_DESKTOP,
+            tint: teal,
+            title: tr("Bureau à distance"),
+            detail: format!(
+                "{} · {}",
+                if s.remote_no_upscale {
+                    tr("taille réelle")
+                } else {
+                    tr("ajusté à la fenêtre")
+                },
+                if s.rdp_window_size() {
+                    tr("RDP à la taille de la fenêtre")
+                } else {
+                    "RDP 1600×900".into()
+                }
+            ),
+            words: "rdp vnc bureau a distance remote desktop presse-papier clipboard plein ecran fullscreen taille resolution",
+            dot: None,
+            page: P::Remote,
+        },
+        Entry {
             icon: I_TERMINAL,
             tint: n.blue,
             title: tr("Terminal"),
@@ -395,6 +416,7 @@ pub(super) fn settings(app: &App) -> Element<'_, Message> {
         P::Data => (tr("Données"), data_settings(app)),
         P::Logs => (tr("Journaux de session"), logs_settings(app)),
         P::System => (tr("Fenêtre et démarrage"), system_settings(app)),
+        P::Remote => (tr("Bureau à distance"), remote_settings(app)),
     };
     let back = if page == P::Logs {
         Message::SettingsPage(Some(P::Terminal))
@@ -723,22 +745,70 @@ fn terminal_aspect(app: &App) -> Column<'_, Message> {
         })
         .collect();
     let family = s.terminal_family();
-    let fonts = crate::term::fonts::ALL
-        .iter()
+    let mut fonts: Vec<Element<Message>> = crate::term::fonts::all()
+        .into_iter()
         .map(|f| {
             let sample = if f.nerd { "0Oo il1 {} \u{E0B0}" } else { "0Oo il1 {}" };
+            let imported = f.id.starts_with("file:");
+            let name = if imported {
+                format!("{} · {}", f.name, tr("importée"))
+            } else {
+                tr(f.name)
+            };
             term_tile(
                 text(sample).font(f.font).size(16).color(current.foreground).into(),
-                tr(f.name),
+                name,
                 f.id == family.id,
                 current.background,
                 Message::TermFamily(f.id.to_owned()),
             )
         })
         .collect();
+    fonts.push(term_tile(
+        text(tr("+ Importer")).size(16).color(current.foreground).into(),
+        ".ttf / .otf".into(),
+        false,
+        current.background,
+        Message::ImportFont,
+    ));
+    let imported_fonts: Vec<Element<Message>> = crate::term::fonts::all()
+        .into_iter()
+        .filter(|f| f.id.starts_with("file:"))
+        .map(|f| {
+            row![
+                text(f.name).size(13).width(Fill),
+                icon_button(I_TRASH, Message::DeleteFont(f.id.to_owned()))
+            ]
+            .align_y(Alignment::Center)
+            .into()
+        })
+        .collect();
+    let imported_themes: Vec<Element<Message>> = themes::all()
+        .into_iter()
+        .filter(|t| themes::is_custom(t.id))
+        .map(|t| {
+            row![
+                text(t.name).size(13).width(Fill),
+                icon_button(I_TRASH, Message::DeleteTheme(t.id.to_owned()))
+            ]
+            .align_y(Alignment::Center)
+            .into()
+        })
+        .collect();
     let size = s.terminal_font();
     column![
-        settings_card(trf("Thème · %1$s", &[&tr(current.name)]), grid(themes, 5)),
+        settings_card(
+            trf("Thème · %1$s", &[&tr(current.name)]),
+            column![
+                grid(themes, 5),
+                row![secondary(
+                    tr("Importer un thème (.itermcolors, Xresources, Alacritty)"),
+                    Message::ImportTheme
+                )],
+            ]
+            .push(column(imported_themes).spacing(4))
+            .spacing(14)
+        ),
         settings_card(
             tr("Curseur"),
             segmented(
@@ -755,6 +825,7 @@ fn terminal_aspect(app: &App) -> Column<'_, Message> {
             trf("Police · %1$s", &[&tr(family.name)]),
             column![
                 grid(fonts, 3),
+                column(imported_fonts).spacing(4),
                 row![
                     text(tr("Taille du texte")).size(14).width(Fill),
                     secondary("A−".into(), Message::TermFont(size - 1.0)),
@@ -841,6 +912,16 @@ fn terminal_sessions(app: &App) -> Column<'_, Message> {
             kit::card(vec![
                 kit::toggle_row(
                     None,
+                    tr("Suggestions depuis l'historique"),
+                    trf(
+                        "Commandes affichées en écho, par hôte (%1$s enregistrées). Jamais les mots de passe.",
+                        &[&app.db.as_ref().map(|d| d.command_count()).unwrap_or(0)]
+                    ),
+                    s.history_suggestions(),
+                    Message::HistorySuggestions
+                ),
+                kit::toggle_row(
+                    None,
                     tr("Enregistrer les sessions"),
                     tr("Copie de la sortie de chaque nouvelle session, stockée sur cet ordinateur"),
                     s.session_logs,
@@ -861,6 +942,16 @@ fn terminal_sessions(app: &App) -> Column<'_, Message> {
             ]),
         ]
         .spacing(10),
+        row![button(
+            text(trf(
+                "Effacer l'historique (%1$s commandes)",
+                &[&app.db.as_ref().map(|d| d.command_count()).unwrap_or(0)]
+            ))
+            .size(14)
+        )
+        .padding([9, 14])
+        .style(theme::danger)
+        .on_press(Message::ClearHistory)],
     ]
 }
 
@@ -2860,4 +2951,53 @@ fn update_section(app: &App) -> Element<'_, Message> {
     ]
     .spacing(10)
     .into()
+}
+
+/// RDP and VNC: how the desktop is drawn, its size, the clipboard, full screen.
+pub(super) fn remote_settings(app: &App) -> Column<'_, Message> {
+    let s = &app.settings;
+    column![
+        column![
+            container(kit::section_label(tr("Affichage"))).padding([0, 4]),
+            kit::card(vec![
+                kit::toggle_row(
+                    None,
+                    tr("Taille réelle"),
+                    tr("Le bureau n'est jamais agrandi au-delà de sa taille : plus net, avec des marges. Sinon il remplit la fenêtre."),
+                    s.remote_no_upscale,
+                    Message::RemoteNoUpscale
+                ),
+                kit::toggle_row(
+                    None,
+                    tr("Plein écran à l'ouverture"),
+                    tr("F11 quitte (et remet) le plein écran."),
+                    s.remote_fullscreen,
+                    Message::RemoteFullscreen
+                ),
+            ]),
+        ]
+        .spacing(10),
+        column![
+            container(kit::section_label("RDP".into())).padding([0, 4]),
+            kit::card(vec![kit::toggle_row(
+                None,
+                tr("À la taille de la fenêtre"),
+                tr("Sans résolution choisie pour l'hôte, le bureau Windows prend la taille de la fenêtre de Nautile (sinon 1600×900)."),
+                s.rdp_window_size(),
+                Message::RdpWindowSize
+            )]),
+        ]
+        .spacing(10),
+        column![
+            container(kit::section_label(tr("Presse-papier"))).padding([0, 4]),
+            kit::card(vec![kit::toggle_row(
+                None,
+                tr("Copier ici ce qui est copié là-bas"),
+                tr("VNC : le texte copié sur le bureau distant arrive dans le presse-papier de cet ordinateur. Ctrl+Maj+V envoie le vôtre."),
+                s.remote_clipboard(),
+                Message::RemoteClipboard
+            )]),
+        ]
+        .spacing(10),
+    ]
 }

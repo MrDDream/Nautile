@@ -68,7 +68,28 @@ fn classic(id: &'static str, name: &'static str, bg: u32, fg: u32, cursor: u32, 
 }
 
 /// The design's six themes first, then the classics.
+/// The themes imported by the user (`data/themes`), after the built-in ones.
+static CUSTOM: std::sync::RwLock<Vec<TermTheme>> = std::sync::RwLock::new(Vec::new());
+
+pub fn set_custom(list: Vec<TermTheme>) {
+    if let Ok(mut c) = CUSTOM.write() {
+        *c = list;
+    }
+}
+
+pub fn is_custom(id: &str) -> bool {
+    id.starts_with("custom-")
+}
+
 pub fn all() -> Vec<TermTheme> {
+    let mut v = builtin();
+    if let Ok(c) = CUSTOM.read() {
+        v.extend(c.iter().cloned());
+    }
+    v
+}
+
+fn builtin() -> Vec<TermTheme> {
     vec![
         design(
             "nautile",

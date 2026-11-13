@@ -62,6 +62,24 @@ pub const ALL: [TermFont; 6] = [
     },
 ];
 
+/// The fonts imported by the user (`data/fonts`), loaded at start.
+static CUSTOM: std::sync::RwLock<Vec<TermFont>> = std::sync::RwLock::new(Vec::new());
+
+pub fn set_custom(list: Vec<TermFont>) {
+    if let Ok(mut c) = CUSTOM.write() {
+        *c = list;
+    }
+}
+
+/// The bundled fonts, then the imported ones.
+pub fn all() -> Vec<TermFont> {
+    let mut v = ALL.to_vec();
+    if let Ok(c) = CUSTOM.read() {
+        v.extend(c.iter().copied());
+    }
+    v
+}
+
 pub fn by_id(id: &str) -> TermFont {
-    ALL.into_iter().find(|f| f.id == id).unwrap_or(JETBRAINS)
+    all().into_iter().find(|f| f.id == id).unwrap_or(JETBRAINS)
 }

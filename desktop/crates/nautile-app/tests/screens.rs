@@ -539,6 +539,77 @@ fn sftp_editor() {
 }
 
 #[test]
+fn importing_a_theme_and_a_font_uses_them() {
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = demo(false, true);
+    let tmp = std::env::temp_dir().join(format!("nautile-import-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    app.paths.data = tmp.clone();
+    let toml = "[colors.primary]\nbackground = '#101820'\nforeground = '#e0e0e0'\n[colors.normal]\nblack = '#000000'\nred = '#ff5555'\ngreen = '#50fa7b'\nyellow = '#f1fa8c'\nblue = '#6272a4'\nmagenta = '#ff79c6'\ncyan = '#8be9fd'\nwhite = '#bbbbbb'\n";
+    let _ = app.update(Message::ThemeFile(Some(("Mer du Nord".into(), toml.into()))));
+    assert_eq!(app.settings.terminal_theme(), "custom-mer-du-nord");
+    assert_eq!(app.term_theme().name, "Mer du Nord");
+    let _ = app.update(Message::FontFile(Some((
+        "Hack.ttf".into(),
+        include_bytes!("../assets/fonts/HackNerd.ttf").to_vec(),
+    ))));
+    assert_eq!(app.settings.terminal_family().name, "Hack Nerd Font Mono");
+    let _ = app.update(Message::DeleteTheme("custom-mer-du-nord".into()));
+    let _ = app.update(Message::DeleteFont("file:Hack.ttf".into()));
+    assert_eq!(
+        (app.settings.terminal_theme(), app.settings.terminal_family().id),
+        ("nautile", "jetbrains")
+    );
+    let _ = std::fs::remove_dir_all(tmp);
+}
+
+/// A session where `docker compose ps` and `docker logs -f jellyfin` were typed, and `do` is being typed.
+fn with_history(app: &mut App) -> u64 {
+    use nautile_app::term::widget::Action;
+    let id = with_session(app);
+    let p = "\x1b[1;32mmrd@docker-01\x1b[0m:\x1b[1;34m~\x1b[0m$ ";
+    for cmd in ["docker compose ps", "docker logs -f jellyfin", "docker compose ps"] {
+        let t = app.tabs.iter_mut().find(|t| t.id == id).unwrap();
+        t.term.feed(cmd.as_bytes());
+        let _ = app.update(Message::Term(id, Action::Input(b"\r".to_vec())));
+        let t = app.tabs.iter_mut().find(|t| t.id == id).unwrap();
+        t.term.feed(format!("\r\n{p}").as_bytes());
+    }
+    let t = app.tabs.iter_mut().find(|t| t.id == id).unwrap();
+    t.term.feed(b"do");
+    id
+}
+
+#[test]
+fn typed_commands_are_suggested_again() {
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = demo(false, true);
+    let id = with_history(&mut app);
+    let (typed, list) = app.suggestions(id);
+    assert_eq!(typed, "do");
+    assert_eq!(list, ["docker compose ps", "docker logs -f jellyfin"], "most used first");
+    let host = app.tab(id).unwrap().host_id.unwrap();
+    assert_eq!(app.db.as_ref().unwrap().commands(host)[0], ("docker compose ps".to_owned(), 2));
+}
+
+#[test]
+fn terminal_suggestions() {
+    each(|app| {
+        let _ = with_history(app);
+        "terminal-suggestions"
+    });
+}
+
+#[test]
+fn settings_remote() {
+    each(|app| {
+        let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::Remote)));
+        "settings-remote"
+    });
+}
+
+#[test]
 fn settings_lock() {
     each(|app| {
         let _ = app.update(Message::Nav(Page::Settings));

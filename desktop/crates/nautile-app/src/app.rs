@@ -70,6 +70,8 @@ pub enum SettingsPage {
     Data,
     /// The recorded sessions (under Terminal).
     Logs,
+    /// RDP and VNC: size, clipboard, full screen.
+    Remote,
     /// The window, the notification area, starting with the session, updates.
     System,
 }
@@ -434,6 +436,22 @@ pub enum Message {
     OpenMonitor(i64),
     /// Ctrl+S: saves the remote file being edited.
     SaveShortcut,
+    ImportTheme,
+    ThemeFile(Option<(String, String)>),
+    DeleteTheme(String),
+    ImportFont,
+    FontFile(Option<(String, Vec<u8>)>),
+    DeleteFont(String),
+    HistorySuggestions(bool),
+    RemoteNoUpscale(bool),
+    RdpWindowSize(bool),
+    RemoteClipboard(bool),
+    RemoteFullscreen(bool),
+    /// F11: full screen on and off.
+    ToggleFullscreen,
+    ClearHistory,
+    /// Types the end of a suggestion in the session.
+    Complete(u64, String),
     ImportHostsRead(Option<Result<Vec<nautile_core::import::ImportedHost>, String>>),
     ImportHostsRun,
     /// The window's close button: hide in the notification area, or quit.
@@ -637,6 +655,8 @@ pub struct App {
     pub quick: Vec<Host>,
     /// « Importer »: the hosts read, before they are saved.
     pub host_import: Vec<nautile_core::import::ImportedHost>,
+    /// The commands typed before, by host (loaded when a session opens).
+    pub history: std::collections::HashMap<i64, Vec<(String, i64)>>,
 }
 
 impl App {
@@ -672,7 +692,11 @@ impl App {
             Task::none()
         };
         let updates = app.update_boot();
-        (app, Task::batch([focus, backups, os_theme, font, show, updates]))
+        // The fonts imported by the user, given to the renderer.
+        let imported = crate::term::import::load_fonts(&app.paths.data.join("fonts"));
+        crate::term::fonts::set_custom(imported.iter().map(|(f, _)| *f).collect());
+        let fonts = Task::batch(imported.into_iter().map(|(_, b)| iced::font::load(b).map(|_| Message::FontLoaded)));
+        (app, Task::batch([focus, backups, os_theme, font, show, updates, fonts]))
     }
 
     pub fn with(paths: Paths, settings: Settings, db: Option<Db>, fatal: Option<String>) -> App {
@@ -728,6 +752,7 @@ impl App {
             updates: Default::default(),
             quick: Vec::new(),
             host_import: Vec::new(),
+            history: Default::default(),
         };
         // Before several providers could be on, the chosen one was the only one.
         if app.settings.ai_enabled.is_empty() {
@@ -743,6 +768,7 @@ impl App {
             Some("settings") => Page::Settings,
             _ => Page::Hosts,
         };
+        crate::term::themes::set_custom(crate::term::import::load_themes(&app.paths.data.join("themes")));
         app.locked = app.settings.locks();
         app.lock_form.method = app.settings.lock_method;
         app.reload();
@@ -907,7 +933,7 @@ impl App {
                 self.search.clear();
                 if p == Some(SettingsPage::Terminal) {
                     // The fonts are shown in their own face.
-                    let ids: Vec<&str> = crate::term::fonts::ALL.iter().map(|f| f.id).collect();
+                    let ids: Vec<&str> = crate::term::fonts::all().iter().map(|f| f.id).collect();
                     return Task::batch(ids.into_iter().map(|id| self.load_font(id)));
                 }
             }
@@ -1038,6 +1064,137 @@ impl App {
                 }
             }
             Message::OpenMonitor(h) => return self.open_monitor(h),
+            Message::ImportTheme => {
+                return Task::perform(
+                    async {
+                        let file = rfd::AsyncFileDialog::new()
+                            .set_title(tr("Importer un thème"))
+                            .add_filter("Thème", &["itermcolors", "Xresources", "xresources", "toml", "yml", "yaml", "txt"])
+                            .add_filter("*", &["*"])
+                            .pick_file()
+                            .await?;
+                        let name = file.file_name();
+                        let name = name.rsplit_once('.').map(|(n, _)| n.to_owned()).unwrap_or(name);
+                        Some((name, String::from_utf8_lossy(&file.read().await).into_owned()))
+                    },
+                    Message::ThemeFile,
+                );
+            }
+            Message::ThemeFile(f) => {
+                let Some((name, text)) = f else { return Task::none() };
+                let dir = self.paths.data.join("themes");
+                return match crate::term::import::parse_theme(&text, &name)
+                    .and_then(|t| crate::term::import::save_theme(&dir, &t).map(|_| t).map_err(|e| e.to_string()))
+                {
+                    Ok(t) => {
+                        crate::term::themes::set_custom(crate::term::import::load_themes(&dir));
+                        self.update(Message::TermTheme(t.id))
+                    }
+                    Err(e) => self.say(trf("Import impossible : %1$s", &[&e])),
+                };
+            }
+            Message::DeleteTheme(id) => {
+                if crate::term::themes::is_custom(&id) {
+                    let dir = self.paths.data.join("themes");
+                    let _ = std::fs::remove_file(dir.join(format!("{id}.json")));
+                    crate::term::themes::set_custom(crate::term::import::load_themes(&dir));
+                    if self.settings.terminal_theme() == id {
+                        return self.update(Message::TermTheme("nautile".into()));
+                    }
+                }
+            }
+            Message::ImportFont => {
+                return Task::perform(
+                    async {
+                        let file = rfd::AsyncFileDialog::new()
+                            .set_title(tr("Importer une police"))
+                            .add_filter("TrueType / OpenType", &["ttf", "otf", "TTF", "OTF"])
+                            .pick_file()
+                            .await?;
+                        Some((file.file_name(), file.read().await))
+                    },
+                    Message::FontFile,
+                );
+            }
+            Message::FontFile(f) => {
+                let Some((name, bytes)) = f else { return Task::none() };
+                let (family, warning) = match crate::term::import::check_font(&bytes) {
+                    Ok(v) => v,
+                    Err(e) => return self.say(e),
+                };
+                let dir = self.paths.data.join("fonts");
+                let safe: String = name
+                    .chars()
+                    .map(|c| if c.is_alphanumeric() || ".-_".contains(c) { c } else { '_' })
+                    .collect();
+                if let Err(e) = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(&safe), &bytes)) {
+                    return self.say(e.to_string());
+                }
+                let loaded = crate::term::import::load_fonts(&dir);
+                let id = format!("file:{safe}");
+                crate::term::fonts::set_custom(loaded.iter().map(|(f, _)| *f).collect());
+                let load = iced::font::load(bytes).map(|_| Message::FontLoaded);
+                self.settings.terminal_family = Some(id);
+                let _ = self.settings.save(&self.paths);
+                let said = self.say(warning.unwrap_or_else(|| trf("Police « %1$s » ajoutée", &[&family])));
+                return Task::batch([load, said]);
+            }
+            Message::DeleteFont(id) => {
+                if let Some(file) = id.strip_prefix("file:") {
+                    let dir = self.paths.data.join("fonts");
+                    let _ = std::fs::remove_file(dir.join(file));
+                    crate::term::fonts::set_custom(crate::term::import::load_fonts(&dir).into_iter().map(|(f, _)| f).collect());
+                    if self.settings.terminal_family.as_deref() == Some(&id) {
+                        self.settings.terminal_family = None;
+                        let _ = self.settings.save(&self.paths);
+                    }
+                }
+            }
+            Message::RemoteNoUpscale(v) => {
+                self.settings.remote_no_upscale = v;
+                let _ = self.settings.save(&self.paths);
+            }
+            Message::RdpWindowSize(v) => {
+                self.settings.rdp_window_size = Some(v);
+                let _ = self.settings.save(&self.paths);
+            }
+            Message::RemoteClipboard(v) => {
+                self.settings.remote_clipboard = Some(v);
+                let _ = self.settings.save(&self.paths);
+            }
+            Message::RemoteFullscreen(v) => {
+                self.settings.remote_fullscreen = v;
+                let _ = self.settings.save(&self.paths);
+            }
+            Message::ToggleFullscreen => {
+                return iced::window::latest().and_then(|w| {
+                    iced::window::mode(w).then(move |m| {
+                        iced::window::set_mode(
+                            w,
+                            if m == iced::window::Mode::Fullscreen {
+                                iced::window::Mode::Windowed
+                            } else {
+                                iced::window::Mode::Fullscreen
+                            },
+                        )
+                    })
+                });
+            }
+            Message::HistorySuggestions(v) => {
+                self.settings.history_suggestions = Some(v);
+                let _ = self.settings.save(&self.paths);
+            }
+            Message::ClearHistory => {
+                if let Some(db) = &self.db {
+                    let _ = db.clear_commands();
+                }
+                self.history.clear();
+            }
+            Message::Complete(id, rest) => {
+                if let Some(t) = self.tab(id) {
+                    t.send_text(&rest);
+                }
+            }
             Message::SaveShortcut => {
                 if let Some(id) = self.active_tab {
                     let editing = self.tab(id).and_then(|t| t.files.as_ref()).is_some_and(|f| f.editor.is_some());
@@ -2058,6 +2215,7 @@ fn shortcut(e: iced::keyboard::Event) -> Option<Message> {
         Key::Character("a" | "A") if m.control() && m.shift() => Some(Message::Ai(crate::assistant::AiMsg::Toggle)),
         Key::Character("p" | "P") if m.control() && m.shift() => Some(Message::TypePassword),
         Key::Character("s" | "S") if m.control() && !m.shift() => Some(Message::SaveShortcut),
+        Key::Named(Named::F11) => Some(Message::ToggleFullscreen),
         Key::Named(Named::Escape) => Some(Message::Escape),
         _ => None,
     }

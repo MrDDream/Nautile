@@ -120,7 +120,37 @@ pub(super) fn session<'a>(app: &'a App, t: &'a Tab) -> Element<'a, Message> {
         }
     };
     match &t.state {
-        TabState::Open => with_panel(term.into()),
+        TabState::Open => {
+            // Commands typed before on this host, offered as you type.
+            let (typed, list) = app.suggestions(id);
+            if list.is_empty() {
+                with_panel(term.into())
+            } else {
+                let rows = column(list.into_iter().map(|c| {
+                    let rest = c[typed.len()..].to_owned();
+                    button(
+                        row![
+                            text(typed.clone()).font(MONO).size(13),
+                            text(rest.clone()).font(MONO).size(13).style(|th: &iced::Theme| text::Style {
+                                color: Some(theme::nt(th).muted),
+                            }),
+                        ]
+                        .spacing(0),
+                    )
+                    .width(Fill)
+                    .padding([5, 10])
+                    .style(theme::card_pick(false))
+                    .on_press(Message::Complete(id, rest))
+                    .into()
+                }))
+                .spacing(2);
+                let card = container(column![rows, label(tr("→ complète avec la première · clic pour choisir"))].spacing(6))
+                    .padding(8)
+                    .max_width(560)
+                    .style(theme::dialog);
+                with_panel(stack![term, container(card).align_bottom(Fill).align_right(Fill).padding(16)].into())
+            }
+        }
         TabState::Connecting(step) => {
             let step = if step.is_empty() {
                 trf("Connexion à %1$s…", &[&t.name])
@@ -780,6 +810,7 @@ pub(super) fn remote_desktop<'a>(app: &'a App, t: &'a Tab, r: &'a crate::session
     let screen: Element<Message> = crate::remote_view::view(r.image.as_ref(), r.size, r.cursor.as_ref(), focused, move |a| {
         Message::RemoteAction(id, a)
     })
+    .no_upscale(app.settings.remote_no_upscale)
     .into();
     let banner = |body: Element<'a, Message>| -> Element<'a, Message> {
         container(container(body).padding([14, 18]).max_width(560).style(theme::card))

@@ -317,3 +317,24 @@ Enregistrement…	Saving…
 Modifié · Ctrl+S pour enregistrer	Modified · Ctrl+S to save
 Enregistré sur le serveur	Saved on the server
 Écraser quand même	Overwrite anyway
+Importer un thème	Import a theme
+Importer une police	Import a font
+Police « %1\$s » ajoutée	Font “%1\$s” added
+→ complète avec la première · clic pour choisir	→ completes with the first · click to choose
+taille réelle	actual size
+ajusté à la fenêtre	fitted to the window
+RDP à la taille de la fenêtre	RDP at the window's size
+importée	imported
++ Importer	+ Import
+Taille réelle	Actual size
+Le bureau n'est jamais agrandi au-delà de sa taille : plus net, avec des marges. Sinon il remplit la fenêtre.	The desktop is never enlarged beyond its size: sharper, with margins. Otherwise it fills the window.
+Plein écran à l'ouverture	Full screen when opened
+F11 quitte (et remet) le plein écran.	F11 leaves (and returns to) full screen.
+À la taille de la fenêtre	At the window's size
+Sans résolution choisie pour l'hôte, le bureau Windows prend la taille de la fenêtre de Nautile (sinon 1600×900).	Without a resolution set for the host, the Windows desktop takes the size of Nautile's window (otherwise 1600×900).
+Presse-papier	Clipboard
+Copier ici ce qui est copié là-bas	Copy here what is copied there
+VNC : le texte copié sur le bureau distant arrive dans le presse-papier de cet ordinateur. Ctrl+Maj+V envoie le vôtre.	VNC: text copied on the remote desktop reaches this computer's clipboard. Ctrl+Shift+V sends yours.
+Police trop lourde (30 Mo au plus)	Font too heavy (30 MB at most)
+Ce fichier n'est pas une police TrueType ou OpenType	This file is not a TrueType or OpenType font
+Cette police n'est pas à chasse fixe : les colonnes du terminal risquent d'être décalées.	This font is not monospaced: the terminal's columns may be off.

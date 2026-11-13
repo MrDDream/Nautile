@@ -27,6 +27,8 @@ pub struct RemoteView<'a, Message> {
     size: (u32, u32),
     cursor: Option<&'a (image::Handle, u32, u32, u32, u32)>,
     focused: bool,
+    /// Never larger than the desktop's real size.
+    no_upscale: bool,
     on_action: Box<dyn Fn(RemoteAction) -> Message + 'a>,
 }
 
@@ -42,6 +44,7 @@ pub fn view<'a, Message>(
         size,
         cursor,
         focused,
+        no_upscale: false,
         on_action: Box::new(on_action),
     }
 }
@@ -57,10 +60,19 @@ struct State {
 }
 
 impl<'a, Message> RemoteView<'a, Message> {
+    /// Never drawn larger than the desktop's real size (sharper, with margins).
+    pub fn no_upscale(mut self, v: bool) -> Self {
+        self.no_upscale = v;
+        self
+    }
+
     /// Where the desktop is drawn: scaled to fit, centred.
     fn dest(&self, bounds: Rectangle) -> (Rectangle, f32) {
         let (w, h) = (self.size.0.max(1) as f32, self.size.1.max(1) as f32);
-        let scale = (bounds.width / w).min(bounds.height / h);
+        let mut scale = (bounds.width / w).min(bounds.height / h);
+        if self.no_upscale {
+            scale = scale.min(1.0);
+        }
         let (dw, dh) = (w * scale, h * scale);
         (
             Rectangle::new(

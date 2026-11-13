@@ -325,6 +325,40 @@ impl Db {
         .unwrap_or_default()
     }
 
+    /// Notes a command typed on [host_id] (Android's `CommandHistory`: count and last use).
+    pub fn add_command(&self, host_id: i64, command: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO command_history (hostId, command, count, lastUsed) VALUES (?1, ?2, 1, ?3)
+             ON CONFLICT(hostId, command) DO UPDATE SET count = count + 1, lastUsed = ?3",
+            rusqlite::params![host_id, command, crate::model::now_ms()],
+        )?;
+        Ok(())
+    }
+
+    /// The commands typed on [host_id], most used first.
+    pub fn commands(&self, host_id: i64) -> Vec<(String, i64)> {
+        let Ok(mut st) = self
+            .conn
+            .prepare("SELECT command, count FROM command_history WHERE hostId = ?1 ORDER BY count DESC, lastUsed DESC LIMIT 500")
+        else {
+            return Vec::new();
+        };
+        st.query_map([host_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map(|rows| rows.flatten().collect())
+            .unwrap_or_default()
+    }
+
+    pub fn command_count(&self) -> i64 {
+        self.conn
+            .query_row("SELECT count(*) FROM command_history", [], |r| r.get(0))
+            .unwrap_or(0)
+    }
+
+    pub fn clear_commands(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM command_history", [])?;
+        Ok(())
+    }
+
     pub fn delete_connection_log(&self, id: i64) -> Result<()> {
         self.conn.execute("DELETE FROM connection_log WHERE id = ?1", [id])?;
         Ok(())

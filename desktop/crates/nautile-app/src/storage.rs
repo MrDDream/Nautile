@@ -114,6 +114,16 @@ pub struct Settings {
     pub confirm_close: Option<bool>,
     /// Keep a copy of each new session's output in `data/logs`.
     pub session_logs: bool,
+    /// Remote desktops: never drawn larger than their real size (sharper), else stretched to the window.
+    pub remote_no_upscale: bool,
+    /// RDP without a resolution of its own: the size of the window (else 1600×900).
+    pub rdp_window_size: Option<bool>,
+    /// The remote clipboard is copied here (VNC; on by default).
+    pub remote_clipboard: Option<bool>,
+    /// A remote desktop opens in full screen (F11 to leave).
+    pub remote_fullscreen: bool,
+    /// Commands typed before on a host are offered as you type (on by default).
+    pub history_suggestions: Option<bool>,
     /// Ctrl+Shift+P types the host's password (on by default).
     pub password_key: Option<bool>,
     /// The colour of the buttons.
@@ -201,6 +211,18 @@ impl Settings {
 
     pub fn confirm_close(&self) -> bool {
         self.confirm_close.unwrap_or(true)
+    }
+
+    pub fn rdp_window_size(&self) -> bool {
+        self.rdp_window_size.unwrap_or(true)
+    }
+
+    pub fn remote_clipboard(&self) -> bool {
+        self.remote_clipboard.unwrap_or(true)
+    }
+
+    pub fn history_suggestions(&self) -> bool {
+        self.history_suggestions.unwrap_or(true)
     }
 
     pub fn password_key(&self) -> bool {

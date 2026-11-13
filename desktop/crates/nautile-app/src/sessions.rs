@@ -83,6 +83,10 @@ impl MonitorState {
 }
 
 impl Tab {
+    pub fn send_text(&self, s: &str) {
+        self.send(Input::Data(s.as_bytes().to_vec()));
+    }
+
     fn send(&self, i: Input) {
         if let Some(tx) = &self.input {
             let _ = tx.send(i);
@@ -515,6 +519,12 @@ impl App {
                 }
             }
             Event::Connected => {
+                if let Some(h) = self.tab(id).and_then(|t| t.host_id).filter(|h| *h > 0) {
+                    if !self.history.contains_key(&h) {
+                        let list = self.db.as_ref().map(|db| db.commands(h)).unwrap_or_default();
+                        self.history.insert(h, list);
+                    }
+                }
                 let mut host = None;
                 let record = self.settings.session_logs;
                 let logs = self.paths.data.join("logs");
@@ -592,9 +602,65 @@ impl App {
         Task::none()
     }
 
+    /// The commands typed before on the tab's host that begin with what is typed now (at most four).
+    pub fn suggestions(&self, id: u64) -> (String, Vec<String>) {
+        let none = (String::new(), Vec::new());
+        if !self.settings.history_suggestions() {
+            return none;
+        }
+        let Some(t) = self
+            .tab(id)
+            .filter(|t| t.monitor.is_none() && t.files.is_none() && t.remote.is_none())
+        else {
+            return none;
+        };
+        let (Some(host), Some(typed)) = (t.host_id, t.term.typed_command()) else {
+            return none;
+        };
+        if typed.chars().count() < 2 {
+            return none;
+        }
+        let list: Vec<String> = self
+            .history
+            .get(&host)
+            .into_iter()
+            .flatten()
+            .filter(|(c, _)| c.starts_with(&typed) && *c != typed)
+            .take(4)
+            .map(|(c, _)| c.clone())
+            .collect();
+        (typed, list)
+    }
+
     pub fn on_term(&mut self, id: u64, a: Action) {
         if let Action::Resize(c, r) = a {
             self.grid = (c, r);
+        }
+        if let Action::Input(bytes) = &a {
+            // → at the end of the line takes the first suggestion (as in fish).
+            if bytes == b"\x1b[C" || bytes == b"\x1bOC" {
+                let (typed, list) = self.suggestions(id);
+                if let (Some(first), Some(t)) = (list.first(), self.tab(id)) {
+                    t.send_text(&first[typed.len()..]);
+                    return;
+                }
+            }
+            // Enter: the command shown after the prompt goes to the host's history.
+            if bytes == b"\r" && self.settings.history_suggestions() {
+                let typed = self
+                    .tab(id)
+                    .and_then(|t| Some((t.host_id.filter(|h| *h > 0)?, t.term.typed_command()?)));
+                if let (Some((host, cmd)), Some(db)) = (typed.filter(|(_, c)| !c.trim().is_empty()), &self.db) {
+                    let cmd = cmd.trim().to_owned();
+                    let _ = db.add_command(host, &cmd);
+                    let list = self.history.entry(host).or_default();
+                    match list.iter_mut().find(|(c, _)| *c == cmd) {
+                        Some(e) => e.1 += 1,
+                        None => list.push((cmd, 1)),
+                    }
+                    list.sort_by_key(|e| std::cmp::Reverse(e.1));
+                }
+            }
         }
         let Some(t) = self.tab_mut(id) else { return };
         match a {
@@ -780,6 +846,9 @@ impl App {
                     t.state = TabState::Open;
                     t.remote_title = Some(name).filter(|n| !n.is_empty());
                 }
+                if self.settings.remote_fullscreen {
+                    return iced::window::latest().and_then(|w| iced::window::set_mode(w, iced::window::Mode::Fullscreen));
+                }
             }
             E::Frame => {
                 if let Some(r) = self.tab_mut(id).and_then(|t| t.remote.as_mut()) {
@@ -803,7 +872,8 @@ impl App {
                     });
                 }
             }
-            E::Clipboard(text) => return iced::clipboard::write(text),
+            E::Clipboard(text) if self.settings.remote_clipboard() => return iced::clipboard::write(text),
+            E::Clipboard(_) => {}
             E::Trust(info) => self.trust(info),
             E::Prompt(p) => {
                 self.prompts.push(PendingPrompt {
@@ -852,7 +922,16 @@ impl App {
                 let (w, hh) = r.trim().split_once(['x', 'X', '×'])?;
                 Some((w.trim().parse().ok()?, hh.trim().parse().ok()?))
             })
-            .unwrap_or((1600, 900));
+            .unwrap_or_else(|| {
+                if self.settings.rdp_window_size() {
+                    // The area the desktop is drawn in: the window less the sidebar and the tab bar.
+                    let w = (self.window.width - 260.0).max(800.0) as u16;
+                    let h = (self.window.height - 60.0).max(600.0) as u16;
+                    (w & !1, h & !1)
+                } else {
+                    (1600, 900)
+                }
+            });
         nautile_remote::rdp::RdpParams {
             host: h.hostname.clone(),
             port: h.port.clamp(1, 65535) as u16,

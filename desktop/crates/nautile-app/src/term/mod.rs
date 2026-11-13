@@ -1,6 +1,7 @@
 //! The terminal of a session: alacritty's emulator fed with the connection's bytes, drawn by [widget].
 
 pub mod fonts;
+pub mod import;
 pub mod keys;
 pub mod themes;
 pub mod widget;
@@ -188,6 +189,23 @@ impl Terminal {
         } else {
             text.replace("\r\n", "\r").replace('\n', "\r").into_bytes()
         }
+    }
+
+    /// What is typed after the prompt on the cursor's line (`mrd@x:~$ docker ps` → `docker ps`), read from
+    /// the screen as the shell echoes it (so passwords, never echoed, never show); `None` in full-screen
+    /// programs (vim, htop) or without a recognisable prompt.
+    pub fn typed_command(&self) -> Option<String> {
+        if self.mode().contains(TermMode::ALT_SCREEN) {
+            return None;
+        }
+        let cursor = self.term.grid().cursor.point;
+        let row = &self.term.grid()[cursor.line];
+        let line: String = (0..cursor.column.0.min(self.term.columns())).map(|c| row[Column(c)].c).collect();
+        let at = ["$ ", "# ", "> ", "% ", "❯ ", "➜ "]
+            .iter()
+            .filter_map(|p| line.rfind(p).map(|i| i + p.len()))
+            .max()?;
+        Some(line[at..].trim_end().to_owned())
     }
 
     /// The whole text shown (for tests and the « copy all » action).
