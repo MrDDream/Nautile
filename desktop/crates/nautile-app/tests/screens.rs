@@ -197,6 +197,31 @@ fn host_editor() {
 }
 
 #[test]
+fn new_host() {
+    each(|app| {
+        let _ = app.update(Message::NewHost);
+        "new-host"
+    });
+}
+
+#[test]
+fn groups() {
+    each(|app| {
+        let _ = app.update(Message::OpenModal(Some(nautile_app::app::Modal::Groups)));
+        "groups"
+    });
+}
+
+#[test]
+fn compact_sidebar() {
+    each(|app| {
+        let _ = app.update(Message::SidebarToggle);
+        let _ = app.update(Message::Nav(Page::Snippets));
+        "compact-sidebar"
+    });
+}
+
+#[test]
 fn snippets() {
     each(|app| {
         let _ = app.update(Message::Nav(Page::Snippets));
@@ -265,6 +290,8 @@ fn editing_a_host_saves_it() {
     let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let mut app = demo(false, true);
     let _ = app.update(Message::NewHost);
+    assert!(app.editor.is_none(), "the kind comes first");
+    let _ = app.update(Message::NewHostOf(nautile_core::model::Protocol::Ssh));
     for m in [
         Message::Host(nautile_app::app::HostField::Alias("bastion".into())),
         Message::Host(nautile_app::app::HostField::Hostname("b.example.org".into())),

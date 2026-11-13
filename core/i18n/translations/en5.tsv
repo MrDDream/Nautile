@@ -169,3 +169,7 @@ Raccourcis	Shortcuts
 Nautile demande ce code à l'ouverture et après une inactivité. Il ne sert qu'à cet ordinateur.	Nautile asks for this code at startup and after a period of inactivity. It only applies to this computer.
 Trousseau vide : générez une clé dans le Trousseau ou importez un fichier.	Empty keychain: generate a key in the Keychain or import a file.
 pas une clé connue	not a known key
+Mosh	Mosh
+Le shell de cet ordinateur (PowerShell, bash…)	This computer's shell (PowerShell, bash…)
+Quel type de machine ?	What kind of machine?
+Aucun groupe pour l'instant : rangez vos hôtes par lieu, client ou usage.	No groups yet: sort your hosts by place, client or use.

@@ -102,6 +102,10 @@ pub struct Settings {
     pub ai_urls: std::collections::HashMap<String, String>,
     /// A system prompt of the user's (the built-in one when empty).
     pub ai_prompt: Option<String>,
+    /// The sidebar's width, when set by dragging its edge.
+    pub sidebar_width: Option<f32>,
+    /// The sidebar shows only its icons.
+    pub sidebar_compact: bool,
 }
 
 impl Settings {

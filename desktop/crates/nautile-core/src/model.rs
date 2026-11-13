@@ -297,29 +297,36 @@ pub struct Snippet {
     pub extra: Map<String, Value>,
 }
 
+/// The `${NAME}` variables of a command (letter or `_` first, then letters, digits, `_`), in order of first
+/// appearance, like Android's `\$\{([A-Za-z_][A-Za-z0-9_]*)\}`.
+pub fn snippet_variables(command: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut rest = command;
+
+    while let Some(start) = rest.find("${") {
+        let after = &rest[start + 2..];
+        let valid = after.find('}').map(|end| &after[..end]).filter(|name| {
+            let mut chars = name.chars();
+            chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        });
+        match valid {
+            Some(name) => {
+                if !out.iter().any(|v| v == name) {
+                    out.push(name.to_owned());
+                }
+                rest = &after[name.len() + 1..];
+            }
+            None => rest = after,
+        }
+    }
+    out
+}
+
 impl Snippet {
     /// The `${NAME}` variables (letter or `_` first, then letters, digits, `_`), in order of first appearance,
     /// like Android's `\$\{([A-Za-z_][A-Za-z0-9_]*)\}`.
     pub fn variables(&self) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        let mut rest = self.command.as_str();
-        while let Some(start) = rest.find("${") {
-            let after = &rest[start + 2..];
-            let valid = after.find('}').map(|end| &after[..end]).filter(|name| {
-                let mut chars = name.chars();
-                chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-            });
-            match valid {
-                Some(name) => {
-                    if !out.iter().any(|v| v == name) {
-                        out.push(name.to_owned());
-                    }
-                    rest = &after[name.len() + 1..];
-                }
-                None => rest = after,
-            }
-        }
-        out
+        snippet_variables(&self.command)
     }
 
     /// The command with `${NAME}` replaced by `values`; unknown names are left as they are.

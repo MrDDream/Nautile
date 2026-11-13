@@ -171,6 +171,25 @@ pub fn card(t: &Theme) -> container::Style {
     }
 }
 
+/// A pop-up's card: the surface, rounded, with a shadow.
+pub fn dialog(t: &Theme) -> container::Style {
+    let n = nt(t);
+    container::Style {
+        background: Some(n.surface.into()),
+        border: Border {
+            color: n.border,
+            width: 1.0,
+            radius: 20.0.into(),
+        },
+        shadow: iced::Shadow {
+            color: Color { a: 0.35, ..Color::BLACK },
+            offset: iced::Vector::new(0.0, 12.0),
+            blur_radius: 40.0,
+        },
+        ..Default::default()
+    }
+}
+
 /// A divider line inside a card, between two rows.
 pub fn divider(t: &Theme) -> container::Style {
     container::Style {
@@ -355,6 +374,13 @@ pub fn card_pick(selected: bool) -> impl Fn(&Theme, button::Status) -> button::S
         };
         base(bg, n.text, Color::TRANSPARENT, 0.0)
     }
+}
+
+/// A light action: the accent, tinted background.
+pub fn tonal(t: &Theme, s: button::Status) -> button::Style {
+    let n = nt(t);
+    let a = if matches!(s, button::Status::Hovered) { 0.26 } else { 0.16 };
+    base(Some(alpha(n.accent, a)), n.accent, Color::TRANSPARENT, 10.0)
 }
 
 /// Secondary action: outlined.

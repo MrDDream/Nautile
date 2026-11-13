@@ -24,6 +24,15 @@ pub enum Page {
     Settings,
 }
 
+/// A pop-up that is not an editor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Modal {
+    /// « Nouvel hôte »: which kind of machine.
+    NewHost,
+    /// The groups, their order, and their editor.
+    Groups,
+}
+
 /// A sub-page of the settings (`None` in [App::settings_page]: their home).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsPage {
@@ -343,6 +352,17 @@ pub enum HostField {
 #[derive(Debug, Clone)]
 pub enum Message {
     Nav(Page),
+    OpenModal(Option<Modal>),
+    /// « Nouvel hôte » of this kind.
+    NewHostOf(Protocol),
+    MoveGroup(i64, bool),
+    /// Échap: closes the pop-up on top.
+    Escape,
+    WindowResized(iced::Size),
+    SidebarGrab,
+    SidebarMove(f32),
+    SidebarRelease,
+    SidebarToggle,
     SettingsPage(Option<SettingsPage>),
     Search(String),
     GroupFilter(Option<i64>),
@@ -365,6 +385,8 @@ pub enum Message {
     SnippetName(String),
     SnippetCommand(text_editor::Action),
     SnippetTag(String),
+    /// Types this into the command, where the cursor is.
+    SnippetInsert(String),
     SaveSnippet,
     DeleteSnippet,
     CopySnippet(i64),
@@ -505,6 +527,12 @@ pub struct App {
     pub snippet_tag: Option<String>,
     /// The settings sub-page open (`None`: their home).
     pub settings_page: Option<SettingsPage>,
+    /// The pop-up shown when no editor is open (or under the group editor).
+    pub modal: Option<Modal>,
+    /// The window's size, for the pop-ups' height.
+    pub window: iced::Size,
+    /// The sidebar's edge is being dragged.
+    pub sidebar_drag: bool,
 }
 
 impl App {
@@ -569,6 +597,9 @@ impl App {
             group_filter: None,
             snippet_tag: None,
             settings_page: None,
+            modal: None,
+            window: iced::Size::new(1280.0, 800.0),
+            sidebar_drag: false,
         };
         app.locked = app.settings.locks();
         app.lock_form.method = app.settings.lock_method;
@@ -589,7 +620,11 @@ impl App {
             iced::keyboard::listen().filter_map(shortcut),
             iced::event::listen_with(dropped_file),
             iced::time::every(std::time::Duration::from_secs(30)).map(|_| Message::BackupTick),
+            iced::window::resize_events().map(|(_, size)| Message::WindowResized(size)),
         ];
+        if self.sidebar_drag {
+            subs.push(iced::event::listen_with(sidebar_drag));
+        }
         if self.settings.locks() && !self.locked && self.settings.lock_after() > 0 {
             subs.push(iced::time::every(std::time::Duration::from_secs(20)).map(|_| Message::Tick));
         }
@@ -698,7 +733,79 @@ impl App {
             Message::ToastClear => self.toast = None,
 
             // --- Hosts ---
-            Message::NewHost => self.editor = Some(Editor::Host(Box::new(HostForm::new()))),
+            Message::NewHost => {
+                self.editor = None;
+                self.modal = Some(Modal::NewHost);
+            }
+            Message::NewHostOf(p) => {
+                let mut f = HostForm::new();
+                f.port = p.default_port().to_string();
+                f.protocol = p;
+                if p == Protocol::Local {
+                    f.alias = tr("Terminal local");
+                }
+                self.modal = None;
+                self.editor = Some(Editor::Host(Box::new(f)));
+            }
+            Message::OpenModal(m) => {
+                self.modal = m;
+                if m.is_none() {
+                    self.editor = None;
+                }
+            }
+            Message::Escape => {
+                if self.snippet_run.is_some() {
+                    self.snippet_run = None;
+                } else if self.editor.is_some() {
+                    self.editor = None;
+                } else {
+                    self.modal = None;
+                }
+            }
+            Message::WindowResized(size) => self.window = size,
+            Message::SidebarGrab => self.sidebar_drag = true,
+            Message::SidebarMove(x) => {
+                if self.sidebar_drag {
+                    if x < 130.0 {
+                        self.settings.sidebar_compact = true;
+                    } else {
+                        self.settings.sidebar_compact = false;
+                        self.settings.sidebar_width = Some(x.clamp(180.0, 360.0));
+                    }
+                }
+            }
+            Message::SidebarRelease => {
+                if self.sidebar_drag {
+                    self.sidebar_drag = false;
+                    let _ = self.settings.save(&self.paths);
+                }
+            }
+            Message::SidebarToggle => {
+                self.settings.sidebar_compact = !self.settings.sidebar_compact;
+                let _ = self.settings.save(&self.paths);
+            }
+            Message::MoveGroup(id, up) => {
+                let Some(db) = &self.db else { return Task::none() };
+                let Some(i) = self.groups.iter().position(|g| g.id == id) else {
+                    return Task::none();
+                };
+                let j = if up {
+                    i.checked_sub(1)
+                } else {
+                    Some(i + 1).filter(|j| *j < self.groups.len())
+                };
+                if let Some(j) = j {
+                    let mut list = self.groups.clone();
+                    list.swap(i, j);
+                    for (n, g) in list.iter_mut().enumerate() {
+                        if g.sort_order != n as i32 {
+                            g.sort_order = n as i32;
+                            let _ = db.store().upsert(&*g);
+                        }
+                    }
+                    self.reload();
+                }
+            }
             Message::EditHost(id) => {
                 if let Some(h) = self.hosts.iter().find(|h| h.id == id) {
                     self.editor = Some(Editor::Host(Box::new(HostForm::from(Some(h.clone())))));
@@ -906,6 +1013,12 @@ impl App {
             Message::SnippetTag(v) => {
                 if let Some(Editor::Snippet(f)) = &mut self.editor {
                     f.tag = v;
+                }
+            }
+            Message::SnippetInsert(v) => {
+                if let Some(Editor::Snippet(f)) = &mut self.editor {
+                    f.command
+                        .perform(text_editor::Action::Edit(text_editor::Edit::Paste(std::sync::Arc::new(v))));
                 }
             }
             Message::SnippetCommand(a) => {
@@ -1486,6 +1599,16 @@ impl App {
     }
 }
 
+/// The mouse while the sidebar's edge is dragged.
+fn sidebar_drag(e: iced::Event, _: iced::event::Status, _: iced::window::Id) -> Option<Message> {
+    use iced::mouse::{Button, Event as M};
+    match e {
+        iced::Event::Mouse(M::CursorMoved { position }) => Some(Message::SidebarMove(position.x)),
+        iced::Event::Mouse(M::ButtonReleased(Button::Left)) => Some(Message::SidebarRelease),
+        _ => None,
+    }
+}
+
 fn shortcut(e: iced::keyboard::Event) -> Option<Message> {
     use iced::keyboard::{key::Named, Event, Key};
     let Event::KeyPressed { key, modifiers: m, .. } = e else {
@@ -1496,6 +1619,7 @@ fn shortcut(e: iced::keyboard::Event) -> Option<Message> {
         Key::Character("t" | "T") if m.control() && m.shift() => Some(Message::OpenLocal),
         Key::Character("w" | "W") if m.control() && m.shift() => Some(Message::CloseActiveTab),
         Key::Character("a" | "A") if m.control() && m.shift() => Some(Message::Ai(crate::assistant::AiMsg::Toggle)),
+        Key::Named(Named::Escape) => Some(Message::Escape),
         _ => None,
     }
 }

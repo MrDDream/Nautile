@@ -1,7 +1,9 @@
 //! The Android app's building blocks (`Components.kt`, `PageHeader.kt`, `OsLogo.kt`, `SettingsComponents.kt`),
 //! so that both apps look alike.
 
-use iced::widget::{button, column, container, image, row, stack, text, text_input, toggler, Column, Space};
+use iced::widget::{
+    button, column, container, image, mouse_area, opaque, row, scrollable, stack, text, text_input, toggler, Column, Space,
+};
 use iced::{Alignment, Color, Element, Fill, Length, Padding};
 use nautile_core::{tr, trf};
 
@@ -345,4 +347,99 @@ pub fn float_box<'a>(label: String, control: impl Into<Element<'a, Message>>) ->
         row![Space::new().width(10), tag]
     ])
     .width(Fill)
+}
+
+/// A pop-up over the window: the rest is dimmed and does not take clicks;
+/// a click outside closes it when [dismiss] is given.
+pub fn overlay<'a>(card: impl Into<Element<'a, Message>>, dismiss: Option<Message>) -> Element<'a, Message> {
+    let back = container(opaque(card)).center(Fill).padding(24).style(|_| container::Style {
+        background: Some(Color { a: 0.55, ..Color::BLACK }.into()),
+        ..Default::default()
+    });
+    let area = mouse_area(back);
+    opaque(match dismiss {
+        Some(m) => area.on_press(m),
+        None => area,
+    })
+}
+
+/// The top of a pop-up: an optional back arrow, its title and subtitle, and the close button.
+pub fn dialog_head<'a>(title: String, subtitle: Option<String>, back: Option<Message>, close: Message) -> Element<'a, Message> {
+    let mut r = row![].spacing(10).align_y(Alignment::Center);
+    if let Some(m) = back {
+        r = r.push(button(icon('\u{E5C4}', 22.0)).padding(6).style(theme::ghost).on_press(m));
+    }
+    let mut t = column![text(title).size(20).font(BOLD)].spacing(2).width(Fill);
+    if let Some(s) = subtitle {
+        t = t.push(text(s).size(13).style(muted_style));
+    }
+    r = r
+        .push(t)
+        .push(button(icon('\u{E5CD}', 22.0)).padding(6).style(theme::ghost).on_press(close));
+    container(r)
+        .padding(Padding {
+            top: 16.0,
+            right: 14.0,
+            bottom: 10.0,
+            left: 22.0,
+        })
+        .into()
+}
+
+/// A pop-up's card: its head, its body (scrolled when long) and its buttons at the bottom.
+pub fn dialog<'a>(
+    head: Element<'a, Message>,
+    body: impl Into<Element<'a, Message>>,
+    foot: Option<Element<'a, Message>>,
+    width: f32,
+    max_height: f32,
+) -> Element<'a, Message> {
+    // The body scrolls within what the head and the buttons leave.
+    let reserved = if foot.is_some() { 170.0 } else { 90.0 };
+    let mut c = column![
+        head,
+        container(
+            scrollable(container(body).padding(Padding {
+                top: 6.0,
+                right: 22.0,
+                bottom: 18.0,
+                left: 22.0,
+            }))
+            .height(Length::Shrink)
+        )
+        .max_height((max_height - reserved).max(120.0)),
+    ];
+    if let Some(f) = foot {
+        c = c
+            .push(container(Space::new().height(1)).width(Fill).style(theme::divider))
+            .push(container(f).padding([14, 22]));
+    }
+    container(c)
+        .width(Length::Fixed(width))
+        .max_height(max_height)
+        .clip(true)
+        .style(theme::dialog)
+        .into()
+}
+
+/// A choice in a list of kinds (« Nouvel hôte »): its tile, title and explanation.
+pub fn kind_row<'a>(c: char, tint: Color, title: String, detail: String, on: Message) -> Element<'a, Message> {
+    button(
+        row![
+            container(icon(c, 22.0))
+                .center(Length::Fixed(42.0))
+                .style(theme::soft_tile(tint, 12.0)),
+            column![text(title).size(15).font(BOLD), text(detail).size(13).style(muted_style)]
+                .spacing(2)
+                .width(Fill),
+            icon('\u{E5CC}', 22.0).style(muted_style),
+        ]
+        .spacing(14)
+        .align_y(Alignment::Center),
+    )
+    .width(Fill)
+    .padding([10, 12])
+    .style(theme::card_pick(false))
+    .on_press(on)
+    .into()
 }
