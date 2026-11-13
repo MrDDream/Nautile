@@ -1,0 +1,36 @@
+name: Desktop
+
+on:
+  push:
+    branches: [main]
+    paths: ["desktop/**", "core/i18n/translations/**", ".github/workflows/desktop.yml"]
+  pull_request:
+    paths: ["desktop/**", "core/i18n/translations/**", ".github/workflows/desktop.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests (including the Android compatibility files)
+        run: cargo test --all

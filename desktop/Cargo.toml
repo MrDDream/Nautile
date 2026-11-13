@@ -1,0 +1,20 @@
+# Nautile Desktop (Windows, Linux, later macOS): a separate app that speaks the Android app's formats.
+[workspace]
+resolver = "2"
+members = ["crates/nautile-core"]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+rust-version = "1.85"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+argon2 = "0.5"
+aes-gcm = "0.10"
+base64 = "0.22"
+rand = "0.8"
+hex = "0.4"
