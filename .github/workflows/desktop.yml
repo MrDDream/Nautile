@@ -3,9 +3,9 @@ name: Desktop
 on:
   push:
     branches: [main]
-    paths: ["desktop/**", "core/i18n/translations/**", ".github/workflows/desktop.yml"]
+    paths: ["desktop/**", "core/i18n/translations/**", ".github/workflows/desktop.yml", "LICENSE"]
   pull_request:
-    paths: ["desktop/**", "core/i18n/translations/**", ".github/workflows/desktop.yml"]
+    paths: ["desktop/**", "core/i18n/translations/**", ".github/workflows/desktop.yml", "LICENSE"]
 
 permissions:
   contents: read
@@ -36,11 +36,16 @@ jobs:
         run: cargo test --all
       - name: Release build (to try the app)
         run: cargo build --release -p nautile-app
+      - name: Packaging tools
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb,cargo-generate-rpm
+      - name: Packages
+        shell: bash
+        run: packaging/package.sh
       - uses: actions/upload-artifact@v5
         with:
           name: nautile-desktop-${{ runner.os }}
-          path: |
-            desktop/target/release/nautile
-            desktop/target/release/nautile.exe
-          if-no-files-found: ignore
+          path: desktop/dist/*
           retention-days: 14

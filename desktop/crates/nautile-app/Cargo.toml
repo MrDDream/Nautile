@@ -29,7 +29,46 @@ base64.workspace = true
 sha2.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
+# The window's icon.
+png = "0.17"
+
+[build-dependencies]
+# The icon and the version of nautile.exe.
+winresource = "0.1"
+
 [dev-dependencies]
 iced_test = "0.14"
 iced_runtime = "0.14"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "test-util", "macros"] }
+
+# `cargo deb -p nautile-app` (Debian, Ubuntu…)
+[package.metadata.deb]
+name = "nautile"
+maintainer = "Nautile <https://github.com/MrDDream/Nautile>"
+copyright = "Nautile contributors"
+license-file = ["../../LICENSE", "0"]
+extended-description = "SSH, Mosh, Telnet, SFTP, RDP and VNC client with tunnels, snippets, an AI assistant, encrypted backups and synchronisation with the Nautile Android app."
+section = "net"
+priority = "optional"
+depends = "libc6 (>= 2.31), libxkbcommon0"
+recommends = "libwayland-client0 | libx11-6, xdg-desktop-portal, gnome-keyring | kwalletmanager"
+assets = [
+    ["target/release/nautile", "usr/bin/", "755"],
+    ["../../packaging/nautile.desktop", "usr/share/applications/", "644"],
+    ["../../packaging/nautile.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+    ["../../packaging/nautile.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+]
+
+# `cargo generate-rpm -p crates/nautile-app` (Fedora, openSUSE…)
+[package.metadata.generate-rpm]
+name = "nautile"
+summary = "SSH, Mosh, Telnet, SFTP, RDP and VNC client"
+url = "https://mrddream.github.io/Nautile/"
+assets = [
+    { source = "target/release/nautile", dest = "/usr/bin/nautile", mode = "755" },
+    { source = "packaging/nautile.desktop", dest = "/usr/share/applications/nautile.desktop", mode = "644" },
+    { source = "packaging/nautile.png", dest = "/usr/share/icons/hicolor/256x256/apps/nautile.png", mode = "644" },
+    { source = "packaging/nautile.svg", dest = "/usr/share/icons/hicolor/scalable/apps/nautile.svg", mode = "644" },
+]
+[package.metadata.generate-rpm.requires]
+libxkbcommon = "*"

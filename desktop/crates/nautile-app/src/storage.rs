@@ -1,7 +1,7 @@
 //! Where Nautile keeps its data, its settings, and the database key.
 //!
 //! - Installed: `%APPDATA%\Nautile` (Windows), `~/.local/share/nautile` (Linux), `~/Library/Application Support/Nautile`.
-//! - Portable: a `data` folder next to the executable when it exists (or a `portable` file is there): the
+//! - Portable: a `data` folder next to the executable when it exists (or a `portable.txt` file is there): the
 //!   whole app then lives on a USB stick.
 //!
 //! The database key (32 random bytes) goes to the system keyring (Windows Credential Manager, GNOME Keyring /
@@ -21,7 +21,7 @@ pub struct Paths {
 impl Paths {
     pub fn detect() -> Paths {
         if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
-            if dir.join("data").is_dir() || dir.join("portable").exists() {
+            if dir.join("data").is_dir() || dir.join("portable").exists() || dir.join("portable.txt").exists() {
                 return Paths {
                     data: dir.join("data"),
                     portable: true,

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Nautile
+GenericName=SSH client
+GenericName[fr]=Client SSH
+Comment=SSH, Mosh, Telnet, SFTP, RDP and VNC client
+Comment[fr]=Client SSH, Mosh, Telnet, SFTP, RDP et VNC
+Exec=nautile
+Icon=nautile
+Terminal=false
+Categories=Network;RemoteAccess;System;TerminalEmulator;
+Keywords=ssh;sftp;mosh;telnet;rdp;vnc;terminal;
+StartupWMClass=nautile

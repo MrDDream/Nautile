@@ -1,0 +1,9 @@
+Nautile — portable mode / mode portable
+
+EN: Next to nautile.exe, this file switches Nautile to portable mode: everything (encrypted database,
+settings, conversations) is kept in the « data » folder beside it, so the whole folder can live on a
+USB stick. Remove this file to use the installed mode (%APPDATA%\Nautile) instead.
+
+FR : à côté de nautile.exe, ce fichier active le mode portable : tout (base chiffrée, réglages,
+conversations) est gardé dans le dossier « data » voisin, et le dossier entier peut vivre sur une
+clé USB. Supprimez ce fichier pour revenir au mode installé (%APPDATA%\Nautile).

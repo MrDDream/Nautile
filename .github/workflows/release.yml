@@ -1,6 +1,7 @@
 name: Release
 
-# Pushing a tag vX.Y.Z (equal to versionName) builds the signed APKs and attaches them to the release.
+# Pushing a tag vX.Y.Z (equal to versionName and to the desktop version) builds the signed APKs and the
+# desktop packages (Windows installer and portable zip, .deb, .rpm, .tar.gz) and attaches them to the release.
 on:
   push:
     tags: ["v*"]
@@ -72,6 +73,8 @@ jobs:
             echo "**Which APK?** \`arm64-v8a\` for almost every recent phone, \`armeabi-v7a\` for older 32-bit phones, the universal one if unsure."
             echo
             echo "**Package:** \`com.nautile\` · **Signing certificate SHA-256:** \`$CERT\`"
+            echo
+            echo "**Desktop:** \`Nautile-*-setup.exe\` (Windows, no administrator rights needed), \`Nautile-*-portable.zip\` (Windows, everything stays in its folder), \`.deb\` (Debian, Ubuntu), \`.rpm\` (Fedora, openSUSE), \`.tar.gz\` (other Linux). The Windows files are not signed yet: SmartScreen shows « Windows protected your PC » → *More info* → *Run anyway*."
           } > notes.md
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
@@ -82,3 +85,57 @@ jobs:
       - name: Remove the signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/nautile-release.jks"
+
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Check that the tag matches the desktop version
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match the desktop version $VERSION" >&2
+            exit 1
+          fi
+      - name: Packaging tools
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb,cargo-generate-rpm
+      - name: Tests, release build and packages
+        run: |
+          cargo test --all
+          cargo build --release -p nautile-app
+          packaging/package.sh
+      - uses: actions/upload-artifact@v5
+        with:
+          name: desktop-${{ runner.os }}
+          path: desktop/dist/*
+
+  publish-desktop:
+    needs: [release, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: dist
+      - name: Attach the desktop packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd dist && sha256sum * > SHA256SUMS-desktop.txt && cat SHA256SUMS-desktop.txt)
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber --repo "$GITHUB_REPOSITORY"
