@@ -525,24 +525,11 @@ private fun LockSection(onOpenKnownHosts: () -> Unit) {
     val app = LocalContext.current.applicationContext as NautileApp
     val lock = app.appLock
     val activity = LocalContext.current as? com.nautile.app.MainActivity
-    var enabled by remember { mutableStateOf(lock.enabled) }
-    var delay by remember { mutableLongStateOf(lock.relockAfterMs) }
     var secure by remember { mutableStateOf(lock.hideInRecents) }
 
     SectionLabel(tr("Verrouillage"), Modifier.padding(top = 8.dp))
     NtCard {
-        ToggleRow(
-            tr("Verrouillage biométrique"),
-            if (lock.available) tr("Empreinte ou code de l'appareil à l'ouverture") else tr("Aucune biométrie ni code configuré sur l'appareil"),
-            enabled, enabled = lock.available,
-        ) { enabled = it; lock.enabled = it }
-        if (enabled) Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(tr("Redemander après"), color = Nt.Muted, fontSize = 12.sp)
-            Segmented(
-                listOf(0L to tr("Immédiat"), 60_000L to tr("1 min"), 300_000L to tr("5 min"), 900_000L to tr("15 min")),
-                delay, { delay = it; lock.relockAfterMs = it },
-            )
-        }
+        AppLockCard(lock)
         HorizontalDivider(color = Nt.Border)
         ToggleRow(tr("Masquer dans les apps récentes"), tr("Aperçu vide dans le sélecteur d'apps ; bloque aussi les captures d'écran"), secure) {
             secure = it; lock.hideInRecents = it; activity?.applySecureFlag()

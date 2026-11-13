@@ -268,19 +268,6 @@ fun NautileRoot() {
     }
 }
 
-@Composable
-fun LockedScreen(error: String?, onUnlock: () -> Unit) {
-    // Opaque: it may cover the app when it relocks.
-    Box(Modifier.fillMaxSize().background(Nt.Bg), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Icon(Icons.Outlined.Lock, contentDescription = null, tint = Nt.Accent)
-            Text(tr("Nautile est verrouillée"), style = androidx.compose.material3.MaterialTheme.typography.titleLarge)
-            if (error != null) Text(error, color = Nt.Muted)
-            Button(onClick = onUnlock) { Text(tr("Déverrouiller")) }
-        }
-    }
-}
-
 /** After a crash: the anonymised report, to read, copy or post on GitHub (nothing is sent otherwise). */
 @Composable
 private fun CrashReportDialog() {

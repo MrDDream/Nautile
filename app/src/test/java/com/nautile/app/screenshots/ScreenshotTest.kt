@@ -296,6 +296,32 @@ class ScreenshotTest {
         shoot("settings-backup-target")
     }
 
+    @Test fun lockPin() {
+        compose.setContent {
+            NautileTheme {
+                PhoneFrame {
+                    com.nautile.app.ui.LockedScreen(com.nautile.security.LockMethod.PIN, null, canBiometric = true, onBiometric = {}, pinLength = 6)
+                }
+            }
+        }
+        listOf("4", "7").forEach { compose.onNodeWithText(it).performClick() }
+        shoot("lock-pin")
+    }
+
+    @Test fun lockSettings() {
+        val state = com.nautile.app.ui.settings.LockState(true, com.nautile.security.LockMethod.PIN, true, true, true, 300_000L)
+        compose.setContent {
+            NautileTheme {
+                PhoneFrame {
+                    com.nautile.app.ui.settings.SettingsPage(tr("Sécurité"), {}) {
+                        com.nautile.app.ui.common.NtCard { com.nautile.app.ui.settings.AppLockCardContent(state, {}, {}, {}, {}, {}) }
+                    }
+                }
+            }
+        }
+        shoot("settings-lock")
+    }
+
     @Test fun snippetEditor() {
         val sn = Snippet(id = 9, name = tr("Journal d'un service"), command = "journalctl -u \${SERVICE} -n 100 --no-pager", tag = tr("Système"))
         compose.setContent {

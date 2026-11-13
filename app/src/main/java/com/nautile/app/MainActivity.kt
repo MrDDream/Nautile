@@ -40,8 +40,8 @@ class MainActivity : FragmentActivity() {
                         androidx.compose.ui.Modifier.fillMaxSize()
                             // Swallow every touch so nothing reaches the app underneath.
                             .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } },
-                    ) { LockedScreen(error = lockError, onUnlock = ::requestUnlock) }
-                } else LockedScreen(error = lockError, onUnlock = ::requestUnlock)
+                    ) { Lock() }
+                } else Lock()
             }
         }
         if (!unlocked) requestUnlock()
@@ -91,12 +91,41 @@ class MainActivity : FragmentActivity() {
         outState.putBoolean(KEY_UNLOCKED, unlocked)
     }
 
+    @androidx.compose.runtime.Composable
+    private fun Lock() {
+        val lock = (application as NautileApp).appLock
+        // A new key each time it locks: the typed digits and messages start afresh.
+        androidx.compose.runtime.key(lockCount) {
+            LockedScreen(
+                method = lock.method,
+                error = lockError,
+                canBiometric = lock.method != com.nautile.security.LockMethod.BIOMETRIC && lock.asksBiometric,
+                onBiometric = ::biometric,
+                check = { lock.check(it) },
+                pinLength = lock.pinLength,
+                initialWaitUntil = System.currentTimeMillis() + lock.waitMs(),
+                onUnlocked = ::onUnlocked,
+            )
+        }
+    }
+
+    private var lockCount by mutableStateOf(0)
+
+    private fun onUnlocked() { prompting = false; unlocked = true; everUnlocked = true }
+
+    /** Locks: the fingerprint prompt opens by itself when it is the way (or a shortcut) to unlock. */
     private fun requestUnlock() {
+        lockError = null
+        lockCount++
+        if ((application as NautileApp).appLock.asksBiometric) biometric()
+    }
+
+    private fun biometric() {
         lockError = null
         prompting = true
         (application as NautileApp).appLock.prompt(
             this,
-            onSuccess = { prompting = false; unlocked = true; everUnlocked = true },
+            onSuccess = ::onUnlocked,
             onFailure = { prompting = false; lockError = it },
         )
     }

@@ -141,7 +141,7 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
             SettingsRoutes.BACKUP),
         Entry(Icons.Outlined.Lock, Nt.Green, tr("Sécurité"),
             if (lockOn) tr("Verrouillage activé") else tr("Verrouillage désactivé"),
-            "securite security biometrie empreinte fingerprint verrou lock recents captures screenshots hotes connus known hosts",
+            "securite security biometrie empreinte fingerprint pin code mot de passe password verrou lock recents captures screenshots hotes connus known hosts",
             SettingsRoutes.SECURITY),
         Entry(Icons.AutoMirrored.Outlined.Article, Nt.TextSoft, tr("Journaux de session"),
             if (logCount == 0) tr("Aucun journal") else tr("%1\$s fichier(s)", logCount),

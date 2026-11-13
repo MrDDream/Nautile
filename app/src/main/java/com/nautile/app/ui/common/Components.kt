@@ -65,6 +65,7 @@ fun NtTextField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
     isError: Boolean = false,
     singleLine: Boolean = true,
+    keyboardActions: androidx.compose.foundation.text.KeyboardActions = androidx.compose.foundation.text.KeyboardActions.Default,
 ) {
     OutlinedTextField(
         value = value,
@@ -75,6 +76,7 @@ fun NtTextField(
         singleLine = singleLine,
         isError = isError,
         keyboardOptions = keyboardOptions,
+        keyboardActions = keyboardActions,
         visualTransformation = visualTransformation,
         textStyle = TextStyle(fontFamily = if (mono) Nt.Mono else null, fontSize = if (mono) 14.sp else 15.sp, color = Nt.Text),
         shape = RoundedCornerShape(12.dp),

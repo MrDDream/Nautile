@@ -696,3 +696,34 @@ Aucun emplacement de sauvegarde	No backup location
 USB série · %1\$s bauds	USB serial · %1\$s baud
 Aucune — connexion directe	None — direct connection
 ce téléphone	this phone
+Code incorrect · %1\$s essai(s) avant une attente	Wrong code · %1\$s more try(ies) before a wait
+Code incorrect	Wrong code
+Trop d'essais : réessayez dans %1\$s s	Too many tries: try again in %1\$s s
+Saisissez votre code PIN	Enter your PIN
+Saisissez votre mot de passe	Enter your password
+Empreinte, visage ou code de l'appareil	Fingerprint, face or device code
+Utiliser l'empreinte	Use fingerprint
+%1\$s chiffre(s) saisi(s)	%1\$s digit(s) entered
+Biométrie	Biometrics
+Code PIN	PIN
+Verrouiller Nautile	Lock Nautile
+%1\$s · à l'ouverture et au retour	%1\$s · on opening and on return
+Demander un code ou l'empreinte pour ouvrir l'app	Ask for a code or fingerprint to open the app
+Empreinte ou visage, avec le code de l'appareil en secours.	Fingerprint or face, with the device code as a fallback.
+Aucune empreinte ni code configuré sur l'appareil.	No fingerprint or code set up on this device.
+Un code de 4 à 8 chiffres, propre à Nautile.	A 4 to 8 digit code, just for Nautile.
+Un mot de passe propre à Nautile (6 caractères minimum).	A password just for Nautile (at least 6 characters).
+Changer le code PIN	Change PIN
+Changer le mot de passe	Change password
+Le code actuel vous sera demandé	You will be asked for the current one
+Empreinte en raccourci	Fingerprint shortcut
+Déverrouiller aussi par empreinte ou visage ; le code reste possible	Also unlock with fingerprint or face; the code still works
+Choisir un code PIN	Choose a PIN
+Choisir un mot de passe	Choose a password
+De 4 à 8 chiffres. Il sera demandé à chaque ouverture de Nautile.	4 to 8 digits. It will be asked each time Nautile opens.
+6 caractères minimum. Il sera demandé à chaque ouverture de Nautile.	At least 6 characters. It will be asked each time Nautile opens.
+Oublié ? Il faudra effacer les données de l'app (vos sauvegardes restent utilisables).	Forgotten? You will have to clear the app's data (your backups stay usable).
+Code PIN actuel	Current PIN
+Mot de passe actuel	Current password
+Saisir le code PIN	Enter PIN
+Saisir le mot de passe	Enter password
