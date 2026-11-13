@@ -16,23 +16,52 @@ pub const ICONS: Font = Font::with_name("Material Icons Outlined");
 pub const FONT_UI: &[u8] = include_bytes!("../assets/fonts/Inter.ttf");
 pub const FONT_ICONS: &[u8] = include_bytes!("../assets/fonts/MaterialIconsOutlined.otf");
 
+/// A PNG bundled with the app, decoded once by the caller's cache.
+fn png(bytes: &[u8]) -> iced::widget::image::Handle {
+    let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    let decoded = decoder.read_info().ok().and_then(|mut r| {
+        let mut buf = vec![0; r.output_buffer_size()];
+        let info = r.next_frame(&mut buf).ok()?;
+        buf.truncate(info.buffer_size());
+        Some((info.width, info.height, buf))
+    });
+    match decoded {
+        Some((w, h, rgba)) => iced::widget::image::Handle::from_rgba(w, h, rgba),
+        None => iced::widget::image::Handle::from_rgba(1, 1, vec![0u8; 4]),
+    }
+}
+
 /// The Nautile mark (spiral and cursor) shown before page titles, as on Android.
 pub fn mark() -> iced::widget::image::Handle {
     static MARK: std::sync::OnceLock<iced::widget::image::Handle> = std::sync::OnceLock::new();
-    MARK.get_or_init(|| {
-        let decoder = png::Decoder::new(std::io::Cursor::new(include_bytes!("../assets/mark.png")));
-        let decoded = decoder.read_info().ok().and_then(|mut r| {
-            let mut buf = vec![0; r.output_buffer_size()];
-            let info = r.next_frame(&mut buf).ok()?;
-            buf.truncate(info.buffer_size());
-            Some((info.width, info.height, buf))
-        });
-        match decoded {
-            Some((w, h, rgba)) => iced::widget::image::Handle::from_rgba(w, h, rgba),
-            None => iced::widget::image::Handle::from_rgba(1, 1, vec![0u8; 4]),
-        }
+    MARK.get_or_init(|| png(include_bytes!("../assets/mark.png"))).clone()
+}
+
+/// The logo of an AI provider (as on Android's `ProviderLogo`): its own colours, or light / dark for the
+/// monochrome ones; `None` for « Autre », drawn with an icon.
+pub fn provider_logo(kind: nautile_net::ai::ProviderKind, dark: bool) -> Option<iced::widget::image::Handle> {
+    use nautile_net::ai::ProviderKind as K;
+    use std::sync::OnceLock;
+    type H = iced::widget::image::Handle;
+    macro_rules! once {
+        ($file:literal) => {{
+            static L: OnceLock<H> = OnceLock::new();
+            L.get_or_init(|| png(include_bytes!(concat!("../assets/ai/", $file)))).clone()
+        }};
+    }
+    Some(match (kind, dark) {
+        (K::Claude, _) => once!("claude.png"),
+        (K::Gemini, _) => once!("gemini.png"),
+        (K::Mistral, _) => once!("mistral.png"),
+        (K::Deepseek, _) => once!("deepseek.png"),
+        (K::Openai, true) => once!("openai-dark.png"),
+        (K::Openai, false) => once!("openai-light.png"),
+        (K::Grok, true) => once!("grok-dark.png"),
+        (K::Grok, false) => once!("grok-light.png"),
+        (K::Local, true) => once!("ollama-dark.png"),
+        (K::Local, false) => once!("ollama-light.png"),
+        (K::Custom, _) => return None,
     })
-    .clone()
 }
 pub const FONT_MONO: &[u8] = include_bytes!("../assets/fonts/JetBrainsMonoNerd.ttf");
 

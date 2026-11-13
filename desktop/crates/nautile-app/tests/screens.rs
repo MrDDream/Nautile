@@ -172,7 +172,12 @@ fn shoot(app: &App, name: &str) {
         let path = dir.join(format!("{name}.png"));
         // matches_image only writes a missing file: start from a clean one.
         for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-            if e.file_name().to_string_lossy().starts_with(&format!("{name}-")) {
+            // Only this shot's files (« settings » must not remove « settings-ai »).
+            let file = e.file_name().to_string_lossy().into_owned();
+            if file
+                .strip_prefix(&format!("{name}-"))
+                .is_some_and(|rest| !rest.contains('-') || rest == "tiny-skia.png")
+            {
                 let _ = std::fs::remove_file(e.path());
             }
         }
@@ -317,6 +322,70 @@ fn settings_terminal_sessions() {
         let _ = app.update(Message::TermCursor("bar".into()));
         let _ = app.update(Message::TermFamily("cascadia".into()));
         "settings-terminal-sessions"
+    });
+}
+
+/// Two providers with a key, plus the local one.
+fn with_ai(app: &mut App) {
+    use nautile_net::ai::ProviderKind as K;
+    let db = app.db.as_ref().unwrap();
+    db.set_secret("ai-key-CLAUDE", Some("sk-ant-demo")).unwrap();
+    db.set_secret("ai-key-OPENAI", Some("sk-demo")).unwrap();
+    app.settings.ai_enabled = vec![K::Claude, K::Openai, K::Local];
+    app.settings.ai_models.insert("CLAUDE".into(), "claude-sonnet-5-5".into());
+    app.settings.ai_models.insert("OPENAI".into(), "gpt-5-mini".into());
+    app.settings.ai_models.insert("LOCAL".into(), "qwen3:8b".into());
+    app.settings.ai_prompts = vec![nautile_app::storage::AiPrompt {
+        id: "p1".into(),
+        name: "Pédagogue".into(),
+        text: "Explique chaque option de la commande, pas à pas.".into(),
+    }];
+}
+
+#[test]
+fn settings_ai() {
+    each(|app| {
+        with_ai(app);
+        let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::Ai)));
+        "settings-ai"
+    });
+}
+
+#[test]
+fn settings_ai_provider() {
+    each(|app| {
+        with_ai(app);
+        let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::Ai)));
+        let _ = app.update(Message::Ai(nautile_app::assistant::AiMsg::Provider(
+            nautile_net::ai::ProviderKind::Claude,
+        )));
+        "settings-ai-provider"
+    });
+}
+
+#[test]
+fn settings_ai_models() {
+    each(|app| {
+        use nautile_app::assistant::AiMsg as A;
+        with_ai(app);
+        let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::Ai)));
+        let _ = app.update(Message::Ai(A::Provider(nautile_net::ai::ProviderKind::Openai)));
+        let models = [
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "o4-mini",
+            "o3",
+            "gpt-4.1",
+            "text-embedding-3-large",
+            "tts-1",
+        ];
+        let _ = app.update(Message::Ai(A::Models(Ok(models.map(String::from).to_vec()))));
+        let _ = app.update(Message::Ai(A::OpenModels));
+        "settings-ai-models"
     });
 }
 

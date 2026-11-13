@@ -119,6 +119,13 @@ pub struct Settings {
     /// The colour of the buttons.
     pub accent: crate::theme::Accent,
     pub button_style: crate::theme::ButtonStyle,
+    /// The AI providers offered in the assistant (Android's switches).
+    pub ai_enabled: Vec<nautile_net::ai::ProviderKind>,
+    /// The user's own system prompts, and the one in use (`None`: the default one).
+    pub ai_prompts: Vec<AiPrompt>,
+    pub ai_prompt_id: Option<String>,
+    /// Lines of the terminal sent with « Joindre l'écran » (40, 100, 200, 500).
+    pub ai_lines: Option<usize>,
     /// The sidebar's width, when set by dragging its edge.
     pub sidebar_width: Option<f32>,
     /// The sidebar shows only its icons.
@@ -152,6 +159,10 @@ impl Settings {
 
     pub fn lock_after(&self) -> u32 {
         self.lock_after.unwrap_or(15)
+    }
+
+    pub fn ai_lines(&self) -> usize {
+        self.ai_lines.unwrap_or(100)
     }
 
     pub fn terminal_family(&self) -> crate::term::fonts::TermFont {
@@ -271,4 +282,12 @@ fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
     {
         std::fs::write(path, data)
     }
+}
+
+/// A system prompt of the user's (Android's « Prompts système »).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiPrompt {
+    pub id: String,
+    pub name: String,
+    pub text: String,
 }

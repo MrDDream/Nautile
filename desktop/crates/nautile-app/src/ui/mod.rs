@@ -59,6 +59,7 @@ const I_UP_ARROW: char = '\u{E5D8}'; // arrow_upward
 const I_DOWN_ARROW: char = '\u{E5DB}'; // arrow_downward
 const I_TUNE: char = '\u{E429}'; // tune
 const I_DESCRIPTION: char = '\u{E873}'; // description
+const I_GEAR: char = '\u{E8B8}'; // settings
 const I_PLUS: char = '\u{E145}'; // add
 
 pub fn icon<'a>(c: char) -> iced::widget::Text<'a> {
@@ -184,6 +185,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         (Some(crate::app::Modal::Groups), e) => layers = layers.push(groups_modal(app, e.as_ref(), max_h)),
         (_, Some(e)) => layers = layers.push(kit::overlay(editor(app, e, max_h), None)),
         (Some(crate::app::Modal::NewHost), None) => layers = layers.push(new_host_modal(app, max_h)),
+        (Some(crate::app::Modal::AiProvider(k)), None) => layers = layers.push(ai_provider_modal(app, *k, max_h)),
+        (Some(crate::app::Modal::AiModels(k)), None) => layers = layers.push(ai_models_modal(app, *k, max_h)),
+        (Some(crate::app::Modal::AiPrompt), None) => layers = layers.push(ai_prompt_modal(app, max_h)),
         (None, None) => {}
     }
     if let Some(id) = app.closing {

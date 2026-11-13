@@ -20,8 +20,6 @@ const MAX_CONTEXT_TURNS: usize = 8;
 const MAX_KEPT_TURNS: usize = 40;
 /// What is kept of a sent message (its attached files may be large).
 const MAX_SENT_CHARS: usize = 80_000;
-/// Lines of the screen sent when it is attached.
-const SCREEN_LINES: usize = 60;
 
 /// One exchange with the assistant (same fields as Android's `AiTurn`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +76,105 @@ pub struct AssistantState {
     pub models: Vec<String>,
     pub status: Option<Result<String, String>>,
     pub testing: bool,
+    /// The provider is switched on once its settings are saved.
+    pub enable_after: bool,
+    pub show_key: bool,
+    /// « Choisir un modèle »: the search and the filter.
+    pub model_search: String,
+    pub model_filter: ModelFilter,
+    /// The system prompt being edited: `Some(None)` for a new one.
+    pub prompt_edit: Option<Option<String>>,
+    pub prompt_name: String,
+    pub prompt_text: iced::widget::text_editor::Content,
+    pub prompt_confirm_delete: bool,
+}
+
+/// The filters of « Choisir un modèle » (Android's `ModelFilter`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ModelFilter {
+    #[default]
+    Text,
+    Fast,
+    Strong,
+    Reasoning,
+    All,
+}
+
+impl ModelFilter {
+    pub const ALL: [ModelFilter; 5] = [
+        ModelFilter::Text,
+        ModelFilter::Fast,
+        ModelFilter::Strong,
+        ModelFilter::Reasoning,
+        ModelFilter::All,
+    ];
+
+    pub fn label(self) -> String {
+        tr(match self {
+            ModelFilter::Text => "Texte",
+            ModelFilter::Fast => "Rapides",
+            ModelFilter::Strong => "Puissants",
+            ModelFilter::Reasoning => "Raisonnement",
+            ModelFilter::All => "Tous",
+        })
+    }
+
+    /// Whether a model id belongs here (the same words as Android's regular expressions).
+    pub fn keep(self, id: &str) -> bool {
+        let m = id.to_lowercase();
+        if self == ModelFilter::All {
+            return true;
+        }
+        let non_chat = [
+            "embed",
+            "tts",
+            "whisper",
+            "dall-e",
+            "dalle",
+            "moderation",
+            "transcri",
+            "image",
+            "audio",
+            "realtime",
+            "search",
+            "computer-use",
+            "davinci",
+            "babbage",
+            "imagen",
+            "veo",
+            "aqa",
+            "rerank",
+            "ocr",
+            "guard",
+        ];
+        if non_chat.iter().any(|w| m.contains(w)) {
+            return false;
+        }
+        let small_b = |m: &str| (1..=9).any(|n| m.contains(&format!("-{n}b")) || m.ends_with(&format!(":{n}b")));
+        match self {
+            ModelFilter::Fast => {
+                ["mini", "nano", "flash", "haiku", "lite", "small", "tiny", "instant", "fast"]
+                    .iter()
+                    .any(|w| m.contains(w))
+                    || small_b(&m)
+            }
+            ModelFilter::Strong => {
+                ["opus", "sonnet", "-pro", "large", "ultra", "70b", "405b"]
+                    .iter()
+                    .any(|w| m.contains(w))
+                    || m.ends_with("pro")
+                    || m.ends_with("max")
+                    || m == "gpt-5"
+                    || m.starts_with("gpt-5.") && !m.contains('-')
+                    || m.starts_with("grok-4") && !m.contains("fast") && !m.contains("mini")
+            }
+            ModelFilter::Reasoning => {
+                (m.starts_with('o') && m.chars().nth(1).is_some_and(|c| c.is_ascii_digit()))
+                    || ["reason", "think", "r1", "qwq", "magistral"].iter().any(|w| m.contains(w))
+            }
+            ModelFilter::Text | ModelFilter::All => true,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +203,26 @@ pub enum AiMsg {
     Test,
     Tested(Result<String, String>),
     ForgetKey,
+    /// The switch of a provider in the settings.
+    Enable(ProviderKind, bool),
+    /// The provider used now (from the assistant's header); it becomes the first one.
+    Use(ProviderKind),
+    ShowKey,
+    OpenModels,
+    ModelSearch(String),
+    Filter(ModelFilter),
+    /// A model chosen in the list (or typed): back to the provider.
+    UseModel(String),
+    /// The system prompt in use (`None`: the default one).
+    PromptPick(Option<String>),
+    /// Opens a prompt to edit (`None`: a new one).
+    PromptOpen(Option<String>),
+    PromptName(String),
+    PromptText(iced::widget::text_editor::Action),
+    PromptFromDefault,
+    PromptSave,
+    PromptDelete,
+    Lines(usize),
 }
 
 fn file_for(dir: &std::path::Path, key: &str) -> PathBuf {
@@ -118,8 +235,46 @@ impl App {
         self.paths.data.join("ai-conversations")
     }
 
+    /// Whether [k] has what it needs (its key, when it needs one).
+    pub fn ai_configured(&self, k: ProviderKind) -> bool {
+        !k.needs_key() || self.ai_config(k).api_key.is_some()
+    }
+
+    /// The providers switched on and ready, the one used last first.
+    pub fn ai_ready_providers(&self) -> Vec<ProviderKind> {
+        let mut v: Vec<ProviderKind> = self
+            .settings
+            .ai_enabled
+            .iter()
+            .copied()
+            .filter(|k| self.ai_configured(*k))
+            .collect();
+        if let Some(i) = self.settings.ai_provider.and_then(|p| v.iter().position(|k| *k == p)) {
+            let k = v.remove(i);
+            v.insert(0, k);
+        }
+        v
+    }
+
+    /// The provider the assistant uses: the last one used if still on, else the first ready one.
     pub fn ai_provider(&self) -> ProviderKind {
-        self.settings.ai_provider.unwrap_or(ProviderKind::Claude)
+        self.ai_ready_providers()
+            .first()
+            .copied()
+            .or(self.settings.ai_provider)
+            .unwrap_or(ProviderKind::Claude)
+    }
+
+    /// The system prompt in use: the user's chosen one, else the default.
+    pub fn ai_system_prompt(&self) -> String {
+        let s = &self.settings;
+        s.ai_prompt_id
+            .as_ref()
+            .and_then(|id| s.ai_prompts.iter().find(|p| &p.id == id))
+            .map(|p| p.text.clone())
+            .or_else(|| s.ai_prompt.clone())
+            .filter(|p| !p.trim().is_empty())
+            .unwrap_or_else(|| ai::default_prompt().to_owned())
     }
 
     pub fn ai_config(&self, kind: ProviderKind) -> Config {
@@ -261,7 +416,7 @@ impl App {
                         .map(|t| t.term.screen_text())
                         .unwrap_or_default();
                     let lines: Vec<&str> = text.lines().collect();
-                    lines[lines.len().saturating_sub(SCREEN_LINES)..].join("\n")
+                    lines[lines.len().saturating_sub(self.settings.ai_lines())..].join("\n")
                 });
                 let files = std::mem::take(&mut self.assistant.files);
                 let user = ai::user_message(&request, &self.ai_machine(), screen.as_deref(), &files);
@@ -285,12 +440,7 @@ impl App {
                     text: user.clone(),
                 });
                 let config = self.ai_config(self.ai_provider());
-                let system = self
-                    .settings
-                    .ai_prompt
-                    .clone()
-                    .filter(|p| !p.trim().is_empty())
-                    .unwrap_or_else(|| ai::default_prompt().to_owned());
+                let system = self.ai_system_prompt();
                 let turn = Turn {
                     request,
                     sent: user.chars().take(MAX_SENT_CHARS).collect(),
@@ -344,16 +494,128 @@ impl App {
             }
             AiMsg::OpenLink(url) => open_url(&url),
             AiMsg::Provider(k) => {
+                self.ai_edit(k);
+                self.assistant.enable_after = false;
+                self.modal = Some(crate::app::Modal::AiProvider(k));
+            }
+            AiMsg::Enable(k, on) => {
+                if !on {
+                    self.settings.ai_enabled.retain(|x| *x != k);
+                    self.save_settings();
+                } else if self.ai_configured(k) {
+                    if !self.settings.ai_enabled.contains(&k) {
+                        self.settings.ai_enabled.push(k);
+                    }
+                    self.save_settings();
+                } else {
+                    // Its key first, then it is switched on.
+                    self.ai_edit(k);
+                    self.assistant.enable_after = true;
+                    self.modal = Some(crate::app::Modal::AiProvider(k));
+                }
+            }
+            AiMsg::Use(k) => {
                 self.settings.ai_provider = Some(k);
                 self.save_settings();
-                self.ai_edit(k);
+            }
+            AiMsg::ShowKey => st.show_key = !st.show_key,
+            AiMsg::OpenModels => {
+                let k = st.edit.unwrap_or(ProviderKind::Claude);
+                st.model_search.clear();
+                self.modal = Some(crate::app::Modal::AiModels(k));
+                if self.assistant.models.is_empty() {
+                    return self.update(Message::Ai(AiMsg::LoadModels));
+                }
+            }
+            AiMsg::ModelSearch(v) => st.model_search = v,
+            AiMsg::Filter(f) => st.model_filter = f,
+            AiMsg::UseModel(m) => {
+                st.model_input = m;
+                if let Some(k) = st.edit {
+                    self.modal = Some(crate::app::Modal::AiProvider(k));
+                }
+            }
+            AiMsg::PromptPick(id) => {
+                self.settings.ai_prompt_id = id;
+                self.save_settings();
+            }
+            AiMsg::PromptOpen(id) => {
+                let found = id
+                    .as_ref()
+                    .and_then(|i| self.settings.ai_prompts.iter().find(|p| &p.id == i))
+                    .cloned();
+                let st = &mut self.assistant;
+                st.prompt_confirm_delete = false;
+                match found {
+                    Some(p) => {
+                        st.prompt_name = p.name;
+                        st.prompt_text = iced::widget::text_editor::Content::with_text(&p.text);
+                        st.prompt_edit = Some(Some(p.id));
+                    }
+                    None => {
+                        st.prompt_name.clear();
+                        st.prompt_text = iced::widget::text_editor::Content::new();
+                        st.prompt_edit = Some(None);
+                    }
+                }
+                self.modal = Some(crate::app::Modal::AiPrompt);
+            }
+            AiMsg::PromptName(v) => st.prompt_name = v,
+            AiMsg::PromptText(a) => st.prompt_text.perform(a),
+            AiMsg::PromptFromDefault => st.prompt_text = iced::widget::text_editor::Content::with_text(ai::default_prompt()),
+            AiMsg::PromptSave => {
+                let name = st.prompt_name.trim().to_owned();
+                let text = st.prompt_text.text().trim().to_owned();
+                if name.is_empty() || text.is_empty() {
+                    return Task::none();
+                }
+                let id = match st.prompt_edit.clone().flatten() {
+                    Some(id) => id,
+                    None => hex::encode(rand::random::<[u8; 8]>()),
+                };
+                let prompts = &mut self.settings.ai_prompts;
+                match prompts.iter_mut().find(|p| p.id == id) {
+                    Some(p) => {
+                        p.name = name;
+                        p.text = text;
+                    }
+                    None => prompts.push(crate::storage::AiPrompt {
+                        id: id.clone(),
+                        name,
+                        text,
+                    }),
+                }
+                self.settings.ai_prompt_id = Some(id);
+                self.save_settings();
+                self.assistant.prompt_edit = None;
+                self.modal = None;
+            }
+            AiMsg::PromptDelete => {
+                let Some(Some(id)) = st.prompt_edit.clone() else {
+                    return Task::none();
+                };
+                if !st.prompt_confirm_delete {
+                    st.prompt_confirm_delete = true;
+                    return Task::none();
+                }
+                self.settings.ai_prompts.retain(|p| p.id != id);
+                if self.settings.ai_prompt_id.as_ref() == Some(&id) {
+                    self.settings.ai_prompt_id = None;
+                }
+                self.save_settings();
+                self.assistant.prompt_edit = None;
+                self.modal = None;
+            }
+            AiMsg::Lines(n) => {
+                self.settings.ai_lines = Some(n);
+                self.save_settings();
             }
             AiMsg::Key(v) => st.key_input = v,
             AiMsg::Model(v) => st.model_input = v,
             AiMsg::Url(v) => st.url_input = v,
             AiMsg::PickModel(v) => st.model_input = v,
             AiMsg::Save => {
-                let k = self.settings.ai_provider.unwrap_or(ProviderKind::Claude);
+                let k = st.edit.unwrap_or(ProviderKind::Claude);
                 let name = format!("{k:?}").to_uppercase();
                 let st = &mut self.assistant;
                 if !st.key_input.trim().is_empty() {
@@ -366,11 +628,22 @@ impl App {
                 if k.editable_url() {
                     self.settings.ai_urls.insert(name, st.url_input.trim().to_owned());
                 }
+                if (self.assistant.enable_after || self.settings.ai_enabled.is_empty())
+                    && self.ai_configured(k)
+                    && !self.settings.ai_enabled.contains(&k)
+                {
+                    self.settings.ai_enabled.push(k);
+                }
+                self.assistant.enable_after = false;
                 self.save_settings();
+                self.modal = None;
                 return self.say(tr("Assistant enregistré"));
             }
             AiMsg::ForgetKey => {
-                let name = format!("{:?}", self.ai_provider()).to_uppercase();
+                let k = st.edit.unwrap_or(ProviderKind::Claude);
+                let name = format!("{k:?}").to_uppercase();
+                self.settings.ai_enabled.retain(|x| *x != k);
+                self.save_settings();
                 if let Some(db) = &self.db {
                     let _ = db.set_secret(&format!("ai-key-{name}"), None);
                 }
@@ -427,7 +700,7 @@ impl App {
     /// The configuration as typed in the settings (not saved yet).
     fn ai_config_edited(&self) -> Config {
         let st = &self.assistant;
-        let mut c = self.ai_config(self.ai_provider());
+        let mut c = self.ai_config(st.edit.unwrap_or_else(|| self.ai_provider()));
         if !st.key_input.trim().is_empty() {
             c.api_key = Some(st.key_input.trim().to_owned());
         }

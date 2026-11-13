@@ -635,9 +635,7 @@ pub(super) fn assistant_panel(app: &App) -> Element<'_, Message> {
     let head = row![
         icon(I_SPARKLES).size(16),
         text(tr("Assistant")).font(BOLD).size(15),
-        container(text(format!("{} · {}", kind.short_label(), nautile_net::ai::pretty_model(&model))).size(11))
-            .padding([2, 8])
-            .style(|t: &iced::Theme| theme::chip(theme::nt(t).blue)(t)),
+        provider_switch(app, kind, &model),
         Space::new().width(Fill),
         icon_button(I_TRASH, am(A::Clear)),
         icon_button(I_CLOSE, am(A::Toggle)),
@@ -816,5 +814,32 @@ pub(super) fn remote_desktop<'a>(app: &'a App, t: &'a Tab, r: &'a crate::session
             )
         ]
         .into(),
+    }
+}
+
+/// The provider in use, as a chip; a menu of the ready ones when several are on.
+fn provider_switch<'a>(app: &App, kind: nautile_net::ai::ProviderKind, model: &str) -> Element<'a, Message> {
+    use crate::assistant::AiMsg as A;
+    let ready = app.ai_ready_providers();
+    if ready.len() < 2 {
+        return container(text(format!("{} · {}", kind.short_label(), nautile_net::ai::pretty_model(model))).size(11))
+            .padding([2, 8])
+            .style(|t: &iced::Theme| theme::chip(theme::nt(t).blue)(t))
+            .into();
+    }
+    let choices: Vec<ProviderChoice> = ready.into_iter().map(ProviderChoice).collect();
+    pick_list(choices, Some(ProviderChoice(kind)), |c: ProviderChoice| am(A::Use(c.0)))
+        .text_size(12)
+        .padding([3, 8])
+        .style(theme::select)
+        .into()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProviderChoice(nautile_net::ai::ProviderKind);
+
+impl std::fmt::Display for ProviderChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0.short_label())
     }
 }

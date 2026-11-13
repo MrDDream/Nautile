@@ -31,6 +31,12 @@ pub enum Modal {
     NewHost,
     /// The groups, their order, and their editor.
     Groups,
+    /// An AI provider's key, address and model.
+    AiProvider(nautile_net::ai::ProviderKind),
+    /// « Choisir un modèle » for a provider.
+    AiModels(nautile_net::ai::ProviderKind),
+    /// A system prompt of the user's.
+    AiPrompt,
 }
 
 /// A sub-page of the settings (`None` in [App::settings_page]: their home).
@@ -645,6 +651,12 @@ impl App {
             fonts_loaded: Vec::new(),
             closing: None,
         };
+        // Before several providers could be on, the chosen one was the only one.
+        if app.settings.ai_enabled.is_empty() {
+            if let Some(k) = app.settings.ai_provider {
+                app.settings.ai_enabled.push(k);
+            }
+        }
         app.locked = app.settings.locks();
         app.lock_form.method = app.settings.lock_method;
         app.reload();

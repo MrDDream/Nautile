@@ -376,7 +376,7 @@ pub(super) fn settings(app: &App) -> Element<'_, Message> {
     let (name, body) = match page {
         P::Appearance => (tr("Apparence"), appearance_settings(app)),
         P::Terminal => (tr("Terminal"), terminal_settings(app)),
-        P::Ai => (tr("Assistant IA"), column![settings_card(tr("Fournisseur"), ai_settings(app))]),
+        P::Ai => (tr("Assistant IA"), ai_settings(app)),
         P::Backup => (tr("Sauvegarde et synchro"), backup_settings(app)),
         P::Security => (tr("Sécurité"), column![settings_card(tr("Verrouillage"), lock_settings(app))]),
         P::Data => (tr("Données"), data_settings(app)),
@@ -1502,94 +1502,520 @@ pub(super) fn lan_settings(app: &App) -> Element<'_, Message> {
 
 // --- AI assistant ---
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ModelChoice(String);
-
-impl std::fmt::Display for ModelChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}  ·  {}", nautile_net::ai::pretty_model(&self.0), self.0)
-    }
+/// A provider's logo on its tile (its own colours, or light / dark).
+fn provider_tile<'a>(app: &App, k: nautile_net::ai::ProviderKind, size: f32) -> Element<'a, Message> {
+    let dark = theme::nt(&app.theme()).dark;
+    let logo: Element<'a, Message> = match theme::provider_logo(k, dark) {
+        Some(h) => image(h).width(size * 0.55).height(size * 0.55).into(),
+        None => kit::icon('\u{E9F4}', size * 0.5).into(),
+    };
+    container(logo)
+        .center(Length::Fixed(size))
+        .style(|t: &iced::Theme| container::Style {
+            background: Some(theme::nt(t).bg.into()),
+            border: iced::Border {
+                color: theme::nt(t).border,
+                width: 1.0,
+                radius: 11.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
 }
 
-pub(super) fn ai_settings(app: &App) -> Element<'_, Message> {
+/// The assistant's settings: the providers and their switches, the system prompts, what is sent.
+pub(super) fn ai_settings(app: &App) -> Column<'_, Message> {
     use crate::assistant::AiMsg as A;
     use nautile_net::ai::ProviderKind;
-    let st = &app.assistant;
-    let kind = app.ai_provider();
-    let saved = app.ai_config(kind);
-    let mut c = column![
-        soft(tr("Dans une session, l'assistant (Ctrl+Maj+A) transforme une demande en commande et explique ce qui est à l'écran. Rien n'est envoyé sans votre demande.")),
-        field(
-            tr("Fournisseur"),
-            pick_list(ProviderKind::ALL, Some(kind), |k| am(A::Provider(k)))
-                .width(Fill)
-                .padding([8, 12])
-                .style(theme::select)
-        ),
-    ]
-    .spacing(12);
-    if kind.needs_key() {
-        let has = saved.api_key.is_some();
-        let mut r = row![text_input(
-            &if has {
-                tr("Clé enregistrée — en saisir une autre pour la remplacer")
+    let s = &app.settings;
+    let default = app.ai_ready_providers().first().copied();
+    let rows: Vec<Element<Message>> = ProviderKind::ALL
+        .into_iter()
+        .map(|k| {
+            let ready = app.ai_configured(k);
+            let on = s.ai_enabled.contains(&k) && ready;
+            let mut name = row![text(k.label()).size(15).font(BOLD)].spacing(8).align_y(Alignment::Center);
+            if default == Some(k) {
+                name = name.push(
+                    container(text(tr("Par défaut")).size(11).font(BOLD))
+                        .padding([2, 8])
+                        .style(|t: &iced::Theme| theme::chip(theme::nt(t).green)(t)),
+                );
+            }
+            let detail: Element<Message> = if ready {
+                soft(nautile_net::ai::pretty_model(&app.ai_config(k).model)).into()
             } else {
-                kind.key_hint().to_owned()
-            },
-            &st.key_input
-        )
-        .on_input(|v| am(A::Key(v)))
-        .secure(true)
-        .padding([9, 12])
-        .size(14)
-        .style(theme::input)]
-        .spacing(8);
-        if has {
-            r = r.push(secondary(tr("Oublier"), am(A::ForgetKey)));
-        }
-        c = c.push(field(tr("Clé API"), r));
-    }
-    if kind.editable_url() {
-        c = c.push(kit::float_field(
-            tr("Adresse"),
-            text_input(kind.default_url().unwrap_or_default(), &st.url_input)
-                .on_input(|v| am(A::Url(v)))
-                .padding([9, 12])
-                .size(14)
-                .font(MONO)
-                .style(theme::input),
-        ));
-    }
-    let mut model_row = row![text_input(kind.default_model(), &st.model_input)
-        .on_input(|v| am(A::Model(v)))
-        .padding([9, 12])
-        .size(14)
-        .font(MONO)
-        .style(theme::input)]
-    .spacing(8);
-    model_row = model_row.push(secondary(tr("Charger la liste"), am(A::LoadModels)));
-    c = c.push(field(tr("Modèle"), model_row));
-    if !st.models.is_empty() {
-        let choices: Vec<ModelChoice> = st.models.iter().cloned().map(ModelChoice).collect();
-        let current = choices.iter().find(|m| m.0 == st.model_input).cloned();
-        c = c.push(
-            pick_list(choices, current, |m: ModelChoice| am(A::PickModel(m.0)))
+                text(tr("Non configuré"))
+                    .size(13)
+                    .style(|t: &iced::Theme| text::Style {
+                        color: Some(theme::nt(t).accent),
+                    })
+                    .into()
+            };
+            row![
+                button(
+                    row![provider_tile(app, k, 40.0), column![name, detail].spacing(3).width(Fill)]
+                        .spacing(14)
+                        .align_y(Alignment::Center)
+                )
                 .width(Fill)
-                .padding([8, 12])
-                .style(theme::select),
+                .padding([12, 14])
+                .style(theme::card_pick(false))
+                .on_press(am(A::Provider(k))),
+                button(icon(I_GEAR).size(22))
+                    .padding(8)
+                    .style(theme::ghost)
+                    .on_press(am(A::Provider(k))),
+                iced::widget::toggler(on)
+                    .on_toggle(move |v| am(A::Enable(k, v)))
+                    .size(24)
+                    .style(theme::toggler),
+                Space::new().width(10),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center)
+            .into()
+        })
+        .collect();
+
+    // The system prompts: the default one, then the user's.
+    let picked = s.ai_prompt_id.clone().filter(|id| s.ai_prompts.iter().any(|p| &p.id == id));
+    let radio = |selected: bool| -> Element<Message> {
+        kit::icon(if selected { '\u{E837}' } else { '\u{E836}' }, 22.0)
+            .style(move |t: &iced::Theme| text::Style {
+                color: Some(if selected { theme::nt(t).accent } else { theme::nt(t).muted }),
+            })
+            .into()
+    };
+    let mut prompts: Vec<Element<Message>> = vec![button(
+        row![
+            radio(picked.is_none()),
+            column![
+                text(tr("Par défaut")).size(15).font(BOLD),
+                soft(tr("Une commande prête à coller, puis une courte explication"))
+            ]
+            .spacing(2)
+            .width(Fill),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center),
+    )
+    .width(Fill)
+    .padding([12, 14])
+    .style(theme::card_pick(false))
+    .on_press(am(A::PromptPick(None)))
+    .into()];
+    for p in &s.ai_prompts {
+        let selected = picked.as_ref() == Some(&p.id);
+        let first_line: String = p.text.lines().next().unwrap_or_default().chars().take(90).collect();
+        prompts.push(
+            row![
+                button(
+                    row![
+                        radio(selected),
+                        column![text(p.name.clone()).size(15).font(BOLD), soft(first_line)]
+                            .spacing(2)
+                            .width(Fill),
+                    ]
+                    .spacing(12)
+                    .align_y(Alignment::Center)
+                )
+                .width(Fill)
+                .padding([12, 14])
+                .style(theme::card_pick(false))
+                .on_press(am(A::PromptPick(Some(p.id.clone())))),
+                icon_button(I_EDIT, am(A::PromptOpen(Some(p.id.clone())))),
+                Space::new().width(8),
+            ]
+            .align_y(Alignment::Center)
+            .into(),
         );
     }
-    c = c.push(
-        row![
-            primary(tr("Enregistrer"), Some(am(A::Save))),
-            secondary(if st.testing { tr("Test…") } else { tr("Tester") }, am(A::Test)),
-        ]
-        .spacing(8),
+    prompts.push(
+        button(
+            row![icon(I_ADD).size(20), text(tr("Nouveau prompt")).size(15).font(BOLD)]
+                .spacing(10)
+                .align_y(Alignment::Center),
+        )
+        .width(Fill)
+        .padding([14, 16])
+        .style(|t: &iced::Theme, st| {
+            let mut b = theme::card_pick(false)(t, st);
+            b.text_color = theme::nt(t).accent;
+            b
+        })
+        .on_press(am(A::PromptOpen(None)))
+        .into(),
     );
+
+    let lines = s.ai_lines();
+    let sent = column![
+        soft(tr("✓ Votre demande, l'adresse et le protocole de l'hôte")),
+        soft(trf(
+            "✓ Les %1$s dernières lignes du terminal, seulement si « Joindre l'écran » est coché",
+            &[&lines]
+        )),
+        soft(trf(
+            "✓ Les fichiers que vous joignez (texte, %1$s au plus chacun)",
+            &[&format!("{} Ko", nautile_net::ai::MAX_FILE_BYTES / 1024)]
+        )),
+        soft(tr("✕ Jamais vos mots de passe, vos clés ni votre historique")),
+    ]
+    .spacing(8);
+    column![
+        soft(tr("Décrivez ce que vous voulez faire dans le terminal, l'assistant propose la commande. Rien n'est exécuté sans votre accord.")).size(14),
+        column![container(kit::section_label(tr("Fournisseurs"))).padding([0, 4]), kit::card(rows)].spacing(10),
+        soft(tr("Les fournisseurs activés sont proposés dans l'assistant du terminal ; le dernier utilisé passe en premier. La roue dentée règle la clé, l'adresse et le modèle.")),
+        column![container(kit::section_label(tr("Prompts système"))).padding([0, 4]), kit::card(prompts)].spacing(10),
+        column![
+            container(kit::section_label(tr("Lignes du terminal jointes"))).padding([0, 4]),
+            segmented(
+                [40usize, 100, 200, 500].into_iter().map(|n| (n, n.to_string())).collect(),
+                lines,
+                |n| am(A::Lines(n))
+            ),
+            soft(tr("Plus de lignes donnent plus de contexte pour expliquer une erreur, mais la requête est plus longue et plus coûteuse. L'historique de défilement est inclus.")),
+        ]
+        .spacing(10),
+        column![
+            container(kit::section_label(tr("Ce qui est envoyé"))).padding([0, 4]),
+            container(sent).padding(18).width(Fill).style(theme::card),
+            soft(tr("Les clés API restent chiffrées sur cet ordinateur (base SQLCipher).")),
+        ]
+        .spacing(10),
+    ]
+}
+
+/// A provider's key, address and model, in a pop-up.
+pub(super) fn ai_provider_modal(app: &App, k: nautile_net::ai::ProviderKind, max_height: f32) -> Element<'_, Message> {
+    use crate::assistant::AiMsg as A;
+    let st = &app.assistant;
+    let saved = app.ai_config(k);
+    let has_key = saved.api_key.is_some();
+    let status = if !k.needs_key() {
+        tr("Sans clé API")
+    } else if has_key {
+        tr("Clé enregistrée")
+    } else {
+        tr("Clé API requise")
+    };
+    let mut body = column![].spacing(16);
+    if k.editable_url() {
+        body = body.push(kit::float_field(
+            tr("Adresse de l'API"),
+            text_input(k.default_url().unwrap_or_default(), &st.url_input)
+                .on_input(|v| am(A::Url(v)))
+                .font(MONO),
+        ));
+        if k == nautile_net::ai::ProviderKind::Local {
+            body = body.push(label(tr(
+                "Ollama : http://IP-du-PC:11434/v1 (lancez-le avec OLLAMA_HOST=0.0.0.0). LM Studio : http://IP-du-PC:1234/v1.",
+            )));
+        }
+    }
+    if k.needs_key() || k.editable_url() {
+        let key_label = if has_key {
+            tr("Nouvelle clé API (facultatif)")
+        } else if k.needs_key() {
+            tr("Clé API")
+        } else {
+            tr("Clé API (facultative)")
+        };
+        body = body.push(
+            row![
+                kit::float_field(
+                    key_label,
+                    text_input(k.key_hint(), &st.key_input)
+                        .on_input(|v| am(A::Key(v)))
+                        .secure(!st.show_key)
+                ),
+                button(icon(if st.show_key { '\u{E8F5}' } else { '\u{E8F4}' }).size(22))
+                    .padding(10)
+                    .style(theme::ghost)
+                    .on_press(am(A::ShowKey)),
+            ]
+            .spacing(6)
+            .align_y(Alignment::End),
+        );
+    }
+    let model = if st.model_input.trim().is_empty() {
+        saved.model.clone()
+    } else {
+        st.model_input.clone()
+    };
+    body = body.push(kit::float_box(
+        tr("Modèle"),
+        button(
+            row![
+                column![
+                    text(nautile_net::ai::pretty_model(&model)).size(15),
+                    text(model.clone()).font(MONO).size(12).style(|t: &iced::Theme| text::Style {
+                        color: Some(theme::nt(t).muted),
+                    }),
+                ]
+                .spacing(2)
+                .width(Fill),
+                icon('\u{E5CF}').size(22),
+            ]
+            .align_y(Alignment::Center),
+        )
+        .width(Fill)
+        .padding([10, 14])
+        .style(|t: &iced::Theme, s| {
+            let mut b = theme::secondary(t, s);
+            b.border.radius = 12.0.into();
+            b
+        })
+        .on_press(am(A::OpenModels)),
+    ));
     match &st.status {
-        Some(Ok(s)) => c = c.push(green(s.clone())),
-        Some(Err(e)) => c = c.push(pink(e.clone())),
+        Some(Ok(s)) => {
+            body = body.push(
+                container(green(trf("Connexion OK. Réponse : %1$s", &[s])))
+                    .padding([10, 14])
+                    .width(Fill)
+                    .style(|t: &iced::Theme| theme::soft_tile(theme::nt(t).green, 10.0)(t)),
+            )
+        }
+        Some(Err(e)) => {
+            body = body.push(
+                container(pink(trf("Échec : %1$s", &[e])))
+                    .padding([10, 14])
+                    .width(Fill)
+                    .style(|t: &iced::Theme| theme::soft_tile(theme::nt(t).pink, 10.0)(t)),
+            )
+        }
         None => {}
     }
-    c.into()
+    if has_key {
+        body = body.push(
+            button(text(trf("Oublier la clé %1$s", &[&k.label()])).size(14))
+                .padding([8, 0])
+                .style(|t: &iced::Theme, _| button::Style {
+                    text_color: theme::nt(t).pink,
+                    ..Default::default()
+                })
+                .on_press(am(A::ForgetKey)),
+        );
+    }
+    let foot = row![
+        Space::new().width(Fill),
+        secondary(if st.testing { tr("Test…") } else { tr("Tester") }, am(A::Test)),
+        primary(tr("Enregistrer"), Some(am(A::Save))),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+    let head = row![
+        provider_tile(app, k, 44.0),
+        column![
+            text(k.label()).size(20).font(BOLD),
+            text(status).size(13).style(move |t: &iced::Theme| text::Style {
+                color: Some(if k.needs_key() && !has_key {
+                    theme::nt(t).accent
+                } else {
+                    theme::nt(t).muted
+                }),
+            }),
+        ]
+        .spacing(2)
+        .width(Fill),
+        button(kit::icon('\u{E5CD}', 22.0))
+            .padding(6)
+            .style(theme::ghost)
+            .on_press(Message::OpenModal(None)),
+    ]
+    .spacing(14)
+    .align_y(Alignment::Center);
+    kit::overlay(
+        kit::dialog(
+            container(head)
+                .padding(Padding {
+                    top: 18.0,
+                    right: 14.0,
+                    bottom: 10.0,
+                    left: 22.0,
+                })
+                .into(),
+            body,
+            Some(foot.into()),
+            580.0,
+            max_height,
+        ),
+        None,
+    )
+}
+
+/// « Choisir un modèle »: the provider's models, searched and filtered.
+pub(super) fn ai_models_modal(app: &App, k: nautile_net::ai::ProviderKind, max_height: f32) -> Element<'_, Message> {
+    use crate::assistant::{AiMsg as A, ModelFilter};
+    let st = &app.assistant;
+    let q = st.model_search.trim().to_lowercase();
+    let matching: Vec<&String> = st.models.iter().filter(|m| q.is_empty() || m.to_lowercase().contains(&q)).collect();
+    let mut chips = row![].spacing(8);
+    for f in ModelFilter::ALL {
+        let n = matching.iter().filter(|m| f.keep(m)).count();
+        chips = chips.push(kit::count_chip(f.label(), n, st.model_filter == f, None, am(A::Filter(f))));
+    }
+    let shown: Vec<&String> = matching.into_iter().filter(|m| st.model_filter.keep(m)).collect();
+    let current = st.model_input.trim();
+    let mut body = column![
+        kit::search(
+            &st.model_search,
+            tr("Rechercher un modèle"),
+            |v| am(A::ModelSearch(v)),
+            am(A::ModelSearch(String::new()))
+        ),
+        chips.wrap(),
+    ]
+    .spacing(14);
+    if !q.is_empty() && !st.models.iter().any(|m| m.to_lowercase() == q) {
+        let typed = st.model_search.trim().to_owned();
+        body = body.push(kit::card(vec![button(
+            column![
+                text(trf("Utiliser « %1$s »", &[&typed])).size(15).font(BOLD),
+                soft(tr("Nom saisi à la main"))
+            ]
+            .spacing(2),
+        )
+        .width(Fill)
+        .padding([12, 14])
+        .style(theme::card_pick(false))
+        .on_press(am(A::UseModel(typed)))
+        .into()]));
+    }
+    if st.models.is_empty() {
+        body = body.push(match &st.status {
+            Some(Err(e)) => column![pink(e.clone()), secondary(tr("Réessayer"), am(A::LoadModels))]
+                .spacing(10)
+                .into(),
+            _ => Element::from(soft(tr("Chargement des modèles…"))),
+        });
+    } else if shown.is_empty() {
+        body = body.push(soft(tr("Aucun modèle ne correspond.")));
+    } else {
+        let rows: Vec<Element<Message>> = shown
+            .into_iter()
+            .map(|m| {
+                let selected = m == current;
+                let mut r = row![column![
+                    text(nautile_net::ai::pretty_model(m))
+                        .size(15)
+                        .font(if selected { BOLD } else { theme::UI }),
+                    text(m.clone()).font(MONO).size(12).style(|t: &iced::Theme| text::Style {
+                        color: Some(theme::nt(t).muted),
+                    }),
+                ]
+                .spacing(2)
+                .width(Fill)]
+                .align_y(Alignment::Center);
+                if selected {
+                    r = r.push(kit::icon('\u{E5CA}', 22.0).style(|t: &iced::Theme| text::Style {
+                        color: Some(theme::nt(t).accent),
+                    }));
+                }
+                button(r)
+                    .width(Fill)
+                    .padding([10, 14])
+                    .style(theme::card_pick(selected))
+                    .on_press(am(A::UseModel(m.clone())))
+                    .into()
+            })
+            .collect();
+        body = body.push(kit::card(rows));
+    }
+    kit::overlay(
+        kit::dialog(
+            kit::dialog_head(
+                tr("Choisir un modèle"),
+                Some(k.label()),
+                Some(Message::OpenModal(Some(crate::app::Modal::AiProvider(k)))),
+                Message::OpenModal(None),
+            ),
+            body,
+            None,
+            640.0,
+            max_height,
+        ),
+        None,
+    )
+}
+
+/// A system prompt of the user's: its name and instructions.
+pub(super) fn ai_prompt_modal(app: &App, max_height: f32) -> Element<'_, Message> {
+    use crate::assistant::AiMsg as A;
+    let st = &app.assistant;
+    let existing = matches!(st.prompt_edit, Some(Some(_)));
+    let body = column![
+        kit::float_field(
+            tr("Nom"),
+            text_input(&tr("Pédagogue, Sécurité, Docker…"), &st.prompt_name).on_input(|v| am(A::PromptName(v)))
+        ),
+        field(
+            tr("Consignes"),
+            text_editor(&st.prompt_text)
+                .on_action(|a| am(A::PromptText(a)))
+                .font(MONO)
+                .size(13)
+                .height(260)
+                .padding(12)
+                .style(|t: &iced::Theme, s| {
+                    let n = theme::nt(t);
+                    let focused = matches!(s, text_editor::Status::Focused { .. });
+                    text_editor::Style {
+                        background: n.bg.into(),
+                        border: iced::Border {
+                            color: if focused { n.accent } else { n.border },
+                            width: 1.0,
+                            radius: 10.0.into(),
+                        },
+                        placeholder: n.placeholder,
+                        value: n.text,
+                        selection: theme::alpha(n.accent, 0.35),
+                    }
+                })
+        ),
+        row![secondary(tr("Repartir du prompt par défaut"), am(A::PromptFromDefault))],
+        soft(tr(
+            "L'assistant doit garder la commande dans un bloc ```bash``` : c'est elle que « Insérer » tape dans le terminal."
+        )),
+    ]
+    .spacing(14);
+    let mut foot = row![].spacing(10).align_y(Alignment::Center);
+    if existing {
+        foot = foot.push(
+            button(
+                text(if st.prompt_confirm_delete {
+                    tr("Confirmer la suppression")
+                } else {
+                    tr("Supprimer")
+                })
+                .size(14),
+            )
+            .padding([9, 14])
+            .style(theme::danger)
+            .on_press(am(A::PromptDelete)),
+        );
+    }
+    foot = foot
+        .push(Space::new().width(Fill))
+        .push(secondary(tr("Annuler"), Message::OpenModal(None)))
+        .push(primary(
+            tr("Enregistrer"),
+            (!st.prompt_name.trim().is_empty() && !st.prompt_text.text().trim().is_empty()).then_some(am(A::PromptSave)),
+        ));
+    kit::overlay(
+        kit::dialog(
+            kit::dialog_head(
+                if existing { tr("Modifier le prompt") } else { tr("Nouveau prompt") },
+                None,
+                None,
+                Message::OpenModal(None),
+            ),
+            body,
+            Some(foot.into()),
+            680.0,
+            max_height,
+        ),
+        None,
+    )
 }

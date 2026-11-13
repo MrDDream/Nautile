@@ -189,3 +189,6 @@ Ctrl+Maj+P tape le mot de passe de l'hôte à une invite sudo	Ctrl+Shift+P types
 Copie de la sortie de chaque nouvelle session, stockée sur cet ordinateur	A copy of each new session's output, stored on this computer
 Ouvrir le dossier	Open the folder
 Aucun journal. Activez « Enregistrer les sessions » dans Terminal › Sessions.	No logs. Turn on “Record sessions” in Terminal › Sessions.
+Les clés API restent chiffrées sur cet ordinateur (base SQLCipher).	API keys stay encrypted on this computer (SQLCipher database).
+Ollama : http://IP-du-PC:11434/v1 (lancez-le avec OLLAMA_HOST=0.0.0.0). LM Studio : http://IP-du-PC:1234/v1.	Ollama: http://PC-IP:11434/v1 (start it with OLLAMA_HOST=0.0.0.0). LM Studio: http://PC-IP:1234/v1.
+L'assistant doit garder la commande dans un bloc ```bash``` : c'est elle que « Insérer » tape dans le terminal.	The assistant must keep the command in a ```bash``` block: that is what “Insert” types into the terminal.
