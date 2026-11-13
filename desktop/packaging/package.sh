@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the desktop packages from desktop/target/release/nautile(.exe) into desktop/dist:
-#   Linux:   nautile_<version>_amd64.deb, nautile-<version>.x86_64.rpm, nautile-<version>-linux-x86_64.tar.gz
+#   Linux:   nautile_<version>-1_amd64.deb, nautile-<version>-1.x86_64.rpm, nautile-<version>-linux-x86_64.tar.gz
 #   Windows: Nautile-<version>-setup.exe, Nautile-<version>-portable.zip
 #   macOS:   Nautile-<version>-macos-<arch>.dmg (not notarised yet)
 # Needs cargo-deb and cargo-generate-rpm (Linux), makensis (Windows).

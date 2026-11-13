@@ -97,10 +97,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # Cargo runs in the default shell: on Windows, PowerShell finds Strawberry Perl, which builds OpenSSL
+    # (SQLCipher); Git Bash's Perl cannot.
     defaults:
       run:
         working-directory: desktop
-        shell: bash
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -108,6 +109,7 @@ jobs:
         with:
           workspaces: desktop
       - name: Check that the tag matches the desktop version
+        shell: bash
         run: |
           VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
@@ -122,11 +124,13 @@ jobs:
       - name: NSIS (Windows installer)
         if: runner.os == 'Windows'
         run: choco install nsis -y --no-progress
-      - name: Tests, release build and packages
+      - name: Tests and release build
         run: |
           cargo test --all
           cargo build --release -p nautile-app
-          packaging/package.sh
+      - name: Packages
+        shell: bash
+        run: packaging/package.sh
       - uses: actions/upload-artifact@v5
         with:
           name: desktop-${{ runner.os }}

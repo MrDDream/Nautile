@@ -111,7 +111,7 @@ com.nautile
 
 - `Nautile-X.Y.Z-setup.exe` : installeur Windows, sans droits administrateur ;
 - `Nautile-X.Y.Z-portable.zip` : Windows, tout (données chiffrées comprises) reste dans le dossier, par exemple sur une clé USB ;
-- `nautile_X.Y.Z_amd64.deb` (Debian, Ubuntu), `nautile-X.Y.Z.x86_64.rpm` (Fedora, openSUSE), `nautile-X.Y.Z-linux-x86_64.tar.gz` (les autres) ;
+- `nautile_X.Y.Z-1_amd64.deb` (Debian, Ubuntu), `nautile-X.Y.Z-1.x86_64.rpm` (Fedora, openSUSE), `nautile-X.Y.Z-linux-x86_64.tar.gz` (les autres) ;
 - `Nautile-X.Y.Z-macos-arm64.dmg` : macOS (puces Apple), pas encore notarisé : clic droit › Ouvrir la première fois.
 
 Elle reprend l'interface du téléphone (mêmes réglages, mêmes thèmes) et y ajoute ce qui sert sur un PC : icône dans la zone de notification (fermer la fenêtre la garde ouverte), lancement au démarrage, recherche universelle Ctrl+K, clic droit sur les hôtes, glisser-déposer, moniteur de serveur, éditeur de fichiers SFTP, import de `~/.ssh/config`, synchro qui attend le VPN et mises à jour depuis l'appli.

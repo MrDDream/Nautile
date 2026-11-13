@@ -108,15 +108,26 @@ pub enum Target {
 /// The file of [release] for [target], by the names `package.sh` gives them.
 pub fn asset_for(release: &Release, target: Target) -> Option<&Asset> {
     let v = release.version();
-    let name = match target {
-        Target::WindowsSetup => format!("Nautile-{v}-setup.exe"),
-        Target::WindowsPortable => format!("Nautile-{v}-portable.zip"),
-        Target::Deb => format!("nautile_{v}_amd64.deb"),
-        Target::Rpm => format!("nautile-{v}.x86_64.rpm"),
-        Target::Tarball => format!("nautile-{v}-linux-x86_64.tar.gz"),
-        Target::Mac(arch) => format!("Nautile-{v}-macos-{arch}.dmg"),
+    // The .deb and .rpm carry a package revision (`nautile_0.4.0-1_amd64.deb`).
+    let (start, end) = match target {
+        Target::WindowsSetup => (format!("Nautile-{v}-setup.exe"), String::new()),
+        Target::WindowsPortable => (format!("Nautile-{v}-portable.zip"), String::new()),
+        Target::Deb => (format!("nautile_{v}"), "_amd64.deb".to_owned()),
+        Target::Rpm => (format!("nautile-{v}"), ".x86_64.rpm".to_owned()),
+        Target::Tarball => (format!("nautile-{v}-linux-x86_64.tar.gz"), String::new()),
+        Target::Mac(arch) => (format!("Nautile-{v}-macos-{arch}.dmg"), String::new()),
     };
-    release.assets.iter().find(|a| a.name == name)
+    release.assets.iter().find(|a| {
+        if end.is_empty() {
+            a.name == start
+        } else {
+            a.name.starts_with(&start)
+                && a.name.ends_with(&end)
+                && a.name[start.len()..a.name.len() - end.len()]
+                    .bytes()
+                    .all(|b| b == b'-' || b.is_ascii_digit())
+        }
+    })
 }
 
 /// The SHA-256 of [file] listed in a `sha256sum` file, if any.
@@ -201,8 +212,9 @@ mod tests {
                 "Nautile-v0.5.0.apk",
                 "Nautile-0.5.0-setup.exe",
                 "Nautile-0.5.0-portable.zip",
-                "nautile_0.5.0_amd64.deb",
-                "nautile-0.5.0.x86_64.rpm",
+                "nautile_0.5.0-1_amd64.deb",
+                "nautile-0.5.0-1.x86_64.rpm",
+                "nautile-0.5.0-linux-x86_64.tar.gz.sig",
                 "nautile-0.5.0-linux-x86_64.tar.gz",
                 "Nautile-0.5.0-macos-arm64.dmg",
             ]
@@ -211,8 +223,8 @@ mod tests {
         };
         assert_eq!(asset_for(&r, Target::WindowsSetup).unwrap().name, "Nautile-0.5.0-setup.exe");
         assert_eq!(asset_for(&r, Target::WindowsPortable).unwrap().name, "Nautile-0.5.0-portable.zip");
-        assert_eq!(asset_for(&r, Target::Deb).unwrap().name, "nautile_0.5.0_amd64.deb");
-        assert_eq!(asset_for(&r, Target::Rpm).unwrap().name, "nautile-0.5.0.x86_64.rpm");
+        assert_eq!(asset_for(&r, Target::Deb).unwrap().name, "nautile_0.5.0-1_amd64.deb");
+        assert_eq!(asset_for(&r, Target::Rpm).unwrap().name, "nautile-0.5.0-1.x86_64.rpm");
         assert_eq!(asset_for(&r, Target::Tarball).unwrap().name, "nautile-0.5.0-linux-x86_64.tar.gz");
         assert_eq!(asset_for(&r, Target::Mac("arm64")).unwrap().name, "Nautile-0.5.0-macos-arm64.dmg");
         assert!(asset_for(&r, Target::Mac("x86_64")).is_none());
