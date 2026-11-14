@@ -1,7 +1,5 @@
 package com.nautile.app.ui.keys
 
-import com.nautile.i18n.tr
-
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -57,14 +55,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.nautile.app.NautileApp
+import com.nautile.app.ui.common.ConfirmDialog
 import com.nautile.app.ui.common.NtCard
+import com.nautile.app.ui.common.PageHeader
 import com.nautile.app.ui.common.Segmented
-import com.nautile.app.ui.theme.Nt
 import com.nautile.app.ui.common.primaryBorder
+import com.nautile.app.ui.theme.Nt
 import com.nautile.data.model.Identity
 import com.nautile.data.model.SshKey
+import com.nautile.i18n.tr
 
 private enum class KTab(val label: String) { Keys(tr("Clés")), Identities(tr("Identités")), Known(tr("Hôtes connus")) }
 
@@ -80,15 +81,13 @@ fun KeychainScreen(onBack: () -> Unit, vm: KeychainViewModel = viewModel(factory
     val message by vm.message.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var tab by rememberSaveable { mutableStateOf(KTab.Keys) }
-    val appForTab = androidx.compose.ui.platform.LocalContext.current.applicationContext as com.nautile.app.NautileApp
-    val showKnown by appForTab.showKnownHosts.collectAsState()
-    androidx.compose.runtime.LaunchedEffect(showKnown) { if (showKnown) { tab = KTab.Known; appForTab.showKnownHosts.value = false } }
+    val appForTab = LocalContext.current.applicationContext as NautileApp
+    val showKnown by appForTab.showKnownHosts.collectAsStateWithLifecycle()
+    LaunchedEffect(showKnown) { if (showKnown) { tab = KTab.Known; appForTab.showKnownHosts.value = false } }
     var showGenerate by remember { mutableStateOf(false) }
     var importMenu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<SshKey?>(null) }
     var deleting by remember { mutableStateOf<SshKey?>(null) }
-    var exporting by remember { mutableStateOf<SshKey?>(null) }
-    var exportPass by remember { mutableStateOf<String?>(null) }
     var editingIdentity by remember { mutableStateOf<Identity?>(null) }
     var creatingIdentity by remember { mutableStateOf(false) }
 
@@ -96,9 +95,9 @@ fun KeychainScreen(onBack: () -> Unit, vm: KeychainViewModel = viewModel(factory
 
     val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::importFile) }
     val saveFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        val k = exporting
-        if (uri != null && k != null) vm.exportPrivate(k, exportPass, uri)
-        exporting = null; exportPass = null
+        val pending = vm.pendingExport
+        if (uri != null && pending != null) vm.exportPrivate(pending.first, pending.second, uri)
+        vm.pendingExport = null
     }
     var askExport by remember { mutableStateOf<SshKey?>(null) }
 
@@ -108,7 +107,7 @@ fun KeychainScreen(onBack: () -> Unit, vm: KeychainViewModel = viewModel(factory
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
-                com.nautile.app.ui.common.PageHeader(tr("Trousseau"), onBack = onBack) {
+                PageHeader(tr("Trousseau"), onBack = onBack) {
                     Box {
                         OutlinedButton(onClick = { importMenu = true }, shape = RoundedCornerShape(12.dp)) { Text(tr("Importer"), color = Nt.TextSoft, fontSize = 13.sp) }
                         DropdownMenu(importMenu, onDismissRequest = { importMenu = false }) {
@@ -130,7 +129,7 @@ fun KeychainScreen(onBack: () -> Unit, vm: KeychainViewModel = viewModel(factory
                         ) {
                             Icon(Icons.Outlined.Lock, contentDescription = null, tint = Nt.Green)
                             Text(
-                                tr("Clés privées stockées dans la base chiffrée, dont la clé est protégée par l'Android Keystore. Elles ne quittent l'appareil que si vous les exportez."),
+                                tr("Clés privées stockées dans la base chiffrée, dont la clé est protégée par l'Android Keystore. Chiffrées sur cet appareil ; elles le quittent dans vos sauvegardes et synchronisations (chiffrées avec votre mot de passe) ou si vous les exportez."),
                                 fontSize = 13.sp, color = Nt.TextSoft,
                             )
                         }
@@ -225,13 +224,14 @@ fun KeychainScreen(onBack: () -> Unit, vm: KeychainViewModel = viewModel(factory
         val n = usage[k.id] ?: 0
         ConfirmDialog(
             tr("Supprimer « %1\$s » ?", k.name),
-            (if (n > 0) tr("Elle est utilisée par %1\$s hôte(s), qui ne pourront plus s'y connecter avec. ", n) else "") + tr("Cette action est définitive."),
+            (if (n > 0) tr("Elle est utilisée par %1\$s hôte(s), qui ne pourront plus s'y connecter avec. ", n) else "") + tr("Cette action est définitive.") +
+                " " + tr("Les sauvegardes déjà faites la contiennent encore."),
             tr("Supprimer"), { deleting = null },
         ) { vm.delete(k); deleting = null }
     }
     askExport?.let { k ->
-        ExportKeyDialog(k, vm.canReencrypt(k), onDismiss = { askExport = null }) { pass ->
-            exporting = k; exportPass = pass; askExport = null
+        ExportKeyDialog(vm.canReencrypt(k), onDismiss = { askExport = null }) { pass ->
+            vm.pendingExport = k to pass; askExport = null
             saveFile.launch(k.name.replace(Regex("[^A-Za-z0-9._-]+"), "_"))
         }
     }

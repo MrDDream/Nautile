@@ -2,16 +2,35 @@
 //! so that both apps look alike.
 
 use iced::widget::{
-    button, column, container, image, mouse_area, opaque, row, scrollable, stack, text, text_input, toggler, Column, Space,
+    Column, Space, button, column, container, image, mouse_area, opaque, row, scrollable, stack, text, text_input, toggler,
 };
 use iced::{Alignment, Color, Element, Fill, Length, Padding};
 use nautile_core::{tr, trf};
 
 use crate::app::Message;
-use crate::theme::{self, alpha, nt, BOLD, ICONS, MONO};
+use crate::theme::{self, BOLD, ICONS, MONO, alpha, nt};
 
-fn color(hex: u32) -> Color {
-    Color::from_rgb8((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
+/// Opens a file, a folder or a link with the system's program, in a thread: `open` (macOS) and `xdg-open`
+/// are waited for there, so the window never blocks and no exited child is left behind.
+pub fn open_external(target: impl AsRef<std::ffi::OsStr>) {
+    let target = target.as_ref().to_owned();
+    std::thread::spawn(move || {
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            use std::process::{Command, Stdio};
+            let child = Command::new("xdg-open")
+                .arg(&target)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn();
+            if let Ok(mut c) = child {
+                let _ = c.wait();
+                return;
+            }
+        }
+        let _ = opener::open(&target);
+    });
 }
 
 pub fn icon<'a>(c: char, size: f32) -> iced::widget::Text<'a> {
@@ -75,9 +94,21 @@ pub fn square<'a>(c: char, on: Message) -> Element<'a, Message> {
 
 /// A filter chip with its count; [tint]: a group's colour (a dot is shown), else the accent.
 pub fn count_chip<'a>(label: String, count: usize, selected: bool, tint: Option<Color>, on: Message) -> Element<'a, Message> {
+    count_chip_mark(label, count, selected, tint, None, on)
+}
+
+/// [count_chip] with the group's icon in place of its dot.
+pub fn count_chip_mark<'a>(
+    label: String,
+    count: usize,
+    selected: bool,
+    tint: Option<Color>,
+    icon: Option<&str>,
+    on: Message,
+) -> Element<'a, Message> {
     let mut r = row![].spacing(8).align_y(Alignment::Center);
     if let Some(c) = tint {
-        r = r.push(dot(c, 10.0));
+        r = r.push(group_mark(icon, c, 16.0, 10.0));
     }
     r = r.push(text(label).size(14).font(BOLD));
     let badge_tint = tint;
@@ -107,6 +138,146 @@ pub fn count_chip<'a>(label: String, count: usize, selected: bool, tint: Option<
         .into()
 }
 
+/// Material Design Icons (the Android app's assets/mdi-icons.txt): name → glyph of the Nerd Font, which has them all.
+fn mdi() -> &'static Vec<(&'static str, char)> {
+    static TABLE: std::sync::OnceLock<Vec<(&'static str, char)>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        include_str!("../../../../app/src/main/assets/mdi-icons.txt")
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .filter_map(|l| {
+                let (name, cp) = l.split_once('\t')?;
+                Some((name, char::from_u32(u32::from_str_radix(cp.trim(), 16).ok()?)?))
+            })
+            .collect()
+    })
+}
+
+/// « mdi:server », « server » and « Server » are the same icon.
+pub fn mdi_normalize(name: &str) -> String {
+    let n = name.trim().to_lowercase();
+    n.strip_prefix("mdi:").unwrap_or(&n).trim().to_owned()
+}
+
+pub fn mdi_glyph(name: &str) -> Option<char> {
+    let n = mdi_normalize(name);
+    let t = mdi();
+    t.binary_search_by(|(k, _)| (*k).cmp(n.as_str())).ok().map(|i| t[i].1)
+}
+
+/// Shown before any search: what servers and their places often look like (Android's `MdiIcons.SUGGESTED`).
+const MDI_SUGGESTED: &[&str] = &[
+    "server",
+    "server-network",
+    "server-security",
+    "database",
+    "nas",
+    "harddisk",
+    "cloud",
+    "cloud-outline",
+    "web",
+    "earth",
+    "home",
+    "home-outline",
+    "office-building",
+    "domain",
+    "briefcase",
+    "factory",
+    "school",
+    "router-wireless",
+    "router",
+    "lan",
+    "access-point",
+    "wifi",
+    "ethernet",
+    "raspberry-pi",
+    "chip",
+    "memory",
+    "desktop-tower",
+    "monitor",
+    "laptop",
+    "cellphone",
+    "television",
+    "printer",
+    "camera",
+    "shield-lock",
+    "lock",
+    "key",
+    "security",
+    "test-tube",
+    "flask",
+    "code-braces",
+    "console",
+    "git",
+    "bug",
+    "rocket-launch",
+    "robot",
+    "gamepad-variant",
+    "music",
+    "movie",
+    "star",
+    "heart",
+    "flag",
+    "fire",
+    "lightning-bolt",
+    "leaf",
+    "account",
+    "account-group",
+    "folder",
+    "archive",
+    "package-variant",
+];
+
+/// Names containing every word of `query`, those starting with it first; at most `limit`.
+pub fn mdi_search(query: &str, limit: usize) -> Vec<&'static str> {
+    let q = mdi_normalize(query);
+    let words: Vec<&str> = q.split([' ', '-']).filter(|w| !w.is_empty()).collect();
+    let Some(first) = words.first() else {
+        return MDI_SUGGESTED
+            .iter()
+            .copied()
+            .filter(|n| mdi_glyph(n).is_some())
+            .take(limit)
+            .collect();
+    };
+    let hits: Vec<&'static str> = mdi()
+        .iter()
+        .map(|(n, _)| *n)
+        .filter(|n| words.iter().all(|w| n.contains(w)))
+        .collect();
+    let (mut start, rest): (Vec<_>, Vec<_>) = hits.into_iter().partition(|n| n.starts_with(first));
+    start.extend(rest);
+    start.truncate(limit);
+    start
+}
+
+/// One Nerd Font glyph filling about `size` pixels (its « Mono » icons are one narrow cell wide).
+pub fn glyph<'a>(c: char, color: Color, size: f32) -> Element<'a, Message> {
+    // Larger than its box: centred in it both ways (else drawn from the top, it hangs low).
+    let text = text(c.to_string())
+        .size(size * 1.6)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .font(MONO)
+        .width(Fill)
+        .height(Fill)
+        .align_x(iced::alignment::Horizontal::Center)
+        .align_y(iced::alignment::Vertical::Center)
+        .style(move |_| text::Style { color: Some(color) });
+    container(text)
+        .width(Length::Fixed(size))
+        .height(Length::Fixed(size))
+        .clip(false)
+        .into()
+}
+
+/// A group's mark: its icon in its colour when it has one, else its colour dot.
+pub fn group_mark<'a>(icon: Option<&str>, c: Color, icon_size: f32, dot_size: f32) -> Element<'a, Message> {
+    match icon.and_then(mdi_glyph) {
+        Some(g) => glyph(g, c, icon_size),
+        None => dot(c, dot_size),
+    }
+}
+
 pub fn dot<'a>(c: Color, size: f32) -> Element<'a, Message> {
     container(Space::new().width(size).height(size))
         .style(move |_| container::Style {
@@ -124,9 +295,20 @@ pub fn section_label<'a>(s: String) -> iced::widget::Text<'a> {
 
 /// A group's heading in a list: its dot, its name, and on the right how many items it holds.
 pub fn section_head<'a>(tint: Option<Color>, name: String, right: String, action: Option<Element<'a, Message>>) -> Element<'a, Message> {
+    section_head_mark(tint, None, name, right, action)
+}
+
+/// [section_head] with the group's icon in place of its dot.
+pub fn section_head_mark<'a>(
+    tint: Option<Color>,
+    icon: Option<&str>,
+    name: String,
+    right: String,
+    action: Option<Element<'a, Message>>,
+) -> Element<'a, Message> {
     let mut r = row![].spacing(10).align_y(Alignment::Center);
     if let Some(c) = tint {
-        r = r.push(dot(c, 10.0));
+        r = r.push(group_mark(icon, c, 16.0, 10.0));
     }
     r = r.push(section_label(name)).push(Space::new().width(Fill));
     r = r.push(text(right).size(13).style(muted_style));
@@ -254,12 +436,12 @@ pub fn os_brand(os_id: Option<&str>) -> Option<OsBrand> {
     let id = os_id?;
     let g = |cp: u32, c: u32| OsBrand {
         glyph: char::from_u32(cp).map(String::from).unwrap_or_default(),
-        color: color(c),
+        color: theme::rgb_hex(c),
         is_glyph: true,
     };
     let t = |label: &str, c: u32| OsBrand {
         glyph: label.into(),
-        color: color(c),
+        color: theme::rgb_hex(c),
         is_glyph: false,
     };
     Some(match id {
@@ -315,6 +497,33 @@ pub fn os_brand(os_id: Option<&str>) -> Option<OsBrand> {
     })
 }
 
+/// A system's name for people (`os_brand` ids): « Windows », « Ubuntu »…
+pub fn os_name(id: &str) -> String {
+    match id {
+        "android" => "Android",
+        "windows" => "Windows",
+        "macos" => "macOS",
+        "ubuntu" => "Ubuntu",
+        "kubuntu" => "Kubuntu",
+        "debian" => "Debian",
+        "fedora" => "Fedora",
+        "arch" => "Arch Linux",
+        "manjaro" => "Manjaro",
+        "endeavouros" => "EndeavourOS",
+        "opensuse" => "openSUSE",
+        "mint" => "Linux Mint",
+        "popos" => "Pop!_OS",
+        "nixos" => "NixOS",
+        "gentoo" => "Gentoo",
+        "elementary" => "elementary OS",
+        "zorin" => "Zorin",
+        "freebsd" => "FreeBSD",
+        "openbsd" => "OpenBSD",
+        _ => "Linux",
+    }
+    .into()
+}
+
 /// A host's avatar: its OS logo when known, else the alias initial in the host colour.
 pub fn host_avatar<'a>(os_id: Option<&str>, alias: &str, host_color: Color, size: f32) -> Element<'a, Message> {
     let brand = os_brand(os_id);
@@ -324,8 +533,14 @@ pub fn host_avatar<'a>(os_id: Option<&str>, alias: &str, host_color: Color, size
         None => text(alias.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default())
             .size(base)
             .font(BOLD),
-        Some(b) if b.is_glyph => text(b.glyph).size(base * 1.45).font(MONO),
-        Some(b) => text(b.glyph).size(base * 0.7).font(BOLD),
+        // The Nerd Font « Mono » logos are one narrow cell wide: set large to fill ~60 % of the tile.
+        Some(b) if b.is_glyph => text(b.glyph)
+            .size(size * 0.95)
+            .line_height(iced::widget::text::LineHeight::Relative(1.0))
+            .font(MONO),
+        Some(b) => text(b.glyph.clone())
+            .size(if b.glyph.chars().count() <= 2 { base } else { base * 0.82 })
+            .font(BOLD),
     };
     container(content.style(move |_| text::Style { color: Some(tint) }))
         .center(Length::Fixed(size))

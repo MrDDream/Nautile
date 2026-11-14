@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executor;
 
 /**
@@ -24,6 +25,26 @@ public final class TerminalSession extends TerminalOutput {
     private static final int MSG_NEW_INPUT = 1;
     private static final int MSG_PROCESS_EXITED = 4;
     private static final int MSG_REMOTE_EXITED = 5;
+    /** Nautile: the writer thread failed, or the peer stopped reading what is sent to it. */
+    private static final int MSG_WRITE_FAILED = 6;
+
+    /**
+     * Nautile: what the UI thread may queue for a peer that does not read (keys, pastes). Past it the
+     * input is refused (blocking the UI thread instead would freeze the app), and the session ends if
+     * the peer has not read anything for {@link #sStallNanos}.
+     */
+    static final long OUTGOING_LIMIT = 16L << 20;
+    /** Nautile: how long a full queue may go without the peer reading before the peer counts as stuck. */
+    static volatile long sStallNanos = TimeUnit.SECONDS.toNanos(30);
+    /** Nautile: replies the emulator generates (DA, DSR, mouse…) are dropped once this much is pending. */
+    static final long REPLY_LIMIT = 64L << 10;
+
+    /** Nautile: the peer stopped reading what the terminal sends (see {@link #OUTGOING_LIMIT}). */
+    public static final class OutgoingOverflowException extends IOException {
+        public OutgoingOverflowException() {
+            super("The peer stopped reading the terminal's input");
+        }
+    }
 
     /**
      * Nautile: a non-process I/O peer (e.g. an SSH channel). Output from the peer is pushed with
@@ -38,6 +59,15 @@ public final class TerminalSession extends TerminalOutput {
         void resize(int columns, int rows);
         /** Called on the main thread when the user ends the session. */
         void close();
+
+        /**
+         * Nautile: called on the main thread when {@link #write} failed on the writer thread, or with an
+         * {@link OutgoingOverflowException} when the peer stopped reading. Nothing more is written; the backend
+         * should end the connection and report it with {@link #remoteExited(String)} (done anyway afterwards).
+         */
+        default void writeFailed(IOException e) {
+            close();
+        }
     }
 
     private final Backend mBackend;
@@ -77,12 +107,18 @@ public final class TerminalSession extends TerminalOutput {
      * A queue written to from a separate thread when the process outputs, and read by main thread to process by
      * terminal emulator.
      */
-    final ByteQueue mProcessToTerminalIOQueue = new ByteQueue(4096);
+    final ByteQueue mProcessToTerminalIOQueue = new ByteQueue(PROCESS_QUEUE_SIZE);
+    private static final int PROCESS_QUEUE_SIZE = 4096;
     /**
      * A queue written to from the main thread due to user interaction, and read by another thread which forwards by
      * writing to the pseudo-terminal or the backend.
+     * Nautile: non-blocking for the writer (the main thread), see {@link OutgoingQueue}.
      */
-    final ByteQueue mTerminalToProcessIOQueue = new ByteQueue(4096);
+    final OutgoingQueue mTerminalToProcessIOQueue = new OutgoingQueue(OUTGOING_LIMIT);
+    /** Nautile: true while the emulator processes output, i.e. what is written then is an emulator reply. */
+    private boolean mInEmulatorAppend;
+    /** Nautile: the write failure was already reported. */
+    private boolean mWriteFailureReported;
     /** Buffer to write translate code points into utf8 before writing to mTerminalToProcessIOQueue */
     private final byte[] mUtf8InputBuffer = new byte[5];
 
@@ -136,8 +172,15 @@ public final class TerminalSession extends TerminalOutput {
 
     /** Nautile: push bytes received from the backend. Safe to call from any thread. */
     public void feed(byte[] data, int offset, int count) {
-        if (!mProcessToTerminalIOQueue.write(data, offset, count)) return;
-        mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
+        // Nautile: at most a queue's worth per message. The main thread reads one chunk per message, so
+        // writing more before posting would wait for a reader that is never woken.
+        while (count > 0) {
+            int n = Math.min(count, PROCESS_QUEUE_SIZE);
+            if (!mProcessToTerminalIOQueue.write(data, offset, n)) return;
+            mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
+            offset += n;
+            count -= n;
+        }
     }
 
     /** Nautile: report that the backend ended. Safe to call from any thread. */
@@ -188,12 +231,13 @@ public final class TerminalSession extends TerminalOutput {
                     final byte[] buffer = new byte[4096];
                     try {
                         while (true) {
-                            int bytesToWrite = mTerminalToProcessIOQueue.read(buffer, true);
+                            int bytesToWrite = mTerminalToProcessIOQueue.read(buffer);
                             if (bytesToWrite == -1) return;
                             mBackend.write(buffer, 0, bytesToWrite);
                         }
-                    } catch (IOException e) {
-                        // Backend gone; remoteExited() reports it.
+                    } catch (Exception e) {
+                        // Nautile: a dead writer must not leave the session open with input piling up.
+                        writerFailed(e);
                     }
                 }
             }.start();
@@ -239,12 +283,12 @@ public final class TerminalSession extends TerminalOutput {
                 final byte[] buffer = new byte[4096];
                 try (OutputStream termOut = pty.getOutputStream()) {
                     while (true) {
-                        int bytesToWrite = mTerminalToProcessIOQueue.read(buffer, true);
+                        int bytesToWrite = mTerminalToProcessIOQueue.read(buffer);
                         if (bytesToWrite == -1) return;
                         termOut.write(buffer, 0, bytesToWrite);
                     }
-                } catch (IOException e) {
-                    // Ignore.
+                } catch (Exception e) {
+                    writerFailed(e);
                 }
             }
         }.start();
@@ -267,8 +311,29 @@ public final class TerminalSession extends TerminalOutput {
     /** Write data to the shell process. */
     @Override
     public void write(byte[] data, int offset, int count) {
-        if (mInputListener != null) mInputListener.onInput(data, offset, count);
-        if (mBackend != null ? mBackendRunning : mShellPid > 0) mTerminalToProcessIOQueue.write(data, offset, count);
+        if (count <= 0) return;
+        // Nautile: emulator replies are not user input, and are dropped when the peer does not read them.
+        boolean reply = mInEmulatorAppend;
+        if (!reply && mInputListener != null) mInputListener.onInput(data, offset, count);
+        if (!(mBackend != null ? mBackendRunning : mShellPid > 0)) return;
+        if (reply && mTerminalToProcessIOQueue.size() + count > REPLY_LIMIT) return;
+        // Nautile: never blocks the main thread. Input that does not fit is refused (the client tells the
+        // user); only a peer that has read nothing for a long while ends the session.
+        if (!mTerminalToProcessIOQueue.offer(data, offset, count) && mTerminalToProcessIOQueue.isOpen()) {
+            if (reply) return;
+            if (count <= OUTGOING_LIMIT && mTerminalToProcessIOQueue.stalledNanos() >= sStallNanos) {
+                writerFailed(new OutgoingOverflowException());
+            } else if (mClient != null) {
+                mClient.onInputRefused(this, count, count > OUTGOING_LIMIT);
+            }
+        }
+    }
+
+    /** Nautile: stops writing and reports the failure on the main thread (any thread). */
+    private void writerFailed(Exception e) {
+        mTerminalToProcessIOQueue.close();
+        IOException io = e instanceof IOException ? (IOException) e : new IOException(e.toString(), e);
+        mMainThreadHandler.sendMessage(MSG_WRITE_FAILED, io);
     }
 
     /** Write the Unicode code point to the terminal encoded in UTF-8. */
@@ -366,6 +431,11 @@ public final class TerminalSession extends TerminalOutput {
     }
 
     @Override
+    public void onRemoteCopyTextToClipboard(String text) {
+        mClient.onRemoteCopyTextToClipboard(this, text);
+    }
+
+    @Override
     public void onPasteTextFromClipboard() {
         mClient.onPasteTextFromClipboard(this);
     }
@@ -421,8 +491,29 @@ public final class TerminalSession extends TerminalOutput {
         void handleMessage(int what, Object obj) {
             int bytesRead = mProcessToTerminalIOQueue.read(mReceiveBuffer, false);
             if (bytesRead > 0) {
-                mEmulator.append(mReceiveBuffer, bytesRead);
+                mInEmulatorAppend = true;
+                try {
+                    mEmulator.append(mReceiveBuffer, bytesRead);
+                } finally {
+                    mInEmulatorAppend = false;
+                }
                 notifyScreenUpdate();
+            }
+
+            if (what == MSG_WRITE_FAILED) {
+                if (mWriteFailureReported) return;
+                mWriteFailureReported = true;
+                IOException e = (IOException) obj;
+                if (mBackend != null) {
+                    if (!mBackendRunning) return;
+                    mBackend.writeFailed(e);
+                    // In case the backend did not report its end; ignored if it did (messages run in order).
+                    remoteExited(e.getMessage() != null ? e.getMessage() : e.toString());
+                } else if (isRunning() && mPty != null) {
+                    // The waiter thread reports the exit.
+                    mPty.kill();
+                }
+                return;
             }
 
             if (what == MSG_REMOTE_EXITED) {

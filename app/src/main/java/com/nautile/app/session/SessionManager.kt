@@ -1,48 +1,58 @@
 package com.nautile.app.session
 
-import com.nautile.i18n.tr
-
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.core.content.ContextCompat
+import com.nautile.app.keys.KeyRepository
+import com.nautile.app.rdp.RdpManager
+import com.nautile.app.serial.SerialChannel
+import com.nautile.data.db.KnownHostDao
+import com.nautile.data.db.ToolsDao
+import com.nautile.data.model.AuthMethod
+import com.nautile.data.model.ConnectionLog
+import com.nautile.data.model.Host
+import com.nautile.data.model.Protocol
+import com.nautile.data.model.ProxyKind
+import com.nautile.data.model.isDesktop
+import com.nautile.data.repo.HostRepository
+import com.nautile.i18n.tr
+import com.nautile.ssh.AgentKey
+import com.nautile.ssh.HostKeyInfo
+import com.nautile.ssh.KnownHostsVerifier
+import com.nautile.ssh.KnownKey
+import com.nautile.ssh.MoshChannel
+import com.nautile.ssh.OsDetector
+import com.nautile.ssh.PortKnocker
+import com.nautile.ssh.ProxyConfig
+import com.nautile.ssh.ProxyType
+import com.nautile.ssh.SshAuth
+import com.nautile.ssh.SshConnection
+import com.nautile.ssh.SshConnector
+import com.nautile.ssh.SshKeys
+import com.nautile.ssh.SshPrompts
+import com.nautile.ssh.SshTarget
+import com.nautile.ssh.TelnetChannel
+import com.nautile.ssh.TerminalChannel
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import com.termux.view.TerminalView
-import com.nautile.app.keys.KeyRepository
-import com.nautile.data.db.KnownHostDao
-import com.nautile.data.model.ProxyKind
-import com.nautile.ssh.ProxyConfig
-import com.nautile.ssh.ProxyType
-import com.nautile.data.model.AuthMethod
-import com.nautile.data.model.Host
-import com.nautile.data.model.Protocol
-import com.nautile.data.repo.HostRepository
-import com.nautile.ssh.HostKeyInfo
-import com.nautile.ssh.KnownKey
-import com.nautile.ssh.SshAuth
-import com.nautile.ssh.SshConnector
-import com.nautile.ssh.SshPrompts
-import com.nautile.ssh.SshTarget
-import com.nautile.ssh.TerminalChannel
-import com.nautile.ssh.TelnetChannel
-import com.nautile.ssh.PortKnocker
-import com.nautile.ssh.MoshChannel
-import com.nautile.ssh.OsDetector
-import com.nautile.app.serial.SerialChannel
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicLong
 
 /** Owns every open terminal session; outlives screens, kept alive by [SessionService]. */
@@ -50,7 +60,7 @@ class SessionManager(
     private val context: Context,
     private val hosts: HostRepository,
     private val keys: KeyRepository,
-    private val toolsDao: com.nautile.data.db.ToolsDao,
+    private val toolsDao: ToolsDao,
     private val knownHosts: KnownHostDao,
     val prefs: TerminalPrefs,
     private val scope: CoroutineScope,
@@ -63,18 +73,23 @@ class SessionManager(
     val prompt: StateFlow<PendingPrompt?> = _prompt.asStateFlow()
     private val promptLock = Mutex()
 
-    /** The view currently showing a session, to refresh it on output. */
     /** Views currently showing sessions (two in split screen), refreshed on output. */
-    val views = java.util.concurrent.CopyOnWriteArraySet<TerminalView>()
+    val views = CopyOnWriteArraySet<TerminalView>()
 
     private val knownHostStore = RoomKnownHostStore(knownHosts)
+
+    /** The app lock is on and not unlocked in this process (unknown counts as locked). */
+    private fun appLocked(): Boolean {
+        val lock = (context.applicationContext as? com.nautile.app.NautileApp)?.appLock ?: return true
+        return runCatching { lock.enabled && lock.available && !lock.unlockedInProcess }.getOrDefault(true)
+    }
 
     /** Port forwarding rules running on their own connections. */
     val tunnels: TunnelManager = TunnelManager(this, toolsDao, scope)
     val sftp: SftpPool = SftpPool(this)
     val transfers: TransferManager = TransferManager(context, sftp, scope)
     /** Remote desktops (RDP), shown by their own screen. */
-    val rdp: com.nautile.app.rdp.RdpManager = com.nautile.app.rdp.RdpManager(context, this, hosts, keys, knownHosts, scope)
+    val rdp: RdpManager = RdpManager(context, this, hosts, keys, knownHosts, scope)
 
     init {
         TerminalThemes.apply(prefs.theme.value)
@@ -98,13 +113,27 @@ class SessionManager(
     }
 
     /** Everything needed to reach a host: hops, proxy of the first hop, agent keys. */
-    class ConnectionPlan(val host: Host, val firstHop: Host, val chain: List<SshTarget>, val proxy: ProxyConfig?, val agentKeys: List<com.nautile.ssh.AgentKey>?)
+    class ConnectionPlan(val host: Host, val firstHop: Host, val chain: List<SshTarget>, val proxy: ProxyConfig?, val agentKeys: List<AgentKey>?)
+
+    /**
+     * Opens the SSH connection of [plan] the same way for every feature (terminal, files, monitor,
+     * tunnels, RDP jump): port knocking on the first hop, its proxy, then the hops. Blocking.
+     * [withAgent]: forwards the agent when the host asks for it. [owner]: the session whose
+     * questions these are (withdrawn when it closes).
+     */
+    fun connect(plan: ConnectionPlan, step: (String) -> Unit = {}, withAgent: Boolean = true, owner: ActiveSession? = null): SshConnection {
+        knock(plan.firstHop, step)
+        plan.proxy?.let { step(tr("Proxy %1\$s %2\$s:%3\$s", it.type, it.host, it.port)) }
+        val agent = if (withAgent) plan.agentKeys?.let { k -> { k } } else null
+        return SshConnector(knownHostStore, Prompts(plan.host.alias, owner)).connect(plan.chain, step, plan.proxy, agent)
+    }
 
     suspend fun plan(hostId: Long): ConnectionPlan = plan(hosts.get(hostId) ?: error(tr("Hôte introuvable")))
 
     /** Same for a host that may not be saved (quick connection). */
     suspend fun plan(host: Host): ConnectionPlan {
-        val (chain, firstHop) = buildChain(host)
+        val (hops, chain) = buildChain(host)
+        val firstHop = hops.first()
         val proxy = firstHop.proxyType?.let { kind ->
             val ph = firstHop.proxyHost ?: error(tr("Proxy de %1\$s : adresse manquante", firstHop.alias))
             ProxyConfig(
@@ -113,11 +142,16 @@ class SessionManager(
                 firstHop.proxyUsername, firstHop.proxyPassword,
             )
         }
-        return ConnectionPlan(host, firstHop, chain, proxy, if (host.agentForwarding) keys.agentKeys() else null)
+        // The keys this chain logs in with may serve the forwarded agent freely; any other needs a yes.
+        val agentKeys = if (host.agentForwarding) keys.agentKeys(hops.mapNotNull { keyIdOf(it) }.toSet()) else null
+        return ConnectionPlan(host, firstHop, chain, proxy, agentKeys)
     }
 
-    /** A connector whose questions (host key, password) go through the app's dialogs. */
-    fun connector(alias: String) = SshConnector(knownHostStore, Prompts(alias))
+    private suspend fun keyIdOf(h: Host): Long? = when (h.authMethod) {
+        AuthMethod.KEY -> h.keyId
+        AuthMethod.IDENTITY -> h.identityId?.let { keys.identity(it) }?.keyId
+        else -> null
+    }
 
     fun find(id: Long): ActiveSession? = _sessions.value.firstOrNull { it.id == id }
 
@@ -127,7 +161,7 @@ class SessionManager(
 
     /** Opens a session to [host], saved or not (a quick connection has id 0). */
     suspend fun open(host: Host, extraCommand: String? = null): Result<ActiveSession> = runCatching {
-        if (host.protocol == Protocol.RDP || host.protocol == Protocol.VNC) error(tr("%1\$s est un bureau à distance, pas un terminal", host.alias))
+        if (host.protocol.isDesktop) error(tr("%1\$s est un bureau à distance, pas un terminal", host.alias))
         val active = ActiveSession(ids.incrementAndGet(), host.id, host.alias, host.address, protocolLabel(host))
         if (host.id == 0L) active.quickHost = host
         val startup = listOfNotNull(host.startupCommand, extraCommand).joinToString("\n").ifEmpty { null }
@@ -158,11 +192,13 @@ class SessionManager(
             Protocol.SERIAL -> { c, r, step -> SerialChannel.open(context, host.serialBaud ?: 115_200, step) }
             else -> {
                 val plan = plan(host)
-                val connector = connector(host.alias)
+                // Mosh's UDP goes straight to the host: it would bypass the jump hosts and the proxy
+                // (and reveal the real address the proxy hides).
+                if (host.protocol == Protocol.MOSH && (plan.chain.size > 1 || plan.proxy != null)) {
+                    error(tr("Mosh passe en UDP direct vers l'hôte : il ne fonctionne pas avec un rebond SSH ni avec un proxy. Utilisez SSH pour cet hôte."))
+                }
                 val opener: (Int, Int, (String) -> Unit) -> TerminalChannel = { c, r, step ->
-                    knock(plan.firstHop, step)
-                    plan.proxy?.let { step(tr("Proxy %1\$s %2\$s:%3\$s", it.type, it.host, it.port)) }
-                    val conn = connector.connect(plan.chain, step, plan.proxy, plan.agentKeys?.let { k -> { k } })
+                    val conn = connect(plan, step, owner = active)
                     val detectOs = {
                         runCatching { OsDetector.parse(conn.exec(OsDetector.COMMAND)) }.getOrNull()
                             ?.takeIf { it != "unknown" && it != host.osId }
@@ -194,7 +230,8 @@ class SessionManager(
             startupCommand = startup,
             notice = null,
             onConnected = { logConnection(host); scope.launch { hosts.markConnected(host.id); tunnels.startAuto(host.id) } },
-            log = if (prefs.logSessions.value) SessionLogs.create(context, host.alias) else null,
+            // Created once connected, on the connection thread: no empty log for a failed attempt.
+            openLog = if (prefs.logSessions.value) ({ SessionLogs.create(context, host.alias) }) else null,
         )
         active.terminal = TerminalSession(active.backend, TRANSCRIPT_ROWS, client)
         active.terminal.mSessionName = host.alias
@@ -209,9 +246,9 @@ class SessionManager(
 
     /** Adds [host] to « Connexions › Historique ». */
     fun logConnection(host: Host) {
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        scope.launch(Dispatchers.IO) {
             toolsDao.insertConnection(
-                com.nautile.data.model.ConnectionLog(
+                ConnectionLog(
                     hostId = host.id.takeIf { it != 0L }, alias = host.alias, protocol = host.protocol,
                     username = host.username, hostname = host.hostname, port = host.port,
                 ),
@@ -228,13 +265,14 @@ class SessionManager(
             },
             onCommit = { cmd ->
                 // Quick connections (id 0) are not saved hosts: their commands have nowhere to go.
-                if (prefs.history.value && active.hostId != 0L) scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                if (prefs.history.value && active.hostId != 0L) scope.launch(Dispatchers.IO) {
                     val now = System.currentTimeMillis()
                     toolsDao.insertHistory(active.hostId, cmd, now)
                     toolsDao.bumpHistory(active.hostId, cmd, now)
                 }
             },
         )
+        active.tracker = tracker
         active.terminal.mInputListener = TerminalSession.InputListener { data, off, len ->
             tracker.onInput(String(data, off, len, Charsets.UTF_8))
             active._typed.value = tracker.current
@@ -279,32 +317,37 @@ class SessionManager(
         session.terminal.write(bytes, 0, bytes.size)
     }
 
-    /** Types [password] followed by Enter in [session]. */
+    /** Types [password] followed by Enter in [session]; never recorded in the command history. */
     fun typePassword(session: ActiveSession, password: String) {
         if (!session.terminal.isRunning) return
+        session.tracker?.suppressNextLine()
         val bytes = (password + "\r").toByteArray()
         session.terminal.write(bytes, 0, bytes.size)
     }
 
     /** Ends the session if needed and removes its tab. */
     fun close(session: ActiveSession) {
+        // A question still asked for this tab (host key, password) goes away with it.
+        session.closing = true
+        withdrawPrompt(session)
+        session.assistant.close()
         if (session.terminal.isRunning) session.terminal.finishIfRunning()
         _sessions.value = _sessions.value - session
     }
 
-    /** Returns the hops (outermost jump host first) and the host of the first hop. */
-    private suspend fun buildChain(host: Host): Pair<List<SshTarget>, Host> {
+    /** Returns the hosts of the hops and their targets, outermost jump host first, [host] last. */
+    private suspend fun buildChain(host: Host): Pair<List<Host>, List<SshTarget>> {
+        val hops = ArrayDeque<Host>()
         val chain = ArrayDeque<SshTarget>()
         val seen = mutableSetOf<Long>()
         var current: Host? = host
-        var first = host
         while (current != null) {
             if (!seen.add(current.id) || seen.size > MAX_HOPS) error(tr("Boucle ou chaîne de rebond trop longue"))
             chain.addFirst(target(current))
-            first = current
+            hops.addFirst(current)
             current = current.jumpHostId?.let { hosts.get(it) }
         }
-        return chain.toList() to first
+        return hops.toList() to chain.toList()
     }
 
     private suspend fun target(h: Host): SshTarget {
@@ -337,33 +380,51 @@ class SessionManager(
         else -> h.protocol.name.lowercase()
     }
 
-    /** Shows [prompt] (one at a time) and blocks the calling connection thread until answered. */
-    suspend fun <T> prompt(prompt: PendingPrompt, await: suspend () -> T): T = promptLock.withLock {
-        _prompt.value = prompt
-        try { await() } finally { _prompt.value = null }
-    }
-
-    private fun <T> ask(prompt: PendingPrompt, await: suspend () -> T): T = runBlocking {
-        promptLock.withLock {
+    /**
+     * Shows [prompt] (one at a time) and suspends until answered. A closed [owner] gets « cancel »
+     * without asking; closing it later withdraws the question (see [withdrawPrompt]).
+     */
+    suspend fun <T> prompt(prompt: PendingPrompt, owner: PromptOwner? = null, await: suspend () -> T): T {
+        prompt.owner = owner
+        return promptLock.withLock {
+            if (owner?.isClosing == true) { prompt.cancel(); return@withLock await() }
             _prompt.value = prompt
+            // The owner may have closed between the check and the line above: it saw no prompt.
+            if (owner?.isClosing == true) prompt.cancel()
             try { await() } finally { _prompt.value = null }
         }
     }
 
-    private inner class Prompts(private val alias: String) : SshPrompts {
+    /** Cancels the question shown for [owner], if any (call after marking it closing). */
+    fun withdrawPrompt(owner: PromptOwner) {
+        _prompt.value?.takeIf { it.owner === owner }?.cancel()
+    }
+
+    /** Like [prompt], for SSH threads. */
+    private fun <T> ask(prompt: PendingPrompt, owner: ActiveSession?, await: suspend () -> T): T = runBlocking {
+        prompt(prompt, owner, await)
+    }
+
+    private inner class Prompts(private val alias: String, private val owner: ActiveSession? = null) : SshPrompts {
         override fun confirmHostKey(info: HostKeyInfo, previous: KnownKey?): Boolean {
             val p = PendingPrompt.HostKey(alias, info, previous)
-            return ask(p) { p.answer.await() }
+            return ask(p, owner) { p.answer.await() }
         }
 
         override fun password(target: SshTarget): String? {
             val p = PendingPrompt.Secret(alias, tr("Mot de passe"), "${target.username}@${target.host}")
-            return ask(p) { p.answer.await() }
+            return ask(p, owner) { p.answer.await() }
         }
 
         override fun passphrase(target: SshTarget): String? {
             val p = PendingPrompt.Secret(alias, tr("Phrase de passe de la clé"), target.label)
-            return ask(p) { p.answer.await() }
+            return ask(p, owner) { p.answer.await() }
+        }
+
+        override fun confirmAgentUse(key: AgentKey): Boolean {
+            val fp = KnownHostsVerifier.fingerprint(SshKeys.publicBlob(key.public))
+            val p = PendingPrompt.AgentUse(alias, key.comment, fp)
+            return ask(p, owner) { p.answer.await() }
         }
     }
 
@@ -381,6 +442,22 @@ class SessionManager(
         override fun onCopyTextToClipboard(session: TerminalSession, text: String) {
             context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("Nautile", text))
         }
+        // A program's OSC 52, not the user's copy: only when allowed, and never behind the lock screen.
+        override fun onRemoteCopyTextToClipboard(session: TerminalSession, text: String) {
+            if (appLocked()) return
+            if (!prefs.remoteClipboard.value) {
+                // Once per session: off by default, tmux / vim copies would otherwise vanish silently.
+                _sessions.value.firstOrNull { it.terminal === session }?.takeIf { !it.remoteClipboardNoticed }?.let { s ->
+                    s.remoteClipboardNoticed = true
+                    if (s._notice.value == null) s._notice.value = SessionNotice.RemoteClipboardBlocked
+                }
+                return
+            }
+            context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("Nautile", text))
+        }
+        override fun onInputRefused(session: TerminalSession, count: Int, tooLarge: Boolean) {
+            _sessions.value.firstOrNull { it.terminal === session }?._notice?.value = SessionNotice.InputRefused(count, tooLarge)
+        }
         override fun onPasteTextFromClipboard(session: TerminalSession?) {
             val clip = context.getSystemService(ClipboardManager::class.java)?.primaryClip ?: return
             val text = clip.getItemAt(0)?.coerceToText(context)?.toString() ?: return
@@ -390,13 +467,13 @@ class SessionManager(
         override fun onColorsChanged(session: TerminalSession) { views.forEach { it.invalidate() } }
         override fun onTerminalCursorStateChange(state: Boolean) {}
         override fun getTerminalCursorStyle(): Int = prefs.cursorStyle.value
-        override fun logError(tag: String?, message: String?) { android.util.Log.e(tag, message.orEmpty()) }
-        override fun logWarn(tag: String?, message: String?) { android.util.Log.w(tag, message.orEmpty()) }
+        override fun logError(tag: String?, message: String?) { Log.e(tag, message.orEmpty()) }
+        override fun logWarn(tag: String?, message: String?) { Log.w(tag, message.orEmpty()) }
         override fun logInfo(tag: String?, message: String?) {}
         override fun logDebug(tag: String?, message: String?) {}
         override fun logVerbose(tag: String?, message: String?) {}
-        override fun logStackTraceWithMessage(tag: String?, message: String?, e: Exception?) { android.util.Log.e(tag, message, e) }
-        override fun logStackTrace(tag: String?, e: Exception?) { android.util.Log.e(tag, "", e) }
+        override fun logStackTraceWithMessage(tag: String?, message: String?, e: Exception?) { Log.e(tag, message, e) }
+        override fun logStackTrace(tag: String?, e: Exception?) { Log.e(tag, "", e) }
     }
 
     private companion object {

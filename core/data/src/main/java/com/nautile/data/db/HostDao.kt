@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import androidx.room.Upsert
 import com.nautile.data.model.Host
 import com.nautile.data.model.HostGroup
@@ -36,6 +37,9 @@ interface HostDao {
     @Query("SELECT * FROM host_group ORDER BY sortOrder, name COLLATE NOCASE")
     fun observeGroups(): Flow<List<HostGroup>>
 
+    @Query("SELECT * FROM host_group WHERE id = :id")
+    suspend fun getGroup(id: Long): HostGroup?
+
     @Query("SELECT * FROM host_group WHERE name = :name LIMIT 1")
     suspend fun findGroup(name: String): HostGroup?
 
@@ -45,7 +49,7 @@ interface HostDao {
     @Delete
     suspend fun deleteGroup(group: HostGroup)
 
-    @androidx.room.Update
+    @Update
     suspend fun updateGroup(group: HostGroup)
 
     @Query("UPDATE host SET groupId = :groupId WHERE id = :hostId")

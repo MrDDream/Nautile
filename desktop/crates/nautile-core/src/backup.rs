@@ -10,9 +10,9 @@
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use argon2::{Algorithm, Argon2, Params, Version};
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use rand::RngCore;
+use base64::engine::general_purpose::STANDARD;
+use rand::Rng;
 use serde::Deserialize;
 
 use crate::i18n::tr;
@@ -22,6 +22,16 @@ pub const MAGIC: &str = "NAUTILE-BACKUP-1";
 /// Android's defaults (OWASP's minimum for Argon2id).
 pub const DEFAULT_MEMORY_KIB: u32 = 19_456;
 pub const DEFAULT_ITERATIONS: u32 = 2;
+/// Bounds on the KDF parameters read from a file, checked before anything is authenticated (same as Android's
+/// `BackupCodec`): a crafted header must not make every sync derive gigabytes.
+pub const MAX_MEMORY_KIB: u32 = 262_144;
+pub const MAX_ITERATIONS: u32 = 10;
+pub const MAX_PARALLELISM: u32 = 8;
+
+/// Whether a file's Argon2id parameters are within the bounds above (Argon2 needs 8 KiB per lane).
+fn parameters_ok(m: u32, t: u32, p: u32) -> bool {
+    (1..=MAX_PARALLELISM).contains(&p) && (8 * p..=MAX_MEMORY_KIB).contains(&m) && (1..=MAX_ITERATIONS).contains(&t)
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum BackupError {
@@ -75,8 +85,8 @@ pub fn export(data: &BackupData, password: &str) -> Result<String, BackupError> 
 pub fn export_with(data: &BackupData, password: &str, memory_kib: u32, iterations: u32) -> Result<String, BackupError> {
     let mut salt = [0u8; 16];
     let mut nonce = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut salt);
-    rand::thread_rng().fill_bytes(&mut nonce);
+    rand::rng().fill_bytes(&mut salt);
+    rand::rng().fill_bytes(&mut nonce);
     // Same text as kotlinx.serialization writes (field order, no spaces): it is the associated data.
     let header = format!(
         r#"{{"kdf":"argon2id","m":{memory_kib},"t":{iterations},"p":1,"salt":"{}","nonce":"{}"}}"#,
@@ -88,7 +98,7 @@ pub fn export_with(data: &BackupData, password: &str, memory_kib: u32, iteration
     let sealed = Aes256Gcm::new_from_slice(&key)
         .expect("32-byte key")
         .encrypt(
-            Nonce::from_slice(&nonce),
+            &Nonce::from(nonce),
             Payload {
                 msg: &plain,
                 aad: header.as_bytes(),
@@ -113,8 +123,13 @@ pub fn decrypt(text: &str, password: &str) -> Result<Vec<u8>, BackupError> {
     let header_line = lines[1].trim();
     let bad = || BackupError::BadParameters(tr("Paramètres de sauvegarde invalides"));
     let h: Header = serde_json::from_str(header_line).map_err(|_| bad())?;
-    if h.kdf != "argon2id" || !(8..=1_048_576).contains(&h.m) || !(1..=20).contains(&h.t) || !(1..=8).contains(&h.p) {
+    if h.kdf != "argon2id" {
         return Err(bad());
+    }
+    if !parameters_ok(h.m, h.t, h.p) {
+        return Err(BackupError::BadParameters(tr(
+            "Paramètres de chiffrement hors limites (au plus 256 Mio, 10 passes, 8 voies) : fichier altéré ou trop exigeant",
+        )));
     }
     // The MIME decoder ignores anything outside the base64 alphabet (line breaks…).
     let body: String = lines[2..]
@@ -126,15 +141,12 @@ pub fn decrypt(text: &str, password: &str) -> Result<Vec<u8>, BackupError> {
         .decode(body)
         .map_err(|_| BackupError::NotABackup(tr("Ce fichier n'est pas une sauvegarde Nautile")))?;
     let salt = STANDARD.decode(&h.salt).map_err(|_| bad())?;
-    let nonce = STANDARD.decode(&h.nonce).map_err(|_| bad())?;
-    if nonce.len() != 12 {
-        return Err(bad());
-    }
+    let nonce: [u8; 12] = STANDARD.decode(&h.nonce).map_err(|_| bad())?.try_into().map_err(|_| bad())?;
     let key = derive(password, &salt, h.m, h.t, h.p)?;
     Aes256Gcm::new_from_slice(&key)
         .expect("32-byte key")
         .decrypt(
-            Nonce::from_slice(&nonce),
+            &Nonce::from(nonce),
             Payload {
                 msg: &sealed,
                 aad: header_line.as_bytes(),
@@ -161,5 +173,24 @@ mod tests {
         // The header is authenticated.
         assert!(import(&file.replace("\"t\":1", "\"t\":2"), "correct horse").is_err());
         assert!(matches!(import("hello", "x"), Err(BackupError::NotABackup(_))));
+    }
+
+    #[test]
+    fn argon2_parameters_from_a_file_are_bounded() {
+        assert!(parameters_ok(DEFAULT_MEMORY_KIB, DEFAULT_ITERATIONS, 1));
+        assert!(parameters_ok(MAX_MEMORY_KIB, MAX_ITERATIONS, MAX_PARALLELISM));
+        assert!(!parameters_ok(MAX_MEMORY_KIB + 1, 2, 1), "over 256 MiB");
+        assert!(!parameters_ok(1_048_576, 2, 1), "1 GiB");
+        assert!(!parameters_ok(19_456, 11, 1));
+        assert!(!parameters_ok(19_456, 0, 1));
+        assert!(!parameters_ok(19_456, 2, 9));
+        assert!(!parameters_ok(19_456, 2, 0));
+        assert!(!parameters_ok(16, 2, 4), "less than 8 KiB per lane");
+        // A file asking for 1 GiB is refused before any derivation.
+        let file = export_with(&BackupData::default(), "pw", 64, 1).unwrap();
+        let greedy = file.replace("\"m\":64", "\"m\":1048576");
+        assert!(matches!(import(&greedy, "pw"), Err(BackupError::BadParameters(_))));
+        let greedy = file.replace("\"t\":1", "\"t\":20");
+        assert!(matches!(import(&greedy, "pw"), Err(BackupError::BadParameters(_))));
     }
 }

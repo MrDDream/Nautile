@@ -1,44 +1,39 @@
 package com.nautile.app.ui.settings
 
-import com.nautile.i18n.tr
-
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.CloudUpload
-import androidx.compose.material.icons.outlined.Dns
-import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material3.IconButton
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.History
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,23 +41,29 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -74,21 +75,34 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nautile.app.CrashReporter
+import com.nautile.app.MainActivity
 import com.nautile.app.NautileApp
+import com.nautile.app.ai.AiFiles
 import com.nautile.app.backup.AutoBackup
 import com.nautile.app.backup.BackupDestination
-import com.nautile.app.backup.BackupFrequency
 import com.nautile.app.backup.BackupPrefs
+import com.nautile.app.backup.BackupStores
 import com.nautile.app.backup.BackupTarget
+import com.nautile.app.backup.BackupVersions
+import com.nautile.app.backup.CleartextGuard
+import com.nautile.app.readText
+import com.nautile.app.ui.common.InfoDialog
 import com.nautile.app.ui.common.NtCard
 import com.nautile.app.ui.common.NtTextField
 import com.nautile.app.ui.common.SectionLabel
-import com.nautile.app.ui.common.Segmented
 import com.nautile.app.ui.hosts.relativeTime
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.InetAddress
+import java.net.URI
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** What a backup password is asked for. */
 private enum class Ask { EXPORT_FILE, BACKUP_NOW, ENABLE_AUTO, IMPORT, START_SYNC, JOIN_SYNC }
@@ -100,16 +114,16 @@ fun SecuritySettingsScreen(onBack: () -> Unit, onOpenKnownHosts: () -> Unit) {
 }
 
 /** « Sauvegarde et synchro »: synchronisation, backup places (each with its schedule), export/import. */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BackupSettingsScreen(onBack: () -> Unit) {
     val app = LocalContext.current.applicationContext as NautileApp
     val prefs = app.backupPrefs
     val scope = rememberCoroutineScope()
-    val last by prefs.lastExport.collectAsState()
-    val targets by prefs.targets.collectAsState()
-    val syncTargetId by prefs.syncTargetId.collectAsState()
-    val hasPassword by prefs.hasPassword.collectAsState()
+    val last by prefs.lastExport.collectAsStateWithLifecycle()
+    val targets by prefs.targets.collectAsStateWithLifecycle()
+    val syncTargetId by prefs.syncTargetId.collectAsStateWithLifecycle()
+    val hasPassword by prefs.hasPassword.collectAsStateWithLifecycle()
     val stale = BackupPrefs.isStale(last)
     val anyError = targets.firstOrNull { it.error != null }
 
@@ -128,11 +142,11 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
     var adding by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<String?>(null) }
     var choosingSync by remember { mutableStateOf(false) }
-    val syncOn by prefs.syncEnabled.collectAsState()
-    val lastSync by prefs.lastSync.collectAsState()
-    val syncError by prefs.syncError.collectAsState()
-    val devices by prefs.devices.collectAsState()
-    val syncing by app.sync.running.collectAsState()
+    val syncOn by prefs.syncEnabled.collectAsStateWithLifecycle()
+    val lastSync by prefs.lastSync.collectAsStateWithLifecycle()
+    val syncError by prefs.syncError.collectAsStateWithLifecycle()
+    val devices by prefs.devices.collectAsStateWithLifecycle()
+    val syncing by app.sync.running.collectAsStateWithLifecycle()
     var syncInfo by remember { mutableStateOf(false) }
     val syncTarget = targets.firstOrNull { it.id == syncTargetId }
 
@@ -150,9 +164,16 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
         if (syncTarget == null) prefs.setSyncTarget(targets.first().id)
         busy = true
         scope.launch {
-            val exists = app.sync.remoteExists()
+            // A network error is not « no file yet »: offering to start a new synchronisation would ask for a new password.
+            val found = withContext(Dispatchers.IO) {
+                runCatching { prefs.syncTarget?.let { BackupStores.of(app, it, prefs).read().text != null } ?: false }
+            }
             val stored = prefs.password()
             busy = false
+            val exists = found.getOrElse { e ->
+                status = tr("Échec : %1\$s", e.message)
+                return@launch
+            }
             when {
                 stored != null && (!exists || app.sync.checkPassword(stored).isSuccess) -> { prefs.setSyncEnabled(true); reschedule(); syncNow() }
                 exists -> ask = Ask.JOIN_SYNC
@@ -197,7 +218,7 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
     }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         if (uri != null) persist(uri, tr("Ce dossier ne permet pas d'y revenir plus tard : choisissez-en un autre")) {
-            BackupDestination.Folder(uri.toString(), AutoBackup.describeFolder(app, uri))
+            BackupDestination.Folder(uri.toString(), AutoBackup.describeFolder(uri))
         }
     }
     val exportFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -220,7 +241,7 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             importText = withContext(Dispatchers.IO) {
-                runCatching { app.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } }.getOrNull()
+                runCatching { app.contentResolver.readText(uri) }.getOrNull()
             }
             if (importText == null) status = tr("Fichier illisible") else ask = Ask.IMPORT
         }
@@ -253,15 +274,15 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
                         color = Nt.Muted, fontSize = 12.sp,
                     )
                 }
-                androidx.compose.material3.Switch(
+                Switch(
                     syncOn, { on -> if (on) enableSync() else { prefs.setSyncEnabled(false); reschedule() } },
                     enabled = !busy,
-                    colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Nt.Accent, uncheckedTrackColor = Nt.Toggle),
+                    colors = SwitchDefaults.colors(checkedTrackColor = Nt.Accent, uncheckedTrackColor = Nt.Toggle),
                 )
             }
             if (syncOn) {
                 syncError?.let { Text(tr("Échec : %1\$s", it), color = Nt.Pink, fontSize = 13.sp) }
-                if (devices.isNotEmpty()) androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (devices.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     devices.forEach { d ->
                         val me = d.id == prefs.deviceId
                         Box(Modifier.height(28.dp).clip(RoundedCornerShape(14.dp)).background(if (me) Nt.Accent.copy(alpha = 0.12f) else Nt.Bg).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
@@ -290,27 +311,16 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
                 if (syncing) LinearProgressIndicator(color = Nt.Accent, trackColor = Nt.Border, modifier = Modifier.fillMaxWidth())
             }
         }
-        if (syncInfo) androidx.compose.material3.AlertDialog(
-            onDismissRequest = { syncInfo = false }, containerColor = Nt.Surface,
-            title = { Text(tr("La synchronisation")) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    listOf(
-                        tr("Hôtes, clés, identités, snippets, tunnels et hôtes connus sont partagés entre vos appareils."),
-                        tr("Sur chaque appareil : le même emplacement et le même mot de passe. Pour Google Drive ou OneDrive, choisissez « Fichier existant » sur le deuxième appareil."),
-                        tr("La modification la plus récente l'emporte, suppressions comprises."),
-                        tr("Le fichier synchronisé sert aussi de sauvegarde ; une copie par jour reste sur ce téléphone."),
-                        tr("Les clés API et les réglages d'affichage restent propres à chaque appareil."),
-                    ).forEach { line ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("•", color = Nt.Accent, fontSize = 14.sp)
-                            Text(line, color = Nt.TextSoft, fontSize = 14.sp, lineHeight = 20.sp)
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { syncInfo = false }) { Text(tr("Compris"), color = Nt.Accent) } },
-        )
+        if (syncInfo) InfoDialog(
+            tr("La synchronisation"),
+            listOf(
+                tr("Hôtes, clés, identités, snippets, tunnels et hôtes connus sont partagés entre vos appareils."),
+                tr("Sur chaque appareil : le même emplacement et le même mot de passe. Pour Google Drive ou OneDrive, choisissez « Fichier existant » sur le deuxième appareil."),
+                tr("La modification la plus récente l'emporte, suppressions comprises."),
+                tr("Le fichier synchronisé sert aussi de sauvegarde ; une copie par jour reste sur ce téléphone."),
+                tr("Les clés API et les réglages d'affichage restent propres à chaque appareil."),
+            ),
+        ) { syncInfo = false }
 
         LanSyncSection()
 
@@ -332,10 +342,10 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
             Text(tr("Emplacements"), color = Nt.Muted, fontSize = 12.sp)
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Nt.Bg)) {
                 targets.forEachIndexed { i, t ->
-                    if (i > 0) androidx.compose.material3.HorizontalDivider(color = Nt.Border)
+                    if (i > 0) HorizontalDivider(color = Nt.Border)
                     TargetRow(t, synced = syncOn && t.id == syncTargetId) { editing = t.id }
                 }
-                if (targets.isNotEmpty()) androidx.compose.material3.HorizontalDivider(color = Nt.Border)
+                if (targets.isNotEmpty()) HorizontalDivider(color = Nt.Border)
                 Row(
                     Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(role = Role.Button) { adding = true }.padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -368,27 +378,32 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
             }
             if (busy) LinearProgressIndicator(color = Nt.Accent, trackColor = Nt.Border, modifier = Modifier.fillMaxWidth())
             status?.let { Text(it, color = Nt.TextSoft, fontSize = 13.sp) }
-            // The last backups kept on the phone.
-            val versions = remember(last) { com.nautile.app.backup.BackupVersions.list(app) }
+            // The last backups kept on the phone (read off the main thread). The lint check misses the assignment.
+            @SuppressLint("ProduceStateDoesNotAssignValue")
+            val versions by produceState(emptyList<BackupVersions.Version>(), last) {
+                value = withContext(Dispatchers.IO) { BackupVersions.list(app) }
+            }
             if (versions.isNotEmpty()) {
                 Text(tr("Versions précédentes"), color = Nt.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Nt.Bg)) {
                     versions.forEachIndexed { i, v ->
-                        if (i > 0) androidx.compose.material3.HorizontalDivider(color = Nt.Border)
+                        if (i > 0) HorizontalDivider(color = Nt.Border)
                         Row(Modifier.fillMaxWidth().padding(start = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Outlined.History, contentDescription = null, tint = Nt.Muted, modifier = Modifier.size(18.dp))
                             Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp)) {
                                 Text(pastText(v.at), fontSize = 14.sp, color = Nt.Text)
-                                Text(com.nautile.app.ai.AiFiles.sizeLabel(v.size) + if (i == 0) " · " + tr("la plus récente") else "", fontSize = 12.sp, color = Nt.Muted)
+                                Text(AiFiles.sizeLabel(v.size) + if (i == 0) " · " + tr("la plus récente") else "", fontSize = 12.sp, color = Nt.Muted)
                             }
                             TextButton(onClick = {
-                                importText = runCatching { v.file.readText() }.getOrNull()
-                                if (importText == null) status = tr("Fichier illisible") else ask = Ask.IMPORT
+                                scope.launch {
+                                    importText = withContext(Dispatchers.IO) { runCatching { v.file.readText() }.getOrNull() }
+                                    if (importText == null) status = tr("Fichier illisible") else ask = Ask.IMPORT
+                                }
                             }) { Text(tr("Restaurer"), color = Nt.Accent, fontSize = 13.sp) }
                         }
                     }
                 }
-                Hint(tr("Les %1\$s dernières sauvegardes restent aussi sur ce téléphone ; Nextcloud, S3 et les dossiers gardent les précédentes à côté (nautile.backup.1 à .4).", com.nautile.app.backup.BackupVersions.KEEP))
+                Hint(tr("Les %1\$s dernières sauvegardes restent aussi sur ce téléphone ; Nextcloud, S3 et les dossiers gardent les précédentes à côté (nautile.backup.1 à .4).", BackupVersions.KEEP))
             }
             Hint(tr("Chiffrée sur le téléphone avant l'envoi (Argon2id + AES-256-GCM) : le stockage ne voit qu'un fichier illisible. Contient hôtes, clés, identités, snippets, tunnels et hôtes connus."))
             if (hasPassword) TextButton(onClick = { prefs.setPassword(null); reschedule() }) {
@@ -426,7 +441,7 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
             )
         }
     }
-    if (choosingSync) androidx.compose.material3.AlertDialog(
+    if (choosingSync) AlertDialog(
         onDismissRequest = { choosingSync = false }, containerColor = Nt.Surface,
         title = { Text(tr("Fichier partagé")) },
         text = {
@@ -436,7 +451,7 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { choosingSync = false; prefs.setSyncTarget(t.id); reschedule(); syncNow() }.padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        androidx.compose.material3.RadioButton(t.id == syncTargetId, onClick = null, colors = androidx.compose.material3.RadioButtonDefaults.colors(selectedColor = Nt.Accent))
+                        RadioButton(t.id == syncTargetId, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = Nt.Accent))
                         Text(destinationLabel(t.dest), fontSize = 13.sp, fontFamily = Nt.Mono, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
@@ -457,7 +472,7 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
             when (mode) {
                 Ask.EXPORT_FILE -> {
                     pendingPassword = pw
-                    exportFile.launch("nautile-" + java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).format(java.util.Date()) + ".nautile")
+                    exportFile.launch("nautile-" + SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(Date()) + ".nautile")
                 }
                 Ask.BACKUP_NOW -> { if (keep) { prefs.setPassword(pw); reschedule() }; backupNow(autoFor, pw); autoFor = null }
                 Ask.ENABLE_AUTO -> {
@@ -496,6 +511,7 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
     }
     if (webDavNew || webDavDialog != null) WebDavDialog(
         initial = webDavDialog?.dest as? BackupDestination.WebDav,
+        savedPassword = webDavDialog?.id?.let(prefs::secret),
         onDismiss = { webDavNew = false; webDavDialog = null },
     ) { url, user, password ->
         val t = webDavDialog
@@ -506,7 +522,7 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-internal fun DestinationCard(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
+internal fun DestinationCard(title: String, detail: String, icon: ImageVector, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
     Surface(
         onClick = onClick, shape = RoundedCornerShape(12.dp), color = if (on) Nt.Accent.copy(alpha = 0.07f) else Nt.Bg,
         modifier = modifier.border(2.dp, if (on) Nt.Accent else Nt.Border, RoundedCornerShape(12.dp)).semantics { selected = on; role = Role.RadioButton },
@@ -524,7 +540,7 @@ internal fun DestinationCard(title: String, detail: String, icon: androidx.compo
 private fun LockSection(onOpenKnownHosts: () -> Unit) {
     val app = LocalContext.current.applicationContext as NautileApp
     val lock = app.appLock
-    val activity = LocalContext.current as? com.nautile.app.MainActivity
+    val activity = LocalActivity.current as? MainActivity
     var secure by remember { mutableStateOf(lock.hideInRecents) }
 
     SectionLabel(tr("Verrouillage"), Modifier.padding(top = 8.dp))
@@ -540,13 +556,13 @@ private fun LockSection(onOpenKnownHosts: () -> Unit) {
     Hint(tr("La base de données est chiffrée (SQLCipher, clé dans l'Android Keystore)."))
 
     SectionLabel(tr("Rapports de plantage"), Modifier.padding(top = 8.dp))
-    var crashPrompt by remember { mutableStateOf(com.nautile.app.CrashReporter.promptEnabled(app)) }
+    var crashPrompt by remember { mutableStateOf(CrashReporter.promptEnabled(app)) }
     NtCard {
         ToggleRow(
             tr("Proposer de signaler les plantages"),
             tr("Au redémarrage, un rapport anonymisé à relire, puis à publier sur GitHub si vous le voulez"),
             crashPrompt,
-        ) { crashPrompt = it; com.nautile.app.CrashReporter.setPromptEnabled(app, it) }
+        ) { crashPrompt = it; CrashReporter.setPromptEnabled(app, it) }
     }
     Hint(tr("Le rapport ne garde que le type d'erreur et les lignes de code concernées : adresses, noms d'hôtes, utilisateurs, chemins et mots de passe sont masqués. Rien n'est envoyé sans votre clic."))
 }
@@ -582,7 +598,7 @@ private fun BackupPasswordDialog(confirm: Boolean, rememberMode: Boolean?, onDis
     )
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun S3Dialog(initial: BackupDestination.S3?, savedSecret: String? = null, onDismiss: () -> Unit, onSave: (BackupDestination.S3, String) -> Unit) {
     val scope = rememberCoroutineScope()
@@ -602,18 +618,19 @@ private fun S3Dialog(initial: BackupDestination.S3?, savedSecret: String? = null
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Presets: the endpoint and region formats of the common services.
-                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(
                         Triple("Backblaze B2", "s3.eu-central-003.backblazeb2.com", "eu-central-003"),
                         Triple("Cloudflare R2", "<compte>.r2.cloudflarestorage.com", "auto"),
                         Triple("AWS", "s3.eu-west-3.amazonaws.com", "eu-west-3"),
                         Triple("MinIO", "http://192.168.1.10:9000", "us-east-1"),
                     ).forEach { (name, e, r) ->
-                        androidx.compose.material3.SuggestionChip(onClick = { endpoint = e; region = r; result = null }, label = { Text(name, fontSize = 12.sp) })
+                        SuggestionChip(onClick = { endpoint = e; region = r; result = null }, label = { Text(name, fontSize = 12.sp) })
                     }
                 }
                 NtTextField(endpoint, { endpoint = it.trim(); result = null }, tr("Adresse (endpoint)"), mono = true, placeholder = "s3.eu-central-003.backblazeb2.com",
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+                cleartextWarning(endpoint)?.let { Text(it, color = Nt.Pink, fontSize = 12.sp) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     NtTextField(region, { region = it.trim(); result = null }, tr("Région"), Modifier.weight(1f), mono = true)
                     NtTextField(bucket, { bucket = it.trim(); result = null }, tr("Bucket"), Modifier.weight(1f), mono = true)
@@ -642,8 +659,24 @@ private fun S3Dialog(initial: BackupDestination.S3?, savedSecret: String? = null
     )
 }
 
+/**
+ * Shown while typing: plain http is refused unless the address is on the local network (the check itself is
+ * [com.nautile.app.backup.CleartextGuard], on the address actually connected to). Only IP literals are judged
+ * here: a name would need a DNS lookup.
+ */
+private fun cleartextWarning(url: String): String? {
+    if (!url.trim().startsWith("http://", ignoreCase = true)) return null
+    val host = runCatching { URI(url.trim()).host }.getOrNull()?.trim('[', ']')?.takeIf { it.isNotEmpty() } ?: return null
+    val literal = IPV4.matches(host) || ':' in host
+    if (!literal) return tr("http non chiffré : accepté seulement si %1\$s est sur le réseau local", host)
+    val local = runCatching { CleartextGuard.isLocal(InetAddress.getByName(host)) }.getOrDefault(false)
+    return if (local) null else tr("Connexion non chiffrée (http) refusée vers %1\$s : utilisez https, ou une adresse du réseau local.", host)
+}
+
+private val IPV4 = Regex("""\d{1,3}(\.\d{1,3}){3}""")
+
 @Composable
-private fun WebDavDialog(initial: BackupDestination.WebDav?, onDismiss: () -> Unit, onSave: (String, String, String) -> Unit) {
+private fun WebDavDialog(initial: BackupDestination.WebDav?, savedPassword: String? = null, onDismiss: () -> Unit, onSave: (String, String, String) -> Unit) {
     val scope = rememberCoroutineScope()
     var url by remember { mutableStateOf(initial?.url ?: "https://") }
     var user by remember { mutableStateOf(initial?.username.orEmpty()) }
@@ -659,6 +692,7 @@ private fun WebDavDialog(initial: BackupDestination.WebDav?, onDismiss: () -> Un
                 NtTextField(url, { url = it.trim(); result = null }, tr("Adresse du dossier"), mono = true,
                     placeholder = "https://cloud.exemple.fr/remote.php/dav/files/moi/Nautile/",
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), isError = !valid)
+                cleartextWarning(url)?.let { Text(it, color = Nt.Pink, fontSize = 12.sp) }
                 NtTextField(user, { user = it; result = null }, tr("Utilisateur"), mono = true)
                 NtTextField(password, { password = it; result = null }, tr("Mot de passe d'application"), visualTransformation = PasswordVisualTransformation())
                 Hint(tr("Nextcloud : Paramètres › Sécurité › mot de passe d'application. Une adresse finissant par / est un dossier ; le fichier s'appellera nautile.backup."))
@@ -670,7 +704,8 @@ private fun WebDavDialog(initial: BackupDestination.WebDav?, onDismiss: () -> Un
             TextButton(onClick = {
                 testing = true; result = null
                 scope.launch {
-                    result = AutoBackup.testWebDav(url, user, password).fold({ tr("Connexion réussie : écriture possible") }, { tr("Échec : %1\$s", it.message) })
+                    // An existing destination is tested with its saved password unless a new one is typed.
+                    result = AutoBackup.testWebDav(url, user, password.ifEmpty { savedPassword.orEmpty() }).fold({ tr("Connexion réussie : écriture possible") }, { tr("Échec : %1\$s", it.message) })
                     testing = false
                 }
             }, enabled = valid && !testing) { Text(tr("Tester"), color = Nt.TextSoft) }

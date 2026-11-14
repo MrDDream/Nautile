@@ -86,7 +86,7 @@ fn bytes_to_key(pass: &[u8], salt: &[u8], len: usize) -> Vec<u8> {
 }
 
 fn decrypt(dek: &str, pass: &str, data: &[u8]) -> Option<Vec<u8>> {
-    use aes::cipher::{block_padding::Pkcs7, BlockModeDecrypt, KeyIvInit};
+    use aes::cipher::{BlockModeDecrypt, KeyIvInit, block_padding::Pkcs7};
     let (alg, iv) = dek.split_once(',')?;
     let iv = hex(iv.trim())?;
     if iv.len() < 8 {

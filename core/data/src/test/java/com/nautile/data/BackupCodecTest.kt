@@ -38,4 +38,47 @@ class BackupCodecTest {
         assertTrue(runCatching { BackupCodec.import(tampered, "pw") }.isFailure)
         assertTrue(runCatching { BackupCodec.import("hello", "pw") }.isFailure)
     }
+
+    @Test fun outOfBoundsKdfParametersAreRefusedBeforeDeriving() {
+        val file = BackupCodec.export(data, "pw", memoryKiB = 64, iterations = 1)
+        for (bad in listOf("\"m\":1048576", "\"m\":262145")) {
+            val e = runCatching { BackupCodec.import(file.replace("\"m\":64", bad), "pw") }.exceptionOrNull()
+            assertTrue("$bad: $e", e is IllegalArgumentException && e !is WrongBackupPasswordException)
+        }
+        assertTrue(runCatching { BackupCodec.import(file.replace("\"t\":1", "\"t\":11"), "pw") }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { BackupCodec.import(file.replace("\"p\":1", "\"p\":9"), "pw") }.exceptionOrNull() is IllegalArgumentException)
+        // Memory below 8 KiB per lane is refused too.
+        val thin = file.replace("\"m\":64", "\"m\":63").replace("\"p\":1", "\"p\":8")
+        assertTrue(runCatching { BackupCodec.import(thin, "pw") }.exceptionOrNull() is IllegalArgumentException)
+        // The bounds themselves stay accepted (here only up to the password check).
+        val atLimit = file.replace("\"t\":1", "\"t\":${BackupCodec.MAX_ITERATIONS}")
+        assertTrue(runCatching { BackupCodec.import(atLimit, "pw") }.exceptionOrNull() is WrongBackupPasswordException)
+    }
+
+    /** A file sealed like [BackupCodec.export], around any [plain] text. */
+    private fun sealedFile(plain: String, password: String): String {
+        val salt = ByteArray(16) { 1 }
+        val nonce = ByteArray(12) { 2 }
+        val b64 = java.util.Base64.getEncoder()
+        val header = """{"kdf":"argon2id","m":64,"t":1,"p":1,"salt":"${b64.encodeToString(salt)}","nonce":"${b64.encodeToString(nonce)}"}"""
+        val gen = org.bouncycastle.crypto.generators.Argon2BytesGenerator()
+        gen.init(
+            org.bouncycastle.crypto.params.Argon2Parameters.Builder(org.bouncycastle.crypto.params.Argon2Parameters.ARGON2_id)
+                .withVersion(org.bouncycastle.crypto.params.Argon2Parameters.ARGON2_VERSION_13)
+                .withSalt(salt).withMemoryAsKB(64).withIterations(1).withParallelism(1).build(),
+        )
+        val key = ByteArray(32).also { gen.generateBytes(password.toCharArray(), it) }
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, javax.crypto.spec.SecretKeySpec(key, "AES"), javax.crypto.spec.GCMParameterSpec(128, nonce))
+        cipher.updateAAD(header.toByteArray())
+        return "${BackupCodec.MAGIC}\n$header\n${b64.encodeToString(cipher.doFinal(plain.toByteArray()))}\n"
+    }
+
+    @Test fun anIncompatibleContentNeverQuotesTheDecryptedText() {
+        val file = sealedFile("""{"hosts":[{"alias":"nas","password":"hunter2-secret","port":"not a number"}]}""", "pw")
+        val e = runCatching { BackupCodec.import(file, "pw") }.exceptionOrNull()
+        assertTrue(e.toString(), e is IllegalArgumentException && e !is kotlinx.serialization.SerializationException)
+        assertFalse(e!!.message.orEmpty().contains("hunter2"))
+        assertTrue(e.cause == null)
+    }
 }

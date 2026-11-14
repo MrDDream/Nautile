@@ -1,9 +1,9 @@
 //! Open sessions (one tab each), their questions, and the tunnels started from the Tunnels page.
 
-use iced::futures::stream;
 use iced::Task;
+use iced::futures::stream;
 use nautile_core::model::now_ms;
-use nautile_core::model::{AuthMethod, ForwardKind, Host, KnownHost, Protocol};
+use nautile_core::model::{AuthMethod, ForwardKind, Host, Identity, KnownHost, Protocol};
 use nautile_core::{tr, trf};
 use nautile_net::proxy::Proxy;
 use nautile_net::ssh::{self, Auth, Forward, Params, Target};
@@ -12,7 +12,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::app::{App, Message};
 use crate::term::widget::Action;
-use crate::term::{themes, Terminal};
+use crate::term::{Terminal, themes};
 
 /// Longest chain of jump hosts (as on Android).
 const MAX_HOPS: usize = 6;
@@ -99,6 +99,8 @@ pub struct RemoteTab {
     pub input: std::sync::mpsc::Sender<nautile_remote::RemoteInput>,
     pub frame: nautile_remote::SharedFrame,
     pub image: Option<iced::widget::image::Handle>,
+    /// A copy of the picture is already asked: the frames announced meanwhile need no copy of their own.
+    pub frame_pending: bool,
     pub size: (u32, u32),
     /// The server's pointer: image, width, height, hot spot.
     pub cursor: Option<(iced::widget::image::Handle, u32, u32, u32, u32)>,
@@ -124,9 +126,13 @@ pub struct TunnelRun {
     pub state: TunnelState,
 }
 
-fn events(rx: tokio::sync::mpsc::UnboundedReceiver<Event>) -> impl iced::futures::Stream<Item = Event> {
+/// What a connection's thread sends, as a stream for [Task::run].
+pub(crate) fn recv_stream<T: Send + 'static>(rx: tokio::sync::mpsc::UnboundedReceiver<T>) -> impl iced::futures::Stream<Item = T> {
     stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|e| (e, rx)) })
 }
+
+/// Largest text a program may put in the clipboard (OSC 52).
+const MAX_OSC52: usize = 100_000;
 
 impl App {
     pub fn tab(&self, id: u64) -> Option<&Tab> {
@@ -160,10 +166,7 @@ impl App {
 
     /// The password of [h]'s login: its identity's, else its own.
     pub fn host_password(&self, h: &Host) -> Option<String> {
-        let identity = (h.auth_method == AuthMethod::Identity)
-            .then(|| h.identity_id.and_then(|i| self.identities.iter().find(|x| x.id == i)))
-            .flatten();
-        match identity {
+        match self.identity_of(h) {
             Some(id) => id.password.clone(),
             None => h.password.clone(),
         }
@@ -180,6 +183,46 @@ impl App {
         };
         if let Some(p) = self.host_password(h) {
             t.send(Input::Data(format!("{p}\r").into_bytes()));
+        }
+    }
+
+    /// The identity [h] logs in with, when it uses one.
+    fn identity_of(&self, h: &Host) -> Option<&Identity> {
+        (h.auth_method == AuthMethod::Identity)
+            .then(|| h.identity_id.and_then(|i| self.identities.iter().find(|x| x.id == i)))
+            .flatten()
+    }
+
+    /// The keys saved for [host]:[port] (SSH host keys, RDP certificates).
+    fn known_keys(&self, host: &str, port: i32) -> Vec<KnownKey> {
+        self.known_hosts
+            .iter()
+            .filter(|k| k.host == host && k.port == port)
+            .map(|k| KnownKey {
+                key_type: k.key_type.clone(),
+                public_key: k.public_key.clone(),
+                fingerprint: k.fingerprint.clone(),
+            })
+            .collect()
+    }
+
+    /// Shows a connection's question, unless what asked it is already closed.
+    pub(crate) fn push_prompt(&mut self, tab: Option<u64>, forward: Option<i64>, prompt: Prompt) -> Task<Message> {
+        let gone = match (tab, forward) {
+            (Some(id), _) => self.tab(id).is_none(),
+            (None, Some(f)) => !self.tunnels.contains_key(&f),
+            (None, None) => false,
+        };
+        if gone {
+            prompt.cancel();
+            return Task::none();
+        }
+        let secret = matches!(prompt, Prompt::Secret { .. });
+        self.prompts.push(PendingPrompt { tab, forward, prompt });
+        if secret && self.prompts.len() == 1 {
+            iced::widget::operation::focus("prompt-secret")
+        } else {
+            Task::none()
         }
     }
 
@@ -232,10 +275,7 @@ impl App {
                 },
             },
             AuthMethod::Identity => {
-                let id = h
-                    .identity_id
-                    .and_then(|i| self.identities.iter().find(|x| x.id == i))
-                    .ok_or_else(|| trf("%1$s : identité introuvable", &[&h.alias]))?;
+                let id = self.identity_of(h).ok_or_else(|| trf("%1$s : identité introuvable", &[&h.alias]))?;
                 username = id.username.clone();
                 match self.key_auth(&h.alias, id.key_id)? {
                     Some(a) => a,
@@ -244,16 +284,7 @@ impl App {
             }
             AuthMethod::Password | AuthMethod::Agent => Auth::Password(h.password.clone().filter(|p| !p.is_empty())),
         };
-        let known = self
-            .known_hosts
-            .iter()
-            .filter(|k| k.host == h.hostname && k.port == h.port)
-            .map(|k| KnownKey {
-                key_type: k.key_type.clone(),
-                public_key: k.public_key.clone(),
-                fingerprint: k.fingerprint.clone(),
-            })
-            .collect();
+        let known = self.known_keys(&h.hostname, h.port);
         Ok(Target {
             host: h.hostname.clone(),
             port: h.port.clamp(1, 65535) as u16,
@@ -275,7 +306,7 @@ impl App {
     }
 
     /// Everything needed to reach [host] over SSH.
-    fn ssh_params(&self, host: &Host) -> Result<Params, String> {
+    pub(crate) fn ssh_params(&self, host: &Host) -> Result<Params, String> {
         let (chain, first) = self.chain(host)?;
         let proxy = first.proxy_type.and_then(|kind| {
             Some(Proxy {
@@ -301,15 +332,7 @@ impl App {
         })
     }
 
-    pub(crate) fn ssh_params_for(&self, host: &Host) -> Result<Params, String> {
-        self.ssh_params(host)
-    }
-
-    pub(crate) fn new_tab(&mut self, host_id: Option<i64>, name: String, color: i64, protocol: Protocol) -> u64 {
-        self.open_tab(host_id, name, color, protocol)
-    }
-
-    fn open_tab(&mut self, host_id: Option<i64>, name: String, color: i64, protocol: Protocol) -> u64 {
+    pub(crate) fn open_tab(&mut self, host_id: Option<i64>, name: String, color: i64, protocol: Protocol) -> u64 {
         self.next_tab += 1;
         let (cols, rows) = self.grid;
         self.tabs.push(Tab {
@@ -332,34 +355,69 @@ impl App {
         self.next_tab
     }
 
+    /// Opens the remote desktop of tab [id] (its ports already knocked).
+    fn start_remote(&mut self, id: u64, h: &Host) -> Task<Message> {
+        let r = if h.protocol == Protocol::Vnc {
+            nautile_remote::vnc::spawn(
+                h.hostname.clone(),
+                h.port.clamp(1, 65535) as u16,
+                h.alias.clone(),
+                h.password.clone().filter(|p| !p.is_empty()),
+            )
+        } else {
+            nautile_remote::rdp::spawn(self.rdp_params(h))
+        };
+        if let Some(t) = self.tab_mut(id) {
+            t.state = TabState::Connecting(String::new());
+            t.remote = Some(Box::new(RemoteTab {
+                input: r.input,
+                frame: r.frame,
+                image: None,
+                frame_pending: false,
+                size: (0, 0),
+                cursor: None,
+            }));
+        }
+        Task::run(recv_stream(r.events), move |e| Message::Remote(id, e))
+    }
+
+    /// The ports of a remote desktop's host were knocked: connects, or says why not.
+    pub fn knocked(&mut self, id: u64, r: Result<(), String>) -> Task<Message> {
+        let Some(h) = self.tab(id).and_then(|t| t.host_id).and_then(|h| self.host_by(h)).cloned() else {
+            return Task::none();
+        };
+        match r {
+            Ok(()) => self.start_remote(id, &h),
+            Err(e) => {
+                if let Some(t) = self.tab_mut(id) {
+                    t.state = TabState::Closed(Some(e));
+                }
+                Task::none()
+            }
+        }
+    }
+
     /// Starts the connection of tab [id].
     fn start(&mut self, id: u64) -> Task<Message> {
         let Some(tab) = self.tab(id) else { return Task::none() };
         let (cols, rows) = (tab.term.cols(), tab.term.rows());
         let host = tab.host_id.and_then(|h| self.host_by(h).cloned());
         if let (Protocol::Vnc | Protocol::Rdp, Some(h)) = (tab.protocol, host.clone()) {
-            let r = if h.protocol == Protocol::Vnc {
-                nautile_remote::vnc::spawn(
-                    h.hostname.clone(),
-                    h.port.clamp(1, 65535) as u16,
-                    h.alias.clone(),
-                    h.password.clone().filter(|p| !p.is_empty()),
-                )
-            } else {
-                nautile_remote::rdp::spawn(self.rdp_params(&h))
-            };
-            if let Some(t) = self.tab_mut(id) {
-                t.state = TabState::Connecting(String::new());
-                t.remote = Some(Box::new(RemoteTab {
-                    input: r.input,
-                    frame: r.frame,
-                    image: None,
-                    size: (0, 0),
-                    cursor: None,
-                }));
+            // The ports are knocked first, as for SSH.
+            if let Some(seq) = h.knock_sequence.clone().filter(|s| !s.trim().is_empty()) {
+                if let Some(t) = self.tab_mut(id) {
+                    t.state = TabState::Connecting(trf("Port knocking sur %1$s (%2$s)…", &[&h.hostname, &seq]));
+                }
+                let address = h.hostname.clone();
+                return Task::perform(
+                    async move {
+                        let knocks = nautile_net::proxy::parse_knocks(&seq)?;
+                        nautile_net::proxy::knock(&address, &knocks).await.map_err(|e| e.to_string())
+                    },
+                    move |r| Message::Knocked(id, r),
+                );
             }
-            let stream = stream::unfold(r.events, |mut rx| async move { rx.recv().await.map(|e| (e, rx)) });
-            return Task::run(stream, move |e| Message::Remote(id, e));
+            return self.start_remote(id, &h);
         }
         let session = match (tab.protocol, host) {
             (Protocol::Local, _) => nautile_net::local::spawn(None, cols, rows),
@@ -385,7 +443,7 @@ impl App {
             t.input = Some(session.input);
             t.state = TabState::Connecting(String::new());
         }
-        Task::run(events(session.events), move |e| Message::Session(id, e))
+        Task::run(recv_stream(session.events), move |e| Message::Session(id, e))
     }
 
     /// Opens a session to a saved host.
@@ -427,7 +485,7 @@ impl App {
             t.input = Some(session.input);
             t.monitor = Some(Box::default());
         }
-        Task::run(events(session.events), move |e| Message::Session(id, e))
+        Task::run(recv_stream(session.events), move |e| Message::Session(id, e))
     }
 
     pub fn reconnect(&mut self, id: u64) -> Task<Message> {
@@ -505,6 +563,21 @@ impl App {
         self.known_hosts.sort_by(|a, b| a.host.cmp(&b.host).then(a.port.cmp(&b.port)));
     }
 
+    /// Remembers a saved host's operating system (for its logo); `replace: false` keeps one already known.
+    fn set_host_os(&mut self, host_id: i64, os: &str, replace: bool) {
+        let Some(db) = &self.db else { return };
+        let Some(h) = self.hosts.iter_mut().find(|h| h.id == host_id && host_id > 0) else {
+            return;
+        };
+        if h.os_id.as_deref() == Some(os) || (!replace && h.os_id.is_some()) {
+            return;
+        }
+        // Targeted write: a full rewrite from this copy would count as an edit and undo merged changes.
+        if db.store().set_os(host_id, os).is_ok() {
+            h.os_id = Some(os.to_owned());
+        }
+    }
+
     pub fn on_session(&mut self, id: u64, e: Event) -> Task<Message> {
         match e {
             Event::Status(s) => {
@@ -519,11 +592,11 @@ impl App {
                 }
             }
             Event::Connected => {
-                if let Some(h) = self.tab(id).and_then(|t| t.host_id).filter(|h| *h > 0) {
-                    if !self.history.contains_key(&h) {
-                        let list = self.db.as_ref().map(|db| db.commands(h)).unwrap_or_default();
-                        self.history.insert(h, list);
-                    }
+                if let Some(h) = self.tab(id).and_then(|t| t.host_id).filter(|h| *h > 0)
+                    && !self.history.contains_key(&h)
+                {
+                    let list = self.db.as_ref().map(|db| db.commands(h)).unwrap_or_default();
+                    self.history.insert(h, list);
                 }
                 let mut host = None;
                 let record = self.settings.session_logs;
@@ -536,8 +609,10 @@ impl App {
                     }
                 }
                 if let (Some(h), Some(db)) = (host.and_then(|h| self.hosts.iter_mut().find(|x| x.id == h)), &self.db) {
-                    h.last_connected_at = Some(now_ms());
-                    let _ = db.store().update(&*h);
+                    let at = now_ms();
+                    if db.store().mark_connected(h.id, at).is_ok() {
+                        h.last_connected_at = Some(at);
+                    }
                 }
                 // « Connexions › Historique », quick connections included.
                 if let (Some(h), Some(db)) = (host.and_then(|h| self.host_by(h)), &self.db) {
@@ -569,26 +644,25 @@ impl App {
                 if let Some(title) = fx.title {
                     t.remote_title = Some(title).filter(|s| !s.is_empty());
                 }
-                if let Some(text) = fx.clipboard {
+                // OSC 52: only when allowed (off by default: a server could put a command there to paste).
+                let allowed = self.settings.osc52 && !self.locked;
+                if let Some(text) = fx.clipboard.filter(|t| allowed && t.len() <= MAX_OSC52) {
                     return iced::clipboard::write(text);
                 }
             }
-            Event::Prompt(p) => {
-                let secret = matches!(p, Prompt::Secret { .. });
-                self.prompts.push(PendingPrompt {
-                    tab: Some(id),
-                    forward: None,
-                    prompt: p,
-                });
-                if secret && self.prompts.len() == 1 {
-                    return iced::widget::operation::focus("prompt-secret");
+            Event::Prompt(p) => return self.push_prompt(Some(id), None, p),
+            Event::Trust { info, .. } => self.trust(info),
+            Event::Os(os) => {
+                if let Some(h) = self.tab(id).and_then(|t| t.host_id) {
+                    self.set_host_os(h, &os, true);
                 }
             }
-            Event::Trust { info, .. } => self.trust(info),
             Event::Closed(reason) => {
                 if let Some(t) = self.tab_mut(id) {
                     t.input = None;
                     t.state = TabState::Closed(reason);
+                    // The session's copy ends here (dropping it writes the rest).
+                    t.log = None;
                 }
                 // A shell that ended normally closes its tab, like a terminal window.
                 if self
@@ -649,7 +723,7 @@ impl App {
             if bytes == b"\r" && self.settings.history_suggestions() {
                 let typed = self
                     .tab(id)
-                    .and_then(|t| Some((t.host_id.filter(|h| *h > 0)?, t.term.typed_command()?)));
+                    .and_then(|t| Some((t.host_id.filter(|h| *h > 0)?, t.term.command_line()?)));
                 if let (Some((host, cmd)), Some(db)) = (typed.filter(|(_, c)| !c.trim().is_empty()), &self.db) {
                     let cmd = cmd.trim().to_owned();
                     let _ = db.add_command(host, &cmd);
@@ -705,14 +779,11 @@ impl App {
             return Task::none();
         };
         // Counted as on Android: the most used come first.
-        if let Some(db) = &self.db {
-            let mut counted = sn.clone();
-            counted.run_count += 1;
-            if db.store().update(&counted).is_ok() {
-                if let Some(x) = self.snippets.iter_mut().find(|s| s.id == snippet_id) {
-                    x.run_count += 1;
-                }
-            }
+        if let Some(db) = &self.db
+            && db.store().count_run(snippet_id).is_ok()
+            && let Some(x) = self.snippets.iter_mut().find(|s| s.id == snippet_id)
+        {
+            x.run_count += 1;
         }
         let vars = sn.variables();
         if !vars.is_empty() {
@@ -747,11 +818,19 @@ impl App {
     // --- Tunnels started by hand ---
 
     pub fn toggle_tunnel(&mut self, forward_id: i64) -> Task<Message> {
-        if let Some(run) = self.tunnels.remove(&forward_id) {
-            if !matches!(run.state, TunnelState::Failed(_)) {
-                let _ = run.input.send(Input::Close);
-                return Task::none();
+        // A question it was still asking goes with it.
+        self.prompts.retain(|p| {
+            let mine = p.forward == Some(forward_id);
+            if mine {
+                p.prompt.cancel();
             }
+            !mine
+        });
+        if let Some(run) = self.tunnels.remove(&forward_id)
+            && !matches!(run.state, TunnelState::Failed(_))
+        {
+            let _ = run.input.send(Input::Close);
+            return Task::none();
         }
         let Some(f) = self.forwards.iter().find(|f| f.id == forward_id).cloned() else {
             return Task::none();
@@ -773,7 +852,7 @@ impl App {
                 state: TunnelState::Starting(String::new()),
             },
         );
-        Task::run(events(session.events), move |e| Message::Tunnel(forward_id, e))
+        Task::run(recv_stream(session.events), move |e| Message::Tunnel(forward_id, e))
     }
 
     pub fn on_tunnel(&mut self, forward_id: i64, e: Event) -> Task<Message> {
@@ -788,17 +867,13 @@ impl App {
                 }
             }
             Event::Connected => {
-                if let Some(r) = self.tunnels.get_mut(&forward_id) {
-                    if !matches!(r.state, TunnelState::Failed(_)) {
-                        r.state = TunnelState::Running;
-                    }
+                if let Some(r) = self.tunnels.get_mut(&forward_id)
+                    && !matches!(r.state, TunnelState::Failed(_))
+                {
+                    r.state = TunnelState::Running;
                 }
             }
-            Event::Prompt(p) => self.prompts.push(PendingPrompt {
-                tab: None,
-                forward: Some(forward_id),
-                prompt: p,
-            }),
+            Event::Prompt(p) => return self.push_prompt(None, Some(forward_id), p),
             Event::Trust { info, .. } => self.trust(info),
             Event::Closed(reason) => match reason {
                 Some(r) => {
@@ -814,7 +889,7 @@ impl App {
                     self.tunnels.remove(&forward_id);
                 }
             },
-            Event::Output(_) => {}
+            Event::Output(_) | Event::Os(_) => {}
         }
         Task::none()
     }
@@ -842,21 +917,28 @@ impl App {
                 }
             }
             E::Ready(name) => {
+                let mut rdp_host = None;
                 if let Some(t) = self.tab_mut(id) {
                     t.state = TabState::Open;
                     t.remote_title = Some(name).filter(|n| !n.is_empty());
+                    rdp_host = t.host_id.filter(|_| t.protocol == Protocol::Rdp);
+                }
+                // A Remote Desktop server is a Windows one, unless known otherwise.
+                if let Some(h) = rdp_host {
+                    self.set_host_os(h, "windows", false);
                 }
                 if self.settings.remote_fullscreen {
                     return iced::window::latest().and_then(|w| iced::window::set_mode(w, iced::window::Mode::Fullscreen));
                 }
             }
+            // The picture is read once for all the frames announced before it is read (the server may
+            // announce them faster than they are drawn).
             E::Frame => {
-                if let Some(r) = self.tab_mut(id).and_then(|t| t.remote.as_mut()) {
-                    let f = r.frame.lock().unwrap_or_else(|e| e.into_inner());
-                    if f.width > 0 && f.height > 0 {
-                        r.size = (f.width, f.height);
-                        r.image = Some(iced::widget::image::Handle::from_rgba(f.width, f.height, f.rgba.clone()));
-                    }
+                if let Some(r) = self.tab_mut(id).and_then(|t| t.remote.as_mut())
+                    && !r.frame_pending
+                {
+                    r.frame_pending = true;
+                    return Task::done(Message::RemoteFrame(id));
                 }
             }
             E::Cursor(c) => {
@@ -875,16 +957,7 @@ impl App {
             E::Clipboard(text) if self.settings.remote_clipboard() => return iced::clipboard::write(text),
             E::Clipboard(_) => {}
             E::Trust(info) => self.trust(info),
-            E::Prompt(p) => {
-                self.prompts.push(PendingPrompt {
-                    tab: Some(id),
-                    forward: None,
-                    prompt: p,
-                });
-                if self.prompts.len() == 1 {
-                    return iced::widget::operation::focus("prompt-secret");
-                }
-            }
+            E::Prompt(p) => return self.push_prompt(Some(id), None, p),
             E::Closed(reason) => {
                 if let Some(t) = self.tab_mut(id) {
                     t.state = TabState::Closed(reason);
@@ -892,6 +965,19 @@ impl App {
             }
         }
         Task::none()
+    }
+
+    /// Hands the remote picture to the renderer (asked by a `RemoteEvent::Frame`).
+    pub fn remote_frame(&mut self, id: u64) {
+        let Some(r) = self.tab_mut(id).and_then(|t| t.remote.as_mut()) else {
+            return;
+        };
+        r.frame_pending = false;
+        let picture = r.frame.lock().unwrap_or_else(|e| e.into_inner()).picture();
+        if let Some((width, height, rgba)) = picture {
+            r.size = (width, height);
+            r.image = Some(iced::widget::image::Handle::from_rgba(width, height, rgba));
+        }
     }
 
     pub fn on_remote_action(&mut self, id: u64, a: crate::remote_view::RemoteAction) {
@@ -908,10 +994,7 @@ impl App {
 impl App {
     /// The RDP settings of [h]: its own or its identity's credentials, resolution, scale, domain.
     fn rdp_params(&self, h: &Host) -> nautile_remote::rdp::RdpParams {
-        let identity = (h.auth_method == AuthMethod::Identity)
-            .then(|| h.identity_id.and_then(|i| self.identities.iter().find(|x| x.id == i)))
-            .flatten();
-        let (username, password) = match identity {
+        let (username, password) = match self.identity_of(h) {
             Some(id) => (id.username.clone(), id.password.clone()),
             None => (h.username.clone(), h.password.clone()),
         };
@@ -941,16 +1024,7 @@ impl App {
             domain: h.rdp_domain.clone(),
             size,
             scale: h.rdp_scale.map(|s| s.clamp(100, 500) as u32),
-            known: self
-                .known_hosts
-                .iter()
-                .filter(|k| k.host == h.hostname && k.port == h.port)
-                .map(|k| KnownKey {
-                    key_type: k.key_type.clone(),
-                    public_key: k.public_key.clone(),
-                    fingerprint: k.fingerprint.clone(),
-                })
-                .collect(),
+            known: self.known_keys(&h.hostname, h.port),
         }
     }
 }

@@ -9,6 +9,7 @@ import com.nautile.vnc.Keysyms
 import com.nautile.vnc.VncClient
 import java.io.Closeable
 import java.net.Socket
+import java.util.concurrent.Executors
 
 /**
  * What the remote desktop screen needs from a connection, whatever the protocol: the picture and
@@ -88,7 +89,12 @@ class VncBackend(private val socket: Socket, private val events: Events) : Deskt
         socket.tcpNoDelay = true
         client.connect(password)
         Thread({
-            val error = try { client.run(); null } catch (e: Exception) { if (closing) null else e.message ?: tr("Connexion perdue") }
+            val error = try { client.run(); null } catch (e: Exception) {
+                if (closing) null else e.message ?: tr("Connexion perdue")
+            } catch (_: OutOfMemoryError) {
+                // Sizes are bounded by VncClient; this is the last line, so the app does not crash.
+                if (closing) null else tr("Mémoire insuffisante pour cet écran")
+            }
             events.closed(error)
         }, "vnc-reader").start()
     }
@@ -126,7 +132,7 @@ class VncBackend(private val socket: Socket, private val events: Events) : Deskt
     }
 
     /** Input leaves on its own thread, in order (Android forbids the network on the UI thread). */
-    private val io = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "vnc-input") }
+    private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "vnc-input") }
 
     /** Input on a dead socket is dropped: the screen shows the disconnection anyway. */
     private fun guard(block: () -> Unit) {

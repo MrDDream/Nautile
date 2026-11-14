@@ -9,7 +9,21 @@
 #        ANDROID_SDK   SDK with ndk;29.0.14206865 and cmake;3.31.5  default ~/android-tools/sdk
 #        API           minimum Android API level               default 26 (app minSdk)
 # Needs perl, make and pkg-config on the host.
+#
+# Dependency pins: FreeRDP 3.33.1's cmake/DepVersions.cmake pins OpenSSL 4.0.1 and uriparser 1.0.2,
+# both with known vulnerabilities. Instead of editing the checkout, the script puts an override
+# DepVersions.cmake first on CMAKE_MODULE_PATH: it includes the upstream file, then replaces the
+# OpenSSL and uriparser pins below (cJSON and the others stay as upstream). The superbuild checks
+# each archive against these SHA-256 before extracting it. Every run is a clean build (build dir,
+# the superbuild's shared install dir and extracted sources are removed) so no header or library
+# of a previous version can leak in.
 set -euo pipefail
+
+FREERDP_COMMIT=65bcca1913a28cbdd7eb913599f692bd2b707991   # tag 3.33.1
+OPENSSL_VERSION=3.5.9   # LTS
+OPENSSL_SHA256=603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
+URIPARSER_VERSION=1.0.3
+URIPARSER_SHA256=a327e438e238d6c9093f1845acc44dec20d4264639a3de1f3caf0927bd852e3b
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FREERDP_SRC="${FREERDP_SRC:-$HOME/android-tools/rdp-src/freerdp}"
@@ -28,11 +42,26 @@ BUILD="${BUILD_DIR:-$HOME/android-tools/rdp-build}"
 [ -f "$CPP/CMakeLists.txt" ] || { echo "FreeRDP introuvable : $CPP" >&2; exit 1; }
 [ -d "$NDK" ] || { echo "NDK introuvable : $NDK" >&2; exit 1; }
 command -v pkg-config >/dev/null || { echo "pkg-config manquant" >&2; exit 1; }
+head=$(git -C "$FREERDP_SRC" rev-parse HEAD)
+[ "$head" = "$FREERDP_COMMIT" ] || { echo "FreeRDP : commit $head, attendu $FREERDP_COMMIT (tag 3.33.1)" >&2; exit 1; }
 export PATH="$CMAKE_BIN:$PATH"
+READELF="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+
+OVERRIDE="$BUILD/dep-overrides"
+mkdir -p "$OVERRIDE"
+cat >"$OVERRIDE/DepVersions.cmake" <<CMAKE
+include("\${FREERDP_SOURCE_DIR}/cmake/DepVersions.cmake")
+set(OPENSSL_VERSION "openssl-$OPENSSL_VERSION")
+set(OPENSSL_HASH "SHA256=$OPENSSL_SHA256")
+set(URIPARSER_VERSION "$URIPARSER_VERSION")
+set(URIPARSER_HASH "SHA256=$URIPARSER_SHA256")
+CMAKE
 
 for abi in "${ABIS[@]}"; do
   echo "=== $abi ==="
+  rm -rf "${BUILD:?}/$abi" "${DEPS:?}/$abi" "${CPP:?}/external"
   cmake -S "$CPP" -B "$BUILD/$abi" -G Ninja \
+    -DCMAKE_MODULE_PATH="$OVERRIDE" \
     -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
     -DCMAKE_MAKE_PROGRAM="$CMAKE_BIN/ninja" \
     -DANDROID_ABI="$abi" -DANDROID_PLATFORM="android-$API" -DANDROID_STL=c++_shared \
@@ -55,5 +84,18 @@ for abi in "${ABIS[@]}"; do
   esac
   cp "$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/$triple/libc++_shared.so" "$OUT/$abi/"
   "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded "$OUT/$abi/"*.so
+
+  grep -qa "OpenSSL $OPENSSL_VERSION " "$OUT/$abi/libcrypto.so" \
+    || { echo "$abi : libcrypto.so n'est pas OpenSSL $OPENSSL_VERSION" >&2; exit 1; }
+  # 16 KB pages only exist on 64-bit Android; armeabi-v7a keeps the NDK's 4 KB default
+  # (its libc++_shared.so from the NDK is 4 KB-aligned too).
+  case "$abi" in
+    arm64-v8a|x86_64|riscv64)
+      for so in "$OUT/$abi/"*.so; do
+        if "$READELF" -lW "$so" | awk '$1 == "LOAD" && $NF != "0x4000" { bad = 1 } END { exit !bad }'; then
+          echo "$so : segments LOAD non alignés sur 16 Ko" >&2; exit 1
+        fi
+      done ;;
+  esac
   ls -la "$OUT/$abi"
 done

@@ -1,7 +1,9 @@
 package com.nautile.app.ai
 
 import com.nautile.i18n.tr
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.util.Locale
 
 /** A text file joined to a request (configuration, log, JSON…), cut to a size the models accept. */
 data class AiFile(val name: String, val text: String, val size: Long, val cut: Boolean, val tail: Boolean)
@@ -17,7 +19,7 @@ object AiFiles {
      * [MAX_BYTES]. Binary files are refused.
      */
     fun read(name: String, input: InputStream): AiFile {
-        val out = java.io.ByteArrayOutputStream()
+        val out = ByteArrayOutputStream()
         val buf = ByteArray(64 * 1024)
         var total = 0L
         var keep = ByteArray(0)
@@ -52,6 +54,6 @@ object AiFiles {
     fun sizeLabel(bytes: Long): String = when {
         bytes < 1024 -> tr("%1\$s o", bytes)
         bytes < 1024 * 1024 -> tr("%1\$s Ko", (bytes + 512) / 1024)
-        else -> tr("%1\$s Mo", "%.1f".format(java.util.Locale.ROOT, bytes / 1048576.0))
+        else -> tr("%1\$s Mo", "%.1f".format(Locale.ROOT, bytes / 1048576.0))
     }
 }

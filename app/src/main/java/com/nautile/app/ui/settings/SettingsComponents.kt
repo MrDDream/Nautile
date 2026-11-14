@@ -1,7 +1,5 @@
 package com.nautile.app.ui.settings
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +33,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 
 /** Routes of the settings sub-screens (the hub is the Settings tab). */
 object SettingsRoutes {

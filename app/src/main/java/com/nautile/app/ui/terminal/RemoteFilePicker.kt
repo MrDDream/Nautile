@@ -1,7 +1,5 @@
 package com.nautile.app.ui.terminal
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -59,7 +57,9 @@ import androidx.compose.ui.window.DialogProperties
 import com.nautile.app.ai.AiFile
 import com.nautile.app.ai.AiFiles
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 import com.nautile.ssh.RemoteEntry
+import com.nautile.ssh.SftpSession
 import kotlinx.coroutines.launch
 
 /** The server's files, over SFTP: where to start (the terminal's directory), listing and reading. */
@@ -118,7 +118,7 @@ internal fun RemoteFilePicker(files: RemoteFiles, onPhone: () -> Unit, onDismiss
                 }
                 // Path: up, editable path, home
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { path?.let { open(com.nautile.ssh.SftpSession.parent(it)) } }, enabled = path != null && path != "/") {
+                    IconButton(onClick = { path?.let { open(SftpSession.parent(it)) } }, enabled = path != null && path != "/") {
                         Icon(Icons.Outlined.ArrowUpward, contentDescription = tr("Dossier parent"), tint = Nt.TextSoft)
                     }
                     OutlinedTextField(

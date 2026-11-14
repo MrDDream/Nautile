@@ -1,8 +1,8 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -29,14 +29,14 @@ val signing: Map<String, String>? = run {
 
 android {
     namespace = "com.nautile.app"
-    compileSdk = 34
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.nautile"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 7
-        versionName = "0.4.0"
+        targetSdk = 37
+        versionCode = 8
+        versionName = "0.5.0"
     }
 
     signingConfigs {
@@ -72,7 +72,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
@@ -90,7 +89,8 @@ android {
         buildConfig = true
     }
     packaging {
-        resources.excludes += setOf("META-INF/versions/9/OSGI-INF/MANIFEST.MF", "META-INF/BCprov-jdk18on.*", "META-INF/BCpkix-jdk18on.*", "META-INF/BCutil-jdk18on.*")
+        // BouncyCastle 1.87 ships META-INF/LICENSE.md in each jar: its licence is in assets/licenses.
+        resources.excludes += setOf("META-INF/versions/9/OSGI-INF/MANIFEST.MF", "META-INF/BCprov-jdk18on.*", "META-INF/BCpkix-jdk18on.*", "META-INF/BCutil-jdk18on.*", "META-INF/LICENSE.md")
     }
 }
 
@@ -107,6 +107,11 @@ dependencies {
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.material3)
     implementation(libs.anthropic.java)
+    // anthropic-java pins Jackson 2.19 (no longer patched) and an older OpenTelemetry API: raise both.
+    implementation(platform(libs.jackson.bom))
+    constraints {
+        implementation(libs.opentelemetry.api) { because("floor above the version anthropic-java declares") }
+    }
     implementation(libs.okhttp)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.core.ktx)
@@ -132,3 +137,5 @@ dependencies {
     testImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
+
+kotlin { compilerOptions { jvmTarget = JvmTarget.JVM_17 } }

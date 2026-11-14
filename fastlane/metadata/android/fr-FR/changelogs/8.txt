@@ -1,0 +1,5 @@
+• Audit de sécurité : tout est corrigé sur téléphone et ordinateur
+• Synchro Wi-Fi refaite (SPAKE2) : associe tes appareils une fois
+• Le verrou couvre tout ; journaux et conversations IA chiffrés
+• Icônes de groupe, logos d'OS plus grands, Retour en SFTP
+• Mises à jour vérifiées avec ton accord ; cible Android 17

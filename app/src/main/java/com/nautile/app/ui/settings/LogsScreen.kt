@@ -1,7 +1,5 @@
 package com.nautile.app.ui.settings
 
-import com.nautile.i18n.tr
-
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,12 +39,27 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import com.nautile.app.NautileApp
 import com.nautile.app.session.SessionLogs
 import com.nautile.app.ui.sftp.humanSize
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+
+/**
+ * A readable copy of [log] in the cache's shared folder, for another app to read. The copies of earlier
+ * shares are removed first (and at each start, NautileApp): the receiving app had its moment.
+ */
+private fun sharedCopy(context: android.content.Context, log: File): File {
+    val dir = File(context.cacheDir, NautileApp.SHARED_DIR)
+    dir.deleteRecursively()
+    dir.mkdirs()
+    val text = SessionLogs.readable(log, maxBytes = 16L * 1024 * 1024)
+    return File(dir, log.name.removeSuffix(".log") + ".txt").apply { writeText(text) }
+}
 
 /** Recorded sessions: list, readable view, share, delete. */
 @Composable
@@ -57,12 +71,18 @@ fun LogsScreen(onBack: () -> Unit) {
     var text by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(open) { text = open?.let { f -> withContext(Dispatchers.IO) { SessionLogs.readable(f) } } }
 
+    val scope = rememberCoroutineScope()
+
+    /** The log is encrypted on the phone: a decrypted text copy is shared, from the cache, and removed later. */
     fun share(f: File) {
-        val uri = FileProvider.getUriForFile(context, context.packageName + ".files", f)
-        context.startActivity(Intent.createChooser(
-            Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-            tr("Partager le journal"),
-        ))
+        scope.launch {
+            val copy = runCatching { withContext(Dispatchers.IO) { sharedCopy(context, f) } }.getOrNull() ?: return@launch
+            val uri = FileProvider.getUriForFile(context, context.packageName + ".files", copy)
+            context.startActivity(Intent.createChooser(
+                Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                tr("Partager le journal"),
+            ))
+        }
     }
 
     Column(Modifier.fillMaxSize().background(Nt.Bg)) {

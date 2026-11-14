@@ -1,17 +1,17 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
 }
 
 android {
     namespace = "com.nautile.security"
-    compileSdk = 34
+    compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
 }
 
 dependencies {
@@ -23,3 +23,5 @@ dependencies {
     api(libs.androidx.fragment.ktx)
     testImplementation(libs.junit)
 }
+
+kotlin { compilerOptions { jvmTarget = JvmTarget.JVM_17 } }

@@ -5,7 +5,7 @@ use iced::advanced::layout;
 use iced::advanced::mouse;
 use iced::advanced::overlay;
 use iced::advanced::renderer;
-use iced::advanced::widget::{tree, Operation, Tree};
+use iced::advanced::widget::{Operation, Tree, tree};
 use iced::advanced::{Clipboard, Layout, Shell, Widget};
 use iced::{Element, Event, Length, Point, Rectangle, Size, Vector};
 
@@ -106,11 +106,11 @@ impl<Message: Clone> Widget<Message, iced::Theme, iced::Renderer> for Pointer<'_
         }
         if let Event::Mouse(mouse::Event::CursorMoved { position }) = event {
             let state = tree.state.downcast_mut::<State>();
-            if let (Some(at), false, Some(m)) = (state.pressed_at, state.dragging, &self.on_drag_start) {
-                if at.distance(*position) > 8.0 {
-                    state.dragging = true;
-                    shell.publish(m.clone());
-                }
+            if let (Some(at), false, Some(m)) = (state.pressed_at, state.dragging, &self.on_drag_start)
+                && at.distance(*position) > 8.0
+            {
+                state.dragging = true;
+                shell.publish(m.clone());
             }
         }
         if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event {
@@ -123,11 +123,11 @@ impl<Message: Clone> Widget<Message, iced::Theme, iced::Renderer> for Pointer<'_
         if shell.is_event_captured() {
             return;
         }
-        if let (Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)), Some(f)) = (event, &self.on_right) {
-            if let Some(p) = cursor.position_over(bounds) {
-                shell.publish(f(p));
-                shell.capture_event();
-            }
+        if let (Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)), Some(f)) = (event, &self.on_right)
+            && let Some(p) = cursor.position_over(bounds)
+        {
+            shell.publish(f(p));
+            shell.capture_event();
         }
     }
 

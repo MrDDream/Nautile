@@ -1,10 +1,10 @@
 package com.nautile.app.backup
 
-import com.nautile.i18n.tr
-
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import com.nautile.app.readText
+import com.nautile.i18n.tr
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -32,7 +32,8 @@ interface BackupStore {
 }
 
 object BackupStores {
-    private val http by lazy { OkHttpClient.Builder().callTimeout(2, TimeUnit.MINUTES).build() }
+    /** WebDAV's Basic credentials never go over plain HTTP outside the local network ([CleartextGuard]). */
+    private val http by lazy { OkHttpClient.Builder().callTimeout(2, TimeUnit.MINUTES).dns(CleartextGuard.dns).addNetworkInterceptor(CleartextGuard).build() }
 
     fun of(context: Context, target: BackupTarget, prefs: BackupPrefs): BackupStore = when (val dest = target.dest) {
         is BackupDestination.Document -> DocumentStore(context, Uri.parse(dest.uri))
@@ -55,7 +56,7 @@ object BackupStores {
 class DocumentStore(private val context: Context, private val uri: Uri) : BackupStore {
     override fun read(): Remote {
         val text = try {
-            context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+            context.contentResolver.readText(uri)
         } catch (_: FileNotFoundException) { null }
         return Remote(text?.takeIf { it.isNotBlank() }, null)
     }

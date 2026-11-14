@@ -21,6 +21,13 @@ public abstract class TerminalOutput {
     /** Notify the terminal client that text should be copied to clipboard. */
     public abstract void onCopyTextToClipboard(String text);
 
+    /**
+     * Nautile: a program asked (OSC 52) to put text in the clipboard. Unlike {@link #onCopyTextToClipboard}, the
+     * user did not ask for it, so the client decides; ignored by default.
+     */
+    public void onRemoteCopyTextToClipboard(String text) {
+    }
+
     /** Notify the terminal client that text should be pasted from clipboard. */
     public abstract void onPasteTextFromClipboard();
 

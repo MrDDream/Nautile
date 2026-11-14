@@ -1,0 +1,5 @@
+• Security audit: every finding fixed on phone and desktop
+• Wi-Fi sync rebuilt (SPAKE2): pair your devices again once
+• The lock covers every window; logs and AI chats encrypted
+• Group icons, bigger OS logos, SFTP Back goes up a folder
+• Update checks only with your consent; targets Android 17

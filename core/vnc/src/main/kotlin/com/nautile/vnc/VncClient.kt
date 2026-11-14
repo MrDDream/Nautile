@@ -6,6 +6,7 @@ import java.io.DataOutputStream
 import java.io.EOFException
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.Arrays
 import java.util.zip.Inflater
 import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
@@ -89,8 +90,8 @@ class VncClient(input: InputStream, output: OutputStream, private val listener: 
         write { writeByte(1) } // ClientInit: shared desktop
         val w = inp.readUnsignedShort()
         val h = inp.readUnsignedShort()
-        inp.skipBytes(16) // the server's pixel format: ours is set right after
-        name = String(ByteArray(inp.readInt()).also { inp.readFully(it) }, Charsets.UTF_8)
+        skipFully(16) // the server's pixel format: ours is set right after
+        name = String(readBounded(MAX_NAME_BYTES), Charsets.UTF_8)
         resize(w, h)
 
         write {
@@ -120,12 +121,11 @@ class VncClient(input: InputStream, output: OutputStream, private val listener: 
             while (!closed) {
                 when (val type = inp.readUnsignedByte()) {
                     0 -> { update(); requestUpdate(incremental = true) }
-                    1 -> { inp.skipBytes(3); val n = inp.readUnsignedShort(); inp.skipBytes(n * 6) } // colour map: unused in true colour
+                    1 -> { skipFully(3); val n = inp.readUnsignedShort(); skipFully(n * 6) } // colour map: unused in true colour
                     2 -> listener.bell()
                     3 -> {
-                        inp.skipBytes(3)
-                        val n = inp.readInt().coerceIn(0, 1 shl 20)
-                        listener.clipboard(String(ByteArray(n).also { inp.readFully(it) }, Charsets.ISO_8859_1))
+                        skipFully(3)
+                        listener.clipboard(String(readBounded(MAX_CLIPBOARD_BYTES), Charsets.ISO_8859_1))
                     }
                     else -> throw VncException(tr("Message VNC inconnu (%1\$s)", type))
                 }
@@ -170,6 +170,32 @@ class VncClient(input: InputStream, output: OutputStream, private val listener: 
         writeShort(0); writeShort(0); writeShort(width); writeShort(height)
     }
 
+    /** Skips exactly [n] bytes (DataInputStream.skipBytes may skip fewer). */
+    private fun skipFully(n: Long) {
+        var left = n
+        val scratch = ByteArray(minOf(left, 8192L).toInt().coerceAtLeast(1))
+        while (left > 0) {
+            val k = minOf(left, scratch.size.toLong()).toInt()
+            inp.readFully(scratch, 0, k)
+            left -= k
+        }
+    }
+
+    private fun skipFully(n: Int) = skipFully(n.toLong())
+
+    /** A length-prefixed (u32) byte string; past [limit] the rest is read and dropped. */
+    private fun readBounded(limit: Int): ByteArray {
+        val n = inp.readInt().toLong() and 0xFFFFFFFFL
+        val kept = ByteArray(minOf(n, limit.toLong()).toInt()).also { inp.readFully(it) }
+        skipFully(n - kept.size)
+        return kept
+    }
+
+    /** Rectangles must lie inside the framebuffer: a server cannot make us write elsewhere. */
+    private fun checkRect(x: Int, y: Int, w: Int, h: Int) {
+        if (x + w > width || y + h > height) throw VncException(tr("Rectangle VNC hors de l'écran"))
+    }
+
     private inline fun write(block: DataOutputStream.() -> Unit) {
         if (closed) return
         synchronized(out) { out.block(); out.flush() }
@@ -178,22 +204,26 @@ class VncClient(input: InputStream, output: OutputStream, private val listener: 
     // ── Updates ────────────────────────────────────────────────────────────
 
     private fun resize(w: Int, h: Int) {
+        if (!fits(w, h)) throw VncException(tr("Taille d'écran VNC non prise en charge (%1\$s×%2\$s)", w, h))
+        val fb = try { IntArray(w * h) } catch (_: OutOfMemoryError) {
+            throw VncException(tr("Taille d'écran VNC non prise en charge (%1\$s×%2\$s)", w, h))
+        }
         width = w; height = h
-        framebuffer = IntArray(w * h)
+        framebuffer = fb
         listener.resized(w, h)
     }
 
     private fun update() {
-        inp.skipBytes(1)
+        skipFully(1)
         val n = inp.readUnsignedShort()
         repeat(n) {
             val x = inp.readUnsignedShort(); val y = inp.readUnsignedShort()
             val w = inp.readUnsignedShort(); val h = inp.readUnsignedShort()
             when (val enc = inp.readInt()) {
-                ENC_RAW -> { raw(x, y, w, h); listener.updated(x, y, w, h) }
-                ENC_COPYRECT -> { copyRect(x, y, w, h); listener.updated(x, y, w, h) }
-                ENC_HEXTILE -> { hextile(x, y, w, h); listener.updated(x, y, w, h) }
-                ENC_ZRLE -> { zrle(x, y, w, h); listener.updated(x, y, w, h) }
+                ENC_RAW -> { checkRect(x, y, w, h); raw(x, y, w, h); listener.updated(x, y, w, h) }
+                ENC_COPYRECT -> { checkRect(x, y, w, h); copyRect(x, y, w, h); listener.updated(x, y, w, h) }
+                ENC_HEXTILE -> { checkRect(x, y, w, h); hextile(x, y, w, h); listener.updated(x, y, w, h) }
+                ENC_ZRLE -> { checkRect(x, y, w, h); zrle(x, y, w, h); listener.updated(x, y, w, h) }
                 ENC_DESKTOP_SIZE -> resize(w, h)
                 ENC_CURSOR -> cursor(x, y, w, h)
                 ENC_LAST_RECT -> return
@@ -210,11 +240,14 @@ class VncClient(input: InputStream, output: OutputStream, private val listener: 
         return 0xFF000000.toInt() or (b2 shl 16) or (b1 shl 8) or b0
     }
 
+    /** Clipped to the framebuffer (hextile subrectangles may overhang their tile). */
     private fun fill(x: Int, y: Int, w: Int, h: Int, color: Int) {
         val fb = framebuffer; val stride = width
-        for (row in y until (y + h).coerceAtMost(height)) {
+        val cols = minOf(w, stride - x)
+        if (cols <= 0) return
+        for (row in y until minOf(y + h, height)) {
             val start = row * stride + x
-            java.util.Arrays.fill(fb, start, start + w.coerceAtMost(stride - x), color)
+            Arrays.fill(fb, start, start + cols, color)
         }
     }
 
@@ -230,6 +263,7 @@ class VncClient(input: InputStream, output: OutputStream, private val listener: 
 
     private fun copyRect(x: Int, y: Int, w: Int, h: Int) {
         val sx = inp.readUnsignedShort(); val sy = inp.readUnsignedShort()
+        checkRect(sx, sy, w, h)
         val fb = framebuffer; val stride = width
         // Rows in the order that never reads a row already overwritten.
         val rows = if (sy < y) (h - 1 downTo 0) else (0 until h)
@@ -265,16 +299,25 @@ class VncClient(input: InputStream, output: OutputStream, private val listener: 
         }
     }
 
-    // ZRLE: zlib stream shared by all rectangles, 64×64 tiles, 3-byte pixels.
+    // ZRLE: zlib stream shared by all rectangles, 64×64 tiles, 3-byte pixels. The compressed data
+    // is streamed from the socket in chunks, never allocated whole from the length the server sends.
     private var zbuf = ByteArray(0)
     private var zpos = 0
     private var zlen = 0
+    private var zin = ByteArray(0)
+    private var zLeft = 0L
 
     private fun zByte(): Int {
-        if (zpos == zlen) {
+        while (zpos == zlen) {
             if (zbuf.isEmpty()) zbuf = ByteArray(64 * 1024)
             zlen = zlib.inflate(zbuf); zpos = 0
-            if (zlen == 0) throw VncException(tr("Flux ZRLE incomplet"))
+            if (zlen > 0) break
+            if (!zlib.needsInput() || zLeft == 0L) throw VncException(tr("Flux ZRLE incomplet"))
+            if (zin.isEmpty()) zin = ByteArray(64 * 1024)
+            val k = minOf(zLeft, zin.size.toLong()).toInt()
+            inp.readFully(zin, 0, k)
+            zLeft -= k
+            zlib.setInput(zin, 0, k)
         }
         return zbuf[zpos++].toInt() and 0xFF
     }
@@ -290,9 +333,38 @@ class VncClient(input: InputStream, output: OutputStream, private val listener: 
     }
 
     private fun zrle(x: Int, y: Int, w: Int, h: Int) {
-        val compressed = ByteArray(inp.readInt()).also { inp.readFully(it) }
-        zlib.setInput(compressed)
+        zLeft = inp.readInt().toLong() and 0xFFFFFFFFL
+        zlib.setInput(ByteArray(0))
         zpos = 0; zlen = 0
+        var decoded = false
+        try {
+            zrleTiles(x, y, w, h)
+            decoded = true
+        } finally {
+            // Whatever this rectangle did not use stays out of the next message. Its unread bytes
+            // still go through the inflater: the zlib stream is shared by all rectangles and they
+            // can end with the sync-flush marker, which the stream must see to stay in step.
+            if (decoded) zDrain() else { val left = zLeft; zLeft = 0; skipFully(left) }
+        }
+    }
+
+    /** Feeds the rest of the rectangle's compressed data to the inflater, dropping any output. */
+    private fun zDrain() {
+        if (zbuf.isEmpty()) zbuf = ByteArray(64 * 1024)
+        fun inflateAll() { while (zlib.inflate(zbuf) > 0) continue }
+        inflateAll()
+        while (zLeft > 0) {
+            if (zin.isEmpty()) zin = ByteArray(64 * 1024)
+            val k = minOf(zLeft, zin.size.toLong()).toInt()
+            inp.readFully(zin, 0, k)
+            zLeft -= k
+            zlib.setInput(zin, 0, k)
+            inflateAll()
+        }
+        zpos = 0; zlen = 0
+    }
+
+    private fun zrleTiles(x: Int, y: Int, w: Int, h: Int) {
         val fb = framebuffer; val stride = width
         var ty = y
         while (ty < y + h) {
@@ -344,6 +416,7 @@ class VncClient(input: InputStream, output: OutputStream, private val listener: 
 
     private fun cursor(hotX: Int, hotY: Int, w: Int, h: Int) {
         if (w == 0 || h == 0) { listener.cursor(null, 0, 0, 0, 0); return }
+        if (w > MAX_CURSOR || h > MAX_CURSOR) throw VncException(tr("Curseur VNC trop grand (%1\$s×%2\$s)", w, h))
         val px = ByteArray(w * h * 4).also { inp.readFully(it) }
         val rowBytes = (w + 7) / 8
         val mask = ByteArray(rowBytes * h).also { inp.readFully(it) }
@@ -366,6 +439,15 @@ class VncClient(input: InputStream, output: OutputStream, private val listener: 
         const val ENC_DESKTOP_SIZE = -223
         const val ENC_LAST_RECT = -224
         private val ENCODINGS = intArrayOf(ENC_ZRLE, ENC_HEXTILE, ENC_COPYRECT, ENC_RAW, ENC_DESKTOP_SIZE, ENC_CURSOR, ENC_LAST_RECT)
+
+        /** Largest desktop accepted: 8K wide or tall, 64 MiB of pixels at most. */
+        const val MAX_SIDE = 8192
+        const val MAX_PIXELS = 16 shl 20
+        const val MAX_CURSOR = 512
+        const val MAX_NAME_BYTES = 64 * 1024
+        const val MAX_CLIPBOARD_BYTES = 1 shl 20
+
+        fun fits(width: Int, height: Int) = width in 1..MAX_SIDE && height in 1..MAX_SIDE && width.toLong() * height <= MAX_PIXELS
 
         /** The 16-byte answer to a VNC challenge: DES with the password (8 bytes, bits mirrored) as key. */
         fun vncResponse(password: String, challenge: ByteArray): ByteArray {

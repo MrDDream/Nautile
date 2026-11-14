@@ -1,24 +1,22 @@
 package com.nautile.app.session
 
-import com.nautile.i18n.tr
-
 import android.Manifest
 import android.app.NotificationChannel
-import android.content.pm.PackageManager
-import androidx.core.content.ContextCompat
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
-import com.nautile.app.MainActivity
+import androidx.core.content.ContextCompat
 import com.nautile.app.R
+import com.nautile.i18n.tr
 
 /** Keeps the process alive while SSH sessions are open. */
 class SessionService : Service() {
@@ -70,7 +68,7 @@ class SessionService : Service() {
             .setContentIntent(
                 PendingIntent.getActivity(
                     context, 0,
-                    Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                    com.nautile.app.LaunchActivity.openIntent(context),
                     PendingIntent.FLAG_IMMUTABLE,
                 ),
             )

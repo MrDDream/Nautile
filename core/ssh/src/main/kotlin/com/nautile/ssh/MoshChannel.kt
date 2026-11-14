@@ -1,7 +1,6 @@
 package com.nautile.ssh
 
 import com.nautile.i18n.tr
-
 import org.bouncycastle.crypto.engines.AESEngine
 import org.bouncycastle.crypto.modes.OCBBlockCipher
 import org.bouncycastle.crypto.params.AEADParameters
@@ -29,7 +28,7 @@ import java.util.zip.Inflater
  * as the client framebuffer. Only diffs based on the latest applied state are applied; others
  * are dropped and the server resends from the state we acknowledged.
  */
-class MoshChannel private constructor(
+class MoshChannel internal constructor(
     private val address: InetAddress,
     private val port: Int,
     key: ByteArray,
@@ -42,8 +41,9 @@ class MoshChannel private constructor(
     @Volatile private var closed = false
     @Volatile private var remoteGone = false
 
-    // Client → server state: a growing list of user events; state n = first eventsAt[n] events.
-    private val lock = Object()
+    // Client → server state: the user events the server has not acknowledged yet; state n = the
+    // acknowledged state plus the first eventsAt[n] events (acknowledged events are dropped).
+    private val lock = Any()
     private val events = mutableListOf<ByteArray>()
     private val eventsAt = mutableMapOf(0L to 0)
     private var currentNum = 0L
@@ -51,16 +51,20 @@ class MoshChannel private constructor(
     private var lastSentNum = -1L
     private var lastSendAt = 0L
 
-    // Server → client state.
-    private var remoteNum = 0L
+    // Server → client state (written by the receive thread, read under [lock] when sending).
+    @Volatile private var remoteNum = 0L
+    private val assembly = FragmentAssembly()
+
+    // Packets leave from three threads (terminal writer, receiver acks, ticks): the sequence number
+    // is the OCB nonce, so it must never repeat. Both counters are taken under [sendLock].
+    private val sendLock = Any()
     private var sendSeq = 0L
     private var fragmentId = 0L
-    private val assembly = FragmentAssembly()
 
     init {
         pushEvent(Proto.resize(columns, rows))
-        Thread(::receiveLoop, tr("mosh-recv")).apply { isDaemon = true }.start()
-        Thread(::tickLoop, tr("mosh-tick")).apply { isDaemon = true }.start()
+        Thread(::receiveLoop, "mosh-recv").apply { isDaemon = true }.start()
+        Thread(::tickLoop, "mosh-tick").apply { isDaemon = true }.start()
     }
 
     override val input: InputStream = object : InputStream() {
@@ -119,17 +123,22 @@ class MoshChannel private constructor(
             lastSendAt = now
         }
         val compressed = zlib(inst)
-        val id = fragmentId++
         val chunks = compressed.toList().chunked(FRAGMENT_BYTES).map { it.toByteArray() }.ifEmpty { listOf(ByteArray(0)) }
-        chunks.forEachIndexed { i, chunk ->
-            val header = ByteBuffer.allocate(10).putLong(id).putShort(((if (i == chunks.lastIndex) 0x8000 else 0) or i).toShort()).array()
-            val plain = ByteBuffer.allocate(4 + header.size + chunk.size)
-                .putShort((System.currentTimeMillis() % 65536).toInt().toShort()).putShort(-1)
-                .put(header).put(chunk).array()
-            val packet = crypto.seal(sendSeq++, plain)
-            runCatching { socket.send(DatagramPacket(packet, packet.size, address, port)) }
+        synchronized(sendLock) {
+            val id = fragmentId++
+            chunks.forEachIndexed { i, chunk ->
+                val header = ByteBuffer.allocate(10).putLong(id).putShort(((if (i == chunks.lastIndex) 0x8000 else 0) or i).toShort()).array()
+                val plain = ByteBuffer.allocate(4 + header.size + chunk.size)
+                    .putShort((System.currentTimeMillis() % 65536).toInt().toShort()).putShort(-1)
+                    .put(header).put(chunk).array()
+                val packet = crypto.seal(sendSeq++, plain)
+                runCatching { socket.send(DatagramPacket(packet, packet.size, address, port)) }
+            }
         }
     }
+
+    /** Unacknowledged events kept (tests). */
+    internal val pendingEvents: Int get() = synchronized(lock) { events.size }
 
     private fun receiveLoop() {
         val buf = ByteArray(2048)
@@ -145,20 +154,25 @@ class MoshChannel private constructor(
             val whole = assembly.add(id, numFinal and 0x7FFF, numFinal and 0x8000 != 0, payload) ?: continue
             val inst = runCatching { Proto.parseInstruction(unzlib(whole)) }.getOrNull() ?: continue
             if (inst.protocolVersion != 2) continue
-            onInstruction(inst)
+            runCatching { onInstruction(inst) }
         }
     }
 
     private fun onInstruction(inst: Proto.Instruction) {
         synchronized(lock) {
-            if (inst.ackNum in eventsAt && inst.ackNum > ackedNum) {
+            val ackedAt = eventsAt[inst.ackNum]
+            if (ackedAt != null && inst.ackNum > ackedNum) {
+                // The server has these events: forget them (keystrokes, passwords included).
                 eventsAt.keys.removeAll { it < inst.ackNum }
+                events.subList(0, ackedAt).clear()
+                eventsAt.replaceAll { _, at -> at - ackedAt }
                 ackedNum = inst.ackNum
             }
         }
         if (inst.newNum == -1L) { remoteGone = true; send(force = true); return }
         if (inst.newNum > remoteNum && inst.oldNum == remoteNum) {
-            Proto.hostStrings(inst.diff).forEach { if (it.isNotEmpty()) incoming.put(it) }
+            val strings = Proto.hostStrings(inst.diff)
+            strings.forEach { if (it.isNotEmpty()) incoming.put(it) }
             remoteNum = inst.newNum
             send(force = true)
         } else if (inst.newNum <= remoteNum) {
@@ -180,11 +194,12 @@ class MoshChannel private constructor(
         socket.close()
     }
 
-    private class Crypto(key: ByteArray) {
+    internal class Crypto(key: ByteArray) {
         private val keyParam = KeyParameter(key)
 
-        fun seal(seq: Long, plain: ByteArray): ByteArray {
-            val nonce = seq and SEQUENCE_MASK // direction bit 0: to server
+        /** [toClient] false (direction bit 0) for our packets; true only to play the server in tests. */
+        fun seal(seq: Long, plain: ByteArray, toClient: Boolean = false): ByteArray {
+            val nonce = (seq and SEQUENCE_MASK) or (if (toClient) DIRECTION_BIT else 0L)
             val c = OCBBlockCipher(AESEngine.newInstance(), AESEngine.newInstance())
             c.init(true, AEADParameters(keyParam, 128, nonce12(nonce)))
             val out = ByteArray(c.getOutputSize(plain.size))
@@ -212,6 +227,7 @@ class MoshChannel private constructor(
         private var total = -1
 
         fun add(fid: Long, num: Int, last: Boolean, data: ByteArray): ByteArray? {
+            if (num >= MAX_FRAGMENTS) return null
             if (fid != id) { id = fid; parts.clear(); total = -1 }
             parts[num] = data
             if (last) total = num + 1
@@ -286,7 +302,11 @@ class MoshChannel private constructor(
                 val field = (tag ushr 3).toInt()
                 when ((tag and 7).toInt()) {
                     0 -> onField(field, readVarint(), null)
-                    2 -> { val len = readVarint().toInt(); onField(field, 0, b.copyOfRange(i, i + len)); i += len }
+                    2 -> {
+                        val len = readVarint()
+                        if (len < 0 || len > b.size - i) throw IOException("bad protobuf length")
+                        onField(field, 0, b.copyOfRange(i, i + len.toInt())); i += len.toInt()
+                    }
                     1 -> i += 8
                     5 -> i += 4
                     else -> return
@@ -302,8 +322,11 @@ class MoshChannel private constructor(
         private const val TICK_MS = 50L
         private const val RESEND_MS = 300L
         private const val HEARTBEAT_MS = 3000L
+        /** An instruction from the server is a screen diff: a few KiB, never this much. */
+        private const val MAX_INSTRUCTION_BYTES = 8 shl 20
+        private const val MAX_FRAGMENTS = 4096
 
-        private fun zlib(b: ByteArray): ByteArray {
+        internal fun zlib(b: ByteArray): ByteArray {
             val d = Deflater(); d.setInput(b); d.finish()
             val out = ByteArrayOutputStream(); val buf = ByteArray(4096)
             while (!d.finished()) out.write(buf, 0, d.deflate(buf))
@@ -313,7 +336,12 @@ class MoshChannel private constructor(
         private fun unzlib(b: ByteArray): ByteArray {
             val inf = Inflater(); inf.setInput(b)
             val out = ByteArrayOutputStream(); val buf = ByteArray(8192)
-            while (!inf.finished()) { val n = inf.inflate(buf); if (n == 0 && (inf.needsInput() || inf.needsDictionary())) break; out.write(buf, 0, n) }
+            while (!inf.finished()) {
+                val n = inf.inflate(buf)
+                if (n == 0 && (inf.needsInput() || inf.needsDictionary())) break
+                out.write(buf, 0, n)
+                if (out.size() > MAX_INSTRUCTION_BYTES) { inf.end(); throw IOException("instruction too large") }
+            }
             inf.end(); return out.toByteArray()
         }
 
@@ -328,7 +356,7 @@ class MoshChannel private constructor(
             udpHost: String,
             columns: Int,
             rows: Int,
-            serverCommand: String = tr("mosh-server new -s -c 256 -l LANG=C.UTF-8"),
+            serverCommand: String = "mosh-server new -s -c 256 -l LANG=C.UTF-8",
         ): MoshChannel {
             val out = connection.exec("$serverCommand 2>&1 < /dev/null")
             val m = CONNECT.find(out) ?: throw IOException(

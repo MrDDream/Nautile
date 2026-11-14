@@ -1,7 +1,5 @@
 package com.nautile.app.ui.settings
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,7 +34,6 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDefaults
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,12 +47,15 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nautile.app.backup.AutoBackup
 import com.nautile.app.backup.BackupFrequency
 import com.nautile.app.backup.BackupNetwork
 import com.nautile.app.backup.BackupPrefs
+import com.nautile.app.backup.BackupTarget
 import com.nautile.app.ui.theme.Nt
 import com.nautile.i18n.I18n
+import com.nautile.i18n.tr
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -72,7 +72,7 @@ private enum class Pick { FREQUENCY, TIME, NETWORK }
  * picker. The next run sits on top, so the effect of a change is visible at once.
  */
 @Composable
-internal fun BackupOptions(target: com.nautile.app.backup.BackupTarget, needsNetwork: Boolean, onUpdate: (com.nautile.app.backup.BackupTarget) -> Unit) {
+internal fun BackupOptions(target: BackupTarget, needsNetwork: Boolean, onUpdate: (BackupTarget) -> Unit) {
     val frequency = target.frequency
     val time = target.time
     val weekday = target.weekday
@@ -143,8 +143,8 @@ internal fun BackupOptions(target: com.nautile.app.backup.BackupTarget, needsNet
 /** Synchronisation: how often in the background (it also follows each change) and on which network. */
 @Composable
 internal fun SyncOptions(prefs: BackupPrefs, needsNetwork: Boolean, onChange: () -> Unit) {
-    val network by prefs.network.collectAsState()
-    val minutes by prefs.syncMinutes.collectAsState()
+    val network by prefs.network.collectAsStateWithLifecycle()
+    val minutes by prefs.syncMinutes.collectAsStateWithLifecycle()
     var pick by remember { mutableStateOf<Pick?>(null) }
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Nt.Bg)) {
         OptionRow(Icons.Outlined.Repeat, tr("Fréquence"), syncLabel(minutes)) { pick = Pick.FREQUENCY }

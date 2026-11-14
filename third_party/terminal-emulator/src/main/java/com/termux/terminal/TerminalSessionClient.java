@@ -15,7 +15,18 @@ public interface TerminalSessionClient {
 
     void onCopyTextToClipboard(TerminalSession session, String text);
 
+    /** Nautile: a program (not the user) asked to set the clipboard through OSC 52. Ignored by default. */
+    default void onRemoteCopyTextToClipboard(TerminalSession session, String text) {
+    }
+
     void onPasteTextFromClipboard(TerminalSession session);
+
+    /**
+     * Nautile: {@code count} bytes typed or pasted were not sent (main thread): {@code tooLarge} when they
+     * exceed what the session queues at all, otherwise the peer has not read what was sent before.
+     */
+    default void onInputRefused(TerminalSession session, int count, boolean tooLarge) {
+    }
 
     void onBell(TerminalSession session);
 

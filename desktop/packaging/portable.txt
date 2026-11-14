@@ -3,7 +3,16 @@ Nautile — portable mode / mode portable
 EN: Next to nautile.exe, this file switches Nautile to portable mode: everything (encrypted database,
 settings, conversations) is kept in the « data » folder beside it, so the whole folder can live on a
 USB stick. Remove this file to use the installed mode (%APPDATA%\Nautile) instead.
+The database key is never stored in clear on the stick: it is encrypted with a master password
+(Argon2id, AES-256-GCM, data\db.key.enc), created at the first start and asked at every start.
+A lost master password means lost data: nobody can recover it. The app's PIN or password lock only
+hides the interface while you are away; the master password is what protects the files.
 
 FR : à côté de nautile.exe, ce fichier active le mode portable : tout (base chiffrée, réglages,
 conversations) est gardé dans le dossier « data » voisin, et le dossier entier peut vivre sur une
 clé USB. Supprimez ce fichier pour revenir au mode installé (%APPDATA%\Nautile).
+La clé de la base n'est jamais en clair sur la clé USB : elle est chiffrée par un mot de passe maître
+(Argon2id, AES-256-GCM, data\db.key.enc), créé au premier démarrage et demandé à chaque démarrage.
+Mot de passe maître perdu = données perdues : personne ne peut le retrouver. Le verrou par code PIN ou
+mot de passe de l'application ne fait que cacher l'interface pendant votre absence ; ce sont les
+fichiers que protège le mot de passe maître.

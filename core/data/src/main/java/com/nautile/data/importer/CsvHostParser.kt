@@ -5,21 +5,23 @@ import com.nautile.i18n.tr
 /**
  * Reads a CSV export with a header row. Recognised columns (case-insensitive, any order):
  * `alias|label|name`, `hostname|host|address`, `port`, `username|user`, `group`, `tags`.
+ * Fields are separated by `,`, or by `;` when the header uses it (Excel in French).
  * Tags inside a cell are separated by `;` or `|`.
  */
 object CsvHostParser {
 
-    fun parse(text: String): List<ImportedHost> {
-        val rows = parseRows(text).filter { row -> row.any { it.isNotBlank() } }
+    fun parse(input: String): List<ImportedHost> {
+        val text = input.removePrefix(HostImport.BOM)
+        val rows = parseRows(text, separator(text)).filter { row -> row.any { it.isNotBlank() } }
         if (rows.isEmpty()) return emptyList()
         val header = rows.first().map { it.trim().lowercase() }
         fun col(vararg names: String) = header.indexOfFirst { it in names }
-        val iAlias = col(tr("alias"), "label", "name")
+        val iAlias = col("alias", "label", "name")
         val iHost = col("hostname", "host", "address")
-        val iPort = col(tr("port"))
+        val iPort = col("port")
         val iUser = col("username", "user")
         val iGroup = col("group")
-        val iTags = col(tr("tags"))
+        val iTags = col("tags")
         require(iHost >= 0) { tr("Colonne « hostname » introuvable") }
 
         return rows.drop(1).mapNotNull { row ->
@@ -29,7 +31,7 @@ object CsvHostParser {
             ImportedHost(
                 alias = cell(iAlias).ifEmpty { host },
                 hostname = host,
-                port = cell(iPort).toIntOrNull() ?: 22,
+                port = cell(iPort).toIntOrNull()?.takeIf { it in 1..65535 } ?: 22,
                 username = cell(iUser),
                 group = cell(iGroup).ifEmpty { null },
                 tags = cell(iTags).split(';', '|').map { it.trim() }.filter { it.isNotEmpty() },
@@ -37,8 +39,25 @@ object CsvHostParser {
         }
     }
 
-    /** RFC 4180-style: quoted fields, doubled quotes, commas and newlines inside quotes. */
-    internal fun parseRows(text: String): List<List<String>> {
+    /** `;` when the header line has more of them than commas outside quotes, else `,`. */
+    internal fun separator(text: String): Char {
+        var inQuotes = false
+        var commas = 0
+        var semicolons = 0
+        for (c in text) {
+            when {
+                c == '"' -> inQuotes = !inQuotes
+                inQuotes -> {}
+                c == '\n' -> break
+                c == ',' -> commas++
+                c == ';' -> semicolons++
+            }
+        }
+        return if (semicolons > commas) ';' else ','
+    }
+
+    /** RFC 4180-style: quoted fields, doubled quotes, separators and newlines inside quotes. */
+    internal fun parseRows(text: String, separator: Char = ','): List<List<String>> {
         val rows = mutableListOf<List<String>>()
         var row = mutableListOf<String>()
         val field = StringBuilder()
@@ -52,7 +71,7 @@ object CsvHostParser {
                 } else field.append(c)
             } else when (c) {
                 '"' -> inQuotes = true
-                ',' -> { row += field.toString(); field.clear() }
+                separator -> { row += field.toString(); field.clear() }
                 '\r' -> {}
                 '\n' -> { row += field.toString(); field.clear(); rows += row; row = mutableListOf() }
                 else -> field.append(c)

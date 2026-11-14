@@ -46,7 +46,7 @@ pub fn score(query: &str, text: &str) -> Option<i32> {
     }
     let mut score = 0;
     let mut last = 0usize;
-    let mut chars = t.char_indices().peekable();
+    let mut chars = t.char_indices();
     for qc in q.chars() {
         loop {
             let (i, tc) = chars.next()?;

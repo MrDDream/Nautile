@@ -1,7 +1,5 @@
 package com.nautile.app.ui.settings
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -58,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
@@ -76,6 +75,8 @@ import com.nautile.app.ai.prettyModel
 import com.nautile.app.ui.common.NtTextField
 import com.nautile.app.ui.common.ProviderLogo
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -114,113 +115,111 @@ internal fun ProviderSheetContent(kind: AiProviderKind, onSaved: (working: Boole
     }
     val canSave = model.isNotBlank() && (!kind.needsKey || keySaved || key.isNotBlank())
 
-    run {
-        Column(
-            Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(Nt.Bg), contentAlignment = Alignment.Center) {
-                    ProviderLogo(kind, 26.dp)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(kind.label, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        when {
-                            !kind.needsKey -> tr("Sans clé API")
-                            keySaved -> tr("Clé enregistrée")
-                            else -> tr("Clé API requise")
-                        },
-                        color = if (kind.needsKey && !keySaved) Nt.Accent else Nt.Muted, fontSize = 12.sp,
-                    )
-                }
-                IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, contentDescription = tr("Fermer"), tint = Nt.TextSoft) }
+    Column(
+        Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(Nt.Bg), contentAlignment = Alignment.Center) {
+                ProviderLogo(kind, 26.dp)
             }
-
-            if (kind.editableUrl) {
-                NtTextField(url, { url = it }, tr("Adresse de l'API"), mono = true, placeholder = kind.defaultBaseUrl ?: "https://…/v1")
-                if (kind == AiProviderKind.LOCAL)
-                    Hint(tr("Ollama : http://IP-du-PC:11434/v1 (lancer avec OLLAMA_HOST=0.0.0.0). LM Studio : http://IP-du-PC:1234/v1."))
-            }
-
-            OutlinedTextField(
-                value = key, onValueChange = { key = it },
-                label = {
-                    Text(when {
-                        keySaved -> tr("Nouvelle clé API (facultatif)")
-                        kind.needsKey -> tr("Clé API")
-                        else -> tr("Clé API (facultative)")
-                    })
-                },
-                placeholder = { Text(if (keySaved) "••••••••••••" else kind.keyHint, color = Nt.Placeholder, fontFamily = Nt.Mono) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
-                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    IconButton(onClick = { showKey = !showKey }) {
-                        Icon(if (showKey) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                            contentDescription = if (showKey) tr("Masquer") else tr("Afficher"), tint = Nt.TextSoft)
-                    }
-                },
-                textStyle = TextStyle(fontFamily = Nt.Mono, fontSize = 14.sp, color = Nt.Text),
-                shape = RoundedCornerShape(12.dp),
-                colors = fieldColors(),
-            )
-
-            // Model: a selector, not a text field (the picker also accepts a name typed by hand).
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(tr("Modèle"), color = Nt.TextSoft, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 58.dp).clip(RoundedCornerShape(12.dp))
-                        .border(1.dp, Nt.Border, RoundedCornerShape(12.dp))
-                        .clickable(role = Role.DropdownList) { picking = true }
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        if (model.isBlank()) Text(tr("Choisir un modèle"), color = Nt.Placeholder, fontSize = 15.sp)
-                        else {
-                            Text(prettyModel(model), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Nt.Text)
-                            Text(model, fontSize = 11.sp, fontFamily = Nt.Mono, color = Nt.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                    Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = Nt.TextSoft)
-                }
-            }
-
-            if (busy) LinearProgressIndicator(color = Nt.Accent, trackColor = Nt.Border, modifier = Modifier.fillMaxWidth())
-            status?.let { (ok, text) ->
-                Text(text, color = if (ok) Nt.Green else Nt.Pink, fontSize = 13.sp, lineHeight = 18.sp,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                        .background((if (ok) Nt.Green else Nt.Pink).copy(alpha = 0.10f)).padding(10.dp))
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(
-                    enabled = !busy && canSave, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Nt.Border),
-                    onClick = {
-                        busy = true; status = null
-                        val c = current()
-                        save()
-                        scope.launch {
-                            status = runCatching { ai.test(c) }.fold(
-                                onSuccess = { answer -> onSaved(true); true to tr("Connexion OK. Réponse : %1\$s", answer.take(80)) },
-                                onFailure = { false to tr("Échec : %1\$s", it.message ?: "") },
-                            )
-                            busy = false
-                        }
+            Column(Modifier.weight(1f)) {
+                Text(kind.label, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    when {
+                        !kind.needsKey -> tr("Sans clé API")
+                        keySaved -> tr("Clé enregistrée")
+                        else -> tr("Clé API requise")
                     },
-                ) { Text(tr("Tester"), color = Nt.Text, fontWeight = FontWeight.SemiBold) }
-                Button(
-                    enabled = !busy && canSave, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Nt.Accent, contentColor = Nt.OnAccent),
-                    onClick = { save(); onSaved(ai.isConfigured(kind)); onDismiss() },
-                ) { Text(tr("Enregistrer"), fontWeight = FontWeight.SemiBold) }
+                    color = if (kind.needsKey && !keySaved) Nt.Accent else Nt.Muted, fontSize = 12.sp,
+                )
             }
+            IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, contentDescription = tr("Fermer"), tint = Nt.TextSoft) }
+        }
 
-            if (keySaved) TextButton(onClick = { ai.forgetKey(kind); keySaved = false; ai.setEnabled(kind, false) }) {
-                Text(tr("Oublier la clé %1\$s", kind.label), color = Nt.Pink)
+        if (kind.editableUrl) {
+            NtTextField(url, { url = it }, tr("Adresse de l'API"), mono = true, placeholder = kind.defaultBaseUrl ?: "https://…/v1")
+            if (kind == AiProviderKind.LOCAL)
+                Hint(tr("Ollama : http://IP-du-PC:11434/v1 (lancer avec OLLAMA_HOST=0.0.0.0). LM Studio : http://IP-du-PC:1234/v1."))
+        }
+
+        OutlinedTextField(
+            value = key, onValueChange = { key = it },
+            label = {
+                Text(when {
+                    keySaved -> tr("Nouvelle clé API (facultatif)")
+                    kind.needsKey -> tr("Clé API")
+                    else -> tr("Clé API (facultative)")
+                })
+            },
+            placeholder = { Text(if (keySaved) "••••••••••••" else kind.keyHint, color = Nt.Placeholder, fontFamily = Nt.Mono) },
+            singleLine = true, modifier = Modifier.fillMaxWidth(),
+            visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { showKey = !showKey }) {
+                    Icon(if (showKey) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                        contentDescription = if (showKey) tr("Masquer") else tr("Afficher"), tint = Nt.TextSoft)
+                }
+            },
+            textStyle = TextStyle(fontFamily = Nt.Mono, fontSize = 14.sp, color = Nt.Text),
+            shape = RoundedCornerShape(12.dp),
+            colors = fieldColors(),
+        )
+
+        // Model: a selector, not a text field (the picker also accepts a name typed by hand).
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(tr("Modèle"), color = Nt.TextSoft, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 58.dp).clip(RoundedCornerShape(12.dp))
+                    .border(1.dp, Nt.Border, RoundedCornerShape(12.dp))
+                    .clickable(role = Role.DropdownList) { picking = true }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    if (model.isBlank()) Text(tr("Choisir un modèle"), color = Nt.Placeholder, fontSize = 15.sp)
+                    else {
+                        Text(prettyModel(model), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Nt.Text)
+                        Text(model, fontSize = 11.sp, fontFamily = Nt.Mono, color = Nt.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = Nt.TextSoft)
             }
+        }
+
+        if (busy) LinearProgressIndicator(color = Nt.Accent, trackColor = Nt.Border, modifier = Modifier.fillMaxWidth())
+        status?.let { (ok, text) ->
+            Text(text, color = if (ok) Nt.Green else Nt.Pink, fontSize = 13.sp, lineHeight = 18.sp,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                    .background((if (ok) Nt.Green else Nt.Pink).copy(alpha = 0.10f)).padding(10.dp))
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(
+                enabled = !busy && canSave, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Nt.Border),
+                onClick = {
+                    busy = true; status = null
+                    val c = current()
+                    save()
+                    scope.launch {
+                        status = runCatching { ai.test(c) }.fold(
+                            onSuccess = { answer -> onSaved(true); true to tr("Connexion OK. Réponse : %1\$s", answer.take(80)) },
+                            onFailure = { false to tr("Échec : %1\$s", it.message ?: "") },
+                        )
+                        busy = false
+                    }
+                },
+            ) { Text(tr("Tester"), color = Nt.Text, fontWeight = FontWeight.SemiBold) }
+            Button(
+                enabled = !busy && canSave, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Nt.Accent, contentColor = Nt.OnAccent),
+                onClick = { save(); onSaved(ai.isConfigured(kind)); onDismiss() },
+            ) { Text(tr("Enregistrer"), fontWeight = FontWeight.SemiBold) }
+        }
+
+        if (keySaved) TextButton(onClick = { ai.forgetKey(kind); keySaved = false; ai.setEnabled(kind, false) }) {
+            Text(tr("Oublier la clé %1\$s", kind.label), color = Nt.Pink)
         }
     }
 
@@ -265,10 +264,16 @@ internal enum class ModelFilter(val label: () -> String, private val match: Rege
 internal fun ModelPicker(current: String, load: suspend () -> List<String>, onPick: (String) -> Unit, onDismiss: () -> Unit) {
     var models by remember { mutableStateOf<List<String>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    var attempt by remember { mutableStateOf(0) }
+    var attempt by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     LaunchedEffect(attempt) {
         error = null
-        runCatching { load() }.onSuccess { models = it.distinct().sortedDescending() }.onFailure { error = it.message ?: tr("Échec") }
+        try {
+            models = load().distinct().sortedDescending()
+        } catch (e: CancellationException) {
+            throw e // the dialog closed: nothing to show
+        } catch (e: Exception) {
+            error = e.message ?: tr("Échec")
+        }
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.86f), shape = RoundedCornerShape(24.dp), color = Nt.Surface) {
@@ -360,7 +365,7 @@ internal fun ModelPickerContent(
 }
 
 @Composable
-private fun PickRow(icon: androidx.compose.ui.graphics.vector.ImageVector?, title: String, detail: String, selected: Boolean, onClick: () -> Unit) {
+private fun PickRow(icon: ImageVector?, title: String, detail: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.RadioButton, onClick = onClick)
             .background(if (selected) Nt.Accent.copy(alpha = 0.08f) else Color.Transparent)

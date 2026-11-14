@@ -5,29 +5,42 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.nautile.i18n.tr
 
 enum class Protocol { SSH, MOSH, TELNET, SERIAL, LOCAL, RDP, VNC }
 
 /** A remote desktop (RDP or VNC) rather than a terminal. */
 val Protocol.isDesktop: Boolean get() = this == Protocol.RDP || this == Protocol.VNC
 
+/** SSH, or Mosh (which starts over SSH): hosts usable for tunnels, jumps and SFTP. */
+val Protocol.usesSsh: Boolean get() = this == Protocol.SSH || this == Protocol.MOSH
+
 /** AGENT is a legacy value from milestone 1, handled like PASSWORD. */
 enum class AuthMethod { PASSWORD, KEY, AGENT, IDENTITY }
 
 enum class ProxyKind { SOCKS5, HTTP }
 
-@Entity(tableName = "host_group", indices = [Index(value = ["name"], unique = true)])
+/** A record shared between devices: same [syncId] everywhere, the latest [updatedAt] wins. */
+interface Synced {
+    val id: Long
+    val syncId: String
+    val updatedAt: Long
+}
+
+@Entity(tableName = "host_group", indices = [Index(value = ["name"], unique = true), Index("syncId")])
 @kotlinx.serialization.Serializable
 data class HostGroup(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @PrimaryKey(autoGenerate = true) override val id: Long = 0,
     val name: String,
     val color: Long = DEFAULT_COLOR,
     val sortOrder: Int = 0,
     /** Same record on every device (synchronisation). Set by a trigger when empty. */
-    @ColumnInfo(defaultValue = "") val syncId: String = "",
+    @ColumnInfo(defaultValue = "") override val syncId: String = "",
     /** Last change in epoch millis, kept by triggers; the latest change wins when syncing. */
-    @ColumnInfo(defaultValue = "0") val updatedAt: Long = 0,
-)
+    @ColumnInfo(defaultValue = "0") override val updatedAt: Long = 0,
+    /** A Material Design Icons name (« server », « home »…) shown instead of the colour dot; none when null. */
+    @ColumnInfo(defaultValue = "NULL") val icon: String? = null,
+) : Synced
 
 @Entity(
     tableName = "host",
@@ -37,11 +50,11 @@ data class HostGroup(
         ForeignKey(entity = SshKey::class, parentColumns = ["id"], childColumns = ["keyId"], onDelete = ForeignKey.SET_NULL),
         ForeignKey(entity = Identity::class, parentColumns = ["id"], childColumns = ["identityId"], onDelete = ForeignKey.SET_NULL),
     ],
-    indices = [Index("groupId"), Index("jumpHostId"), Index("keyId"), Index("identityId")],
+    indices = [Index("groupId"), Index("jumpHostId"), Index("keyId"), Index("identityId"), Index("syncId"), Index("alias")],
 )
 @kotlinx.serialization.Serializable
 data class Host(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @PrimaryKey(autoGenerate = true) override val id: Long = 0,
     val alias: String,
     val hostname: String,
     val port: Int = 22,
@@ -87,16 +100,16 @@ data class Host(
     val createdAt: Long = System.currentTimeMillis(),
     val lastConnectedAt: Long? = null,
     /** Same record on every device (synchronisation). Set by a trigger when empty. */
-    @ColumnInfo(defaultValue = "") val syncId: String = "",
+    @ColumnInfo(defaultValue = "") override val syncId: String = "",
     /** Last change in epoch millis, kept by triggers; the latest change wins when syncing. */
-    @ColumnInfo(defaultValue = "0") val updatedAt: Long = 0,
-) {
+    @ColumnInfo(defaultValue = "0") override val updatedAt: Long = 0,
+) : Synced {
 
     /** `user@host[:port]` as shown under the alias. */
     val address: String
         get() = when (protocol) {
-            Protocol.LOCAL -> "ce téléphone"
-            Protocol.SERIAL -> "USB série · ${serialBaud ?: 115_200} bauds"
+            Protocol.LOCAL -> tr("ce téléphone")
+            Protocol.SERIAL -> tr("USB série · %1\$s bauds", serialBaud ?: 115_200)
             else -> networkAddress
         }
 
@@ -117,6 +130,9 @@ val Protocol.defaultPort: Int
         Protocol.SERIAL, Protocol.LOCAL -> 0
     }
 
+/** [defaultPort], or 22 for the protocols without a network port. */
+val Protocol.defaultPortOrSsh: Int get() = defaultPort.takeIf { it > 0 } ?: 22
+
 const val DEFAULT_COLOR: Long = 0xFFFFB547
 
 /** Palette offered by the host editor (matches the design). */
@@ -136,10 +152,10 @@ data class KnownHost(
 )
 
 /** A private key of the keychain. Stored in the SQLCipher-encrypted database. */
-@Entity(tableName = "ssh_key", indices = [Index(value = ["fingerprint"], unique = true)])
+@Entity(tableName = "ssh_key", indices = [Index(value = ["fingerprint"], unique = true), Index("syncId")])
 @kotlinx.serialization.Serializable
 data class SshKey(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @PrimaryKey(autoGenerate = true) override val id: Long = 0,
     val name: String,
     /** e.g. ssh-ed25519 */
     val keyType: String,
@@ -156,45 +172,45 @@ data class SshKey(
     val generated: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     /** Same record on every device (synchronisation). Set by a trigger when empty. */
-    @ColumnInfo(defaultValue = "") val syncId: String = "",
+    @ColumnInfo(defaultValue = "") override val syncId: String = "",
     /** Last change in epoch millis, kept by triggers; the latest change wins when syncing. */
-    @ColumnInfo(defaultValue = "0") val updatedAt: Long = 0,
-)
+    @ColumnInfo(defaultValue = "0") override val updatedAt: Long = 0,
+) : Synced
 
 /** Reusable credentials: a user name plus a password and/or a key. */
 @Entity(
     tableName = "identity",
     foreignKeys = [ForeignKey(entity = SshKey::class, parentColumns = ["id"], childColumns = ["keyId"], onDelete = ForeignKey.SET_NULL)],
-    indices = [Index("keyId")],
+    indices = [Index("keyId"), Index("syncId")],
 )
 @kotlinx.serialization.Serializable
 data class Identity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @PrimaryKey(autoGenerate = true) override val id: Long = 0,
     val name: String,
     val username: String,
     val password: String? = null,
     val keyId: Long? = null,
     /** Same record on every device (synchronisation). Set by a trigger when empty. */
-    @ColumnInfo(defaultValue = "") val syncId: String = "",
+    @ColumnInfo(defaultValue = "") override val syncId: String = "",
     /** Last change in epoch millis, kept by triggers; the latest change wins when syncing. */
-    @ColumnInfo(defaultValue = "0") val updatedAt: Long = 0,
-)
+    @ColumnInfo(defaultValue = "0") override val updatedAt: Long = 0,
+) : Synced
 
 /** A saved command. `${NAME}` placeholders are asked for before running. */
-@Entity(tableName = "snippet")
+@Entity(tableName = "snippet", indices = [Index("syncId")])
 @kotlinx.serialization.Serializable
 data class Snippet(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @PrimaryKey(autoGenerate = true) override val id: Long = 0,
     val name: String,
     val command: String,
     val tag: String = "",
     @ColumnInfo(defaultValue = "0") val runCount: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
     /** Same record on every device (synchronisation). Set by a trigger when empty. */
-    @ColumnInfo(defaultValue = "") val syncId: String = "",
+    @ColumnInfo(defaultValue = "") override val syncId: String = "",
     /** Last change in epoch millis, kept by triggers; the latest change wins when syncing. */
-    @ColumnInfo(defaultValue = "0") val updatedAt: Long = 0,
-) {
+    @ColumnInfo(defaultValue = "0") override val updatedAt: Long = 0,
+) : Synced {
     val variables: List<String>
         get() = VARIABLE.findAll(command).map { it.groupValues[1] }.distinct().toList()
 
@@ -213,11 +229,11 @@ enum class ForwardKind { LOCAL, REMOTE, DYNAMIC }
 @Entity(
     tableName = "port_forward",
     foreignKeys = [ForeignKey(entity = Host::class, parentColumns = ["id"], childColumns = ["hostId"], onDelete = ForeignKey.CASCADE)],
-    indices = [Index("hostId")],
+    indices = [Index("hostId"), Index("syncId")],
 )
 @kotlinx.serialization.Serializable
 data class PortForward(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @PrimaryKey(autoGenerate = true) override val id: Long = 0,
     val name: String,
     val hostId: Long,
     val kind: ForwardKind,
@@ -228,10 +244,10 @@ data class PortForward(
     /** Start with every terminal session to [hostId]. */
     @ColumnInfo(defaultValue = "0") val autoStart: Boolean = false,
     /** Same record on every device (synchronisation). Set by a trigger when empty. */
-    @ColumnInfo(defaultValue = "") val syncId: String = "",
+    @ColumnInfo(defaultValue = "") override val syncId: String = "",
     /** Last change in epoch millis, kept by triggers; the latest change wins when syncing. */
-    @ColumnInfo(defaultValue = "0") val updatedAt: Long = 0,
-)
+    @ColumnInfo(defaultValue = "0") override val updatedAt: Long = 0,
+) : Synced
 
 /** A command typed on a host, for autocompletion. Only lines echoed by the server are kept (never passwords). */
 @Entity(

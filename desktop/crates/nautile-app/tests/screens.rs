@@ -8,8 +8,8 @@ use nautile_core::db::Db;
 use nautile_core::model::{AuthMethod, Host, HostGroup, Protocol, Snippet, SshKey};
 use std::path::PathBuf;
 
-fn group(name: &str, color: i64, order: i32) -> HostGroup {
-    serde_json::from_value(serde_json::json!({ "name": name, "color": color, "sortOrder": order })).unwrap()
+fn group(name: &str, color: i64, order: i32, icon: Option<&str>) -> HostGroup {
+    serde_json::from_value(serde_json::json!({ "name": name, "color": color, "sortOrder": order, "icon": icon })).unwrap()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -30,9 +30,9 @@ fn demo(english: bool, dark: bool) -> App {
     nautile_core::i18n::set_english(english);
     let db = Db::in_memory().unwrap();
     let s = db.store();
-    let homelab = s.insert(&group("Homelab", 0xFFFFB547, 0)).unwrap();
-    let vps = s.insert(&group("VPS", 0xFF7AA2F7, 1)).unwrap();
-    let office = s.insert(&group(&nautile_core::tr("Bureau"), 0xFF5BD69A, 2)).unwrap();
+    let homelab = s.insert(&group("Homelab", 0xFFFFB547, 0, Some("home"))).unwrap();
+    let vps = s.insert(&group("VPS", 0xFF7AA2F7, 1, Some("cloud"))).unwrap();
+    let office = s.insert(&group(&nautile_core::tr("Bureau"), 0xFF5BD69A, 2, None)).unwrap();
     let key: SshKey = serde_json::from_value(serde_json::json!({
         "name": "laptop", "keyType": "ssh-ed25519", "description": "ED25519",
         "publicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGq0 laptop", "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----",
@@ -226,6 +226,16 @@ fn groups() {
     each(|app| {
         let _ = app.update(Message::OpenModal(Some(nautile_app::app::Modal::Groups)));
         "groups"
+    });
+}
+
+#[test]
+fn group_editor() {
+    each(|app| {
+        let id = app.groups[0].id;
+        let _ = app.update(Message::EditGroup(id));
+        let _ = app.update(Message::GroupIconQuery("serv".into()));
+        "group-editor"
     });
 }
 
@@ -530,8 +540,9 @@ fn sftp_editor() {
             original: text.into(),
             mtime: Some(1),
             saving: false,
-            error: Some("Le fichier a changé sur le serveur depuis son ouverture".into()),
+            error: Some(nautile_net::sftp::CmdError::Changed.to_string()),
             conflict: true,
+            modified: true,
         });
         t.files = Some(Box::new(f));
         "sftp-editor"
@@ -795,6 +806,37 @@ fn typing_in_the_terminal_sends_the_keys() {
 }
 
 #[test]
+fn typing_to_the_assistant_never_reaches_the_shell() {
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = demo(false, true);
+    with_session(&mut app);
+    app.assistant.open = true;
+    let settings = iced_test::core::Settings {
+        fonts: test_fonts(),
+        default_font: theme::UI,
+        ..Default::default()
+    };
+    let mut ui = iced_test::simulator::Simulator::with_size(settings, (1280.0, 800.0), ui::view(&app));
+    ui.click(iced_test::selector::id("ai-input")).expect("the assistant's field");
+    ui.typewrite("rm -rf x");
+    ui.tap_key(iced::keyboard::key::Named::Enter);
+    ui.tap_key(iced::keyboard::key::Named::ArrowUp);
+    let messages: Vec<Message> = ui.into_messages().collect();
+    assert!(
+        !messages
+            .iter()
+            .any(|m| matches!(m, Message::Term(_, nautile_app::term::widget::Action::Input(_)))),
+        "keys went to the terminal"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, Message::Ai(nautile_app::assistant::AiMsg::Input(_)))),
+        "the field got them"
+    );
+}
+
+#[test]
 fn a_generated_key_is_saved_like_on_android() {
     let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let mut app = demo(false, true);
@@ -837,8 +879,9 @@ fn the_lock_takes_a_pin() {
 #[test]
 fn lock_screen() {
     each(|app| {
+        let hash = nautile_core::lock::hash_with("2468", 1000);
+        nautile_core::lock::store(app.db.as_ref().unwrap(), Some((nautile_core::lock::LockMethod::Pin, &hash))).unwrap();
         app.settings.lock_method = Some(nautile_core::lock::LockMethod::Pin);
-        app.settings.lock_hash = Some(nautile_core::lock::hash_with("2468", 1000));
         let _ = app.update(Message::LockNow);
         "lock"
     });
@@ -941,6 +984,7 @@ fn backups() {
             id: "phone".into(),
             name: "Pixel 8".into(),
             last: 1_794_560_000_000,
+            platform: Some("android".into()),
         }];
         let _ = app.update(Message::Nav(Page::Settings));
         let _ = app.update(Message::SettingsPage(Some(SettingsPage::Backup)));
@@ -1060,6 +1104,7 @@ fn vnc_desktop() {
                 input: tx,
                 frame: Default::default(),
                 image: Some(iced::widget::image::Handle::from_rgba(w, h, rgba)),
+                frame_pending: false,
                 size: (w, h),
                 cursor: None,
             })),

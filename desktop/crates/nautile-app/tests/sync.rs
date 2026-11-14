@@ -1,9 +1,9 @@
 //! Two computers sharing a backup folder: what one adds or deletes reaches the other (the Android rules).
 
-use iced::futures::StreamExt;
 use iced::Task;
+use iced::futures::StreamExt;
 use nautile_app::app::{App, Message};
-use nautile_app::backup::{BackupMsg, Frequency, Target, PASSWORD};
+use nautile_app::backup::{BackupMsg, Frequency, PASSWORD, Target};
 use nautile_app::storage::{Paths, Settings};
 use nautile_core::db::Db;
 use nautile_core::model::{Host, HostGroup};
@@ -19,10 +19,10 @@ fn drive(app: &mut App, first: Task<Message>) {
                 continue;
             };
             while let Some(a) = s.next().await {
-                if let iced_runtime::Action::Output(m) = a {
-                    if !matches!(m, Message::ToastClear) {
-                        queue.push(app.update(m));
-                    }
+                if let iced_runtime::Action::Output(m) = a
+                    && !matches!(m, Message::ToastClear)
+                {
+                    queue.push(app.update(m));
                 }
             }
         }

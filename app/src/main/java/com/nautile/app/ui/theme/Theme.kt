@@ -1,6 +1,7 @@
 package com.nautile.app.ui.theme
 
 import android.app.Activity
+import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -14,7 +15,6 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,7 +27,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nautile.app.NautileApp
+import com.nautile.app.R
 
 /** Every colour of the app; the active one is [Nt.palette]. */
 data class Palette(
@@ -97,7 +99,7 @@ object Nt {
     val PrimaryBorder: Color? get() = if (palette.buttonStyle == ButtonStyle.OUTLINE) palette.accent else null
 
     /** JetBrains Mono (Nerd Font patched), as in the design. */
-    val Mono = FontFamily(androidx.compose.ui.text.font.Font(com.nautile.app.R.font.jetbrains_mono_nerd_regular))
+    val Mono = FontFamily(androidx.compose.ui.text.font.Font(R.font.jetbrains_mono_nerd_regular))
 }
 
 private val typography = Typography(
@@ -113,9 +115,9 @@ private val typography = Typography(
 fun NautileTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val prefs = (context.applicationContext as NautileApp).appearance
-    val theme by prefs.theme.collectAsState()
-    val accentChoice by prefs.accent.collectAsState()
-    val style by prefs.style.collectAsState()
+    val theme by prefs.theme.collectAsStateWithLifecycle()
+    val accentChoice by prefs.accent.collectAsStateWithLifecycle()
+    val style by prefs.style.collectAsStateWithLifecycle()
     val systemDark = isSystemInDarkTheme()
     val isLight = theme == AppTheme.LIGHT || (theme == AppTheme.SYSTEM && !systemDark)
 
@@ -142,17 +144,14 @@ fun NautileTheme(content: @Composable () -> Unit) {
             navigationBarStyle = if (isLight) SystemBarStyle.light(palette.bar.toArgb(), palette.bar.toArgb())
             else SystemBarStyle.dark(palette.bar.toArgb()),
         )
-        (context as? Activity)?.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(palette.bg.toArgb()))
+        (context as? Activity)?.window?.setBackgroundDrawable(ColorDrawable(palette.bg.toArgb()))
     }
 
     val p = palette
-    val scheme = if (p.isLight) lightColorScheme(
+    // surfaceTint defaults to primary in light/darkColorScheme(), so it is set again with copy().
+    val scheme = (if (p.isLight) lightColorScheme() else darkColorScheme()).copy(
         primary = p.accent, onPrimary = p.onAccent, secondary = p.blue, background = p.bg, onBackground = p.text,
-        surface = p.surface, onSurface = p.text, surfaceVariant = p.surface, onSurfaceVariant = p.muted,
-        surfaceContainer = p.bar, surfaceContainerHigh = p.surface, outline = p.border, outlineVariant = p.border, error = p.pink,
-    ) else darkColorScheme(
-        primary = p.accent, onPrimary = p.onAccent, secondary = p.blue, background = p.bg, onBackground = p.text,
-        surface = p.surface, onSurface = p.text, surfaceVariant = p.surface, onSurfaceVariant = p.muted,
+        surface = p.surface, onSurface = p.text, surfaceVariant = p.surface, onSurfaceVariant = p.muted, surfaceTint = p.accent,
         surfaceContainer = p.bar, surfaceContainerHigh = p.surface, outline = p.border, outlineVariant = p.border, error = p.pink,
     )
     MaterialTheme(colorScheme = scheme, typography = typography, content = content)

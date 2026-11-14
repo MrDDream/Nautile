@@ -17,15 +17,30 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
 use crate::proxy::{self, Proxy};
-use crate::session::{channels, Event, Events, HostKeyInfo, Input, KnownKey, Session, RUNTIME};
+use crate::session::{Event, Events, HostKeyInfo, Input, KnownKey, RUNTIME, Session, channels};
 
 /// How to log in on one hop.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Auth {
     /// `None`: ask when needed (the system agent is tried first).
     Password(Option<String>),
     /// OpenSSH, PEM or PuTTY text; the passphrase is asked when needed.
     Key { private: String, passphrase: Option<String> },
+}
+
+/// Never prints the password, the key or its passphrase.
+impl std::fmt::Debug for Auth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let hidden = |set: bool| if set { "***" } else { "none" };
+        match self {
+            Auth::Password(p) => f.debug_tuple("Password").field(&hidden(p.is_some())).finish(),
+            Auth::Key { passphrase, .. } => f
+                .debug_struct("Key")
+                .field("private", &"***")
+                .field("passphrase", &hidden(passphrase.is_some()))
+                .finish(),
+        }
+    }
 }
 
 /// One hop of a connection: jump hosts first, the destination last.
@@ -85,6 +100,32 @@ pub fn fingerprint(blob: &[u8]) -> String {
     )
 }
 
+/// Largest output kept from a command run aside (OS detection, monitor, mosh-server).
+pub const MAX_EXEC_OUTPUT: usize = 1 << 20;
+
+/// Appends [data] to [out] up to [MAX_EXEC_OUTPUT]; false once the limit is reached.
+pub(crate) fn push_bounded(out: &mut Vec<u8>, data: &[u8]) -> bool {
+    let room = MAX_EXEC_OUTPUT.saturating_sub(out.len());
+    out.extend_from_slice(&data[..data.len().min(room)]);
+    data.len() < room
+}
+
+/// What to do with a host key that is not among the trusted ones: the key to show as the previous one
+/// (`None`: a host never seen), and whether accepting it replaces a key of the same type. A host known with
+/// another type of key is a changed key, not a new host (same as Android's `KnownHostsVerifier`).
+pub fn host_key_change(known: &[KnownKey], info: &HostKeyInfo) -> (Option<KnownKey>, bool) {
+    let same_type = known.iter().find(|k| k.key_type == info.key_type);
+    (same_type.or_else(|| known.first()).cloned(), same_type.is_some())
+}
+
+/// The host key type a signature algorithm uses (all RSA signatures use an `ssh-rsa` key).
+fn key_type(a: &russh::keys::Algorithm) -> &str {
+    match a {
+        russh::keys::Algorithm::Rsa { .. } => "ssh-rsa",
+        a => a.as_str(),
+    }
+}
+
 /// Remote forwards: server port → where to connect from here.
 type RemoteMap = Arc<Mutex<HashMap<u32, (String, u16)>>>;
 
@@ -114,14 +155,11 @@ impl client::Handler for Client {
         {
             return Ok(true);
         }
-        let previous = self.known.iter().find(|k| k.key_type == info.key_type).cloned();
-        if !self.events.confirm_host_key(&self.label, info.clone(), previous.clone()).await {
+        let (previous, replace) = host_key_change(&self.known, &info);
+        if !self.events.confirm_host_key(&self.label, info.clone(), previous).await {
             return Ok(false);
         }
-        self.events.send(Event::Trust {
-            info,
-            replace: previous.is_some(),
-        });
+        self.events.send(Event::Trust { info, replace });
         Ok(true)
     }
 
@@ -218,11 +256,18 @@ impl Connection {
     }
 }
 
-fn config() -> Arc<client::Config> {
+/// The client settings; the host key types already trusted for this host come first, so that a server
+/// with several keys shows the known one (Android's `findExistingAlgorithms`).
+fn config(known: &[KnownKey]) -> Arc<client::Config> {
+    let mut preferred = russh::Preferred::default();
+    let mut keys = preferred.key.to_vec();
+    keys.sort_by_key(|a| !known.iter().any(|k| k.key_type == key_type(a)));
+    preferred.key = keys.into();
     Arc::new(client::Config {
         keepalive_interval: Some(Duration::from_secs(30)),
         keepalive_max: 3,
         nodelay: true,
+        preferred,
         ..Default::default()
     })
 }
@@ -272,14 +317,16 @@ pub async fn connect(p: &Params, events: &Events) -> Result<Connection, String> 
         let mut handle = match hops.last() {
             None => {
                 let stream = proxy::connect(&t.host, t.port, p.proxy.as_ref()).await.map_err(|e| e.to_string())?;
-                client::connect_stream(config(), stream, handler).await.map_err(reason)?
+                client::connect_stream(config(&t.known), stream, handler).await.map_err(reason)?
             }
             Some(prev) => {
                 let ch = prev
                     .channel_open_direct_tcpip(t.host.clone(), t.port as u32, "127.0.0.1", 0)
                     .await
                     .map_err(|e| trf("Rebond vers %1$s impossible : %2$s", &[&t.label, &reason(e)]))?;
-                client::connect_stream(config(), ch.into_stream(), handler).await.map_err(reason)?
+                client::connect_stream(config(&t.known), ch.into_stream(), handler)
+                    .await
+                    .map_err(reason)?
             }
         };
         authenticate(&mut handle, t, events).await?;
@@ -322,10 +369,11 @@ async fn authenticate(h: &mut Handle<Client>, t: &Target, events: &Events) -> Re
                 if r.success() {
                     return Ok(());
                 }
-                if let russh::client::AuthResult::Failure { remaining_methods, .. } = &r {
-                    if remaining_methods.contains(&MethodKind::KeyboardInteractive) && keyboard_interactive(h, t, &pw, events).await? {
-                        return Ok(());
-                    }
+                if let russh::client::AuthResult::Failure { remaining_methods, .. } = &r
+                    && remaining_methods.contains(&MethodKind::KeyboardInteractive)
+                    && keyboard_interactive(h, t, &pw, events).await?
+                {
+                    return Ok(());
                 }
                 events.status(tr("Mot de passe refusé"));
             }
@@ -380,10 +428,10 @@ async fn with_agent(h: &mut Handle<Client>, user: &str) -> bool {
             continue;
         };
         let hash = h.best_supported_rsa_hash().await.ok().flatten().flatten();
-        if let Ok(r) = h.authenticate_publickey_with(user.to_owned(), key, hash, &mut agent).await {
-            if r.success() {
-                return true;
-            }
+        if let Ok(r) = h.authenticate_publickey_with(user.to_owned(), key, hash, &mut agent).await
+            && r.success()
+        {
+            return true;
         }
     }
     false
@@ -450,6 +498,7 @@ async fn shell(
         return Some(reason(e));
     }
     events.send(Event::Connected);
+    detect_os(conn, events);
     // Tunnels declared with the session run as long as it does.
     let _tunnels = start_forwards(conn, &p.forwards, events).await;
     if let Some(cmd) = p.startup_command.as_deref().filter(|c| !c.trim().is_empty()) {
@@ -461,8 +510,7 @@ async fn shell(
     loop {
         tokio::select! {
             msg = read.wait() => match msg {
-                Some(ChannelMsg::Data { data }) => events.output(&data),
-                Some(ChannelMsg::ExtendedData { data, .. }) => events.output(&data),
+                Some(ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. }) => events.output(&data),
                 Some(ChannelMsg::ExitStatus { exit_status }) => exit = Some(exit_status),
                 Some(ChannelMsg::Close) | None => break,
                 _ => {}
@@ -487,6 +535,50 @@ async fn shell(
         Some(0) | None => None,
         Some(code) => Some(trf("Session terminée (code %1$s)", &[&code])),
     }
+}
+
+/// Runs `nautile_core::os::COMMAND` on its own channel, aside, then reports [Event::Os].
+pub fn detect_os(conn: &Connection, events: &Events) {
+    let handle = conn.handle.clone();
+    let events = events.clone();
+    RUNTIME.spawn(async move {
+        if let Some(os) = os_with(&handle).await {
+            events.send(Event::Os(os));
+        }
+    });
+}
+
+/// The server's operating system, `None` when it cannot be told.
+pub async fn os_of(conn: &Connection) -> Option<String> {
+    os_with(&conn.handle).await
+}
+
+async fn os_with(handle: &Handle<Client>) -> Option<String> {
+    exec(handle, nautile_core::os::COMMAND, Duration::from_secs(10))
+        .await
+        .map(|out| nautile_core::os::parse(&out))
+        .filter(|os| os != "unknown")
+}
+
+/// The output of `command` (stdout), within `limit` and [MAX_EXEC_OUTPUT].
+async fn exec(handle: &Handle<Client>, command: &str, limit: Duration) -> Option<String> {
+    let mut ch = handle.channel_open_session().await.ok()?;
+    ch.exec(true, command).await.ok()?;
+    let mut out = Vec::new();
+    let deadline = tokio::time::Instant::now() + limit;
+    loop {
+        match tokio::time::timeout_at(deadline, ch.wait()).await {
+            Ok(Some(ChannelMsg::Data { data })) => {
+                if !push_bounded(&mut out, &data) {
+                    break;
+                }
+            }
+            Ok(Some(ChannelMsg::Eof | ChannelMsg::Close)) | Ok(None) => break,
+            Err(_) => return None,
+            Ok(Some(_)) => {}
+        }
+    }
+    Some(String::from_utf8_lossy(&out).into_owned())
 }
 
 /// Running tunnels; dropping this stops the local listeners.
@@ -596,4 +688,68 @@ pub fn spawn_tunnels(p: Params) -> Session {
         events.send(Event::Closed(reason));
     });
     session
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(t: &str, k: &str) -> KnownKey {
+        KnownKey {
+            key_type: t.into(),
+            public_key: k.into(),
+            fingerprint: format!("SHA256:{k}"),
+        }
+    }
+
+    fn info(t: &str, k: &str) -> HostKeyInfo {
+        HostKeyInfo {
+            host: "h".into(),
+            port: 22,
+            key_type: t.into(),
+            public_key: k.into(),
+            fingerprint: format!("SHA256:{k}"),
+        }
+    }
+
+    #[test]
+    fn a_key_of_another_type_is_a_change_not_a_new_host() {
+        assert_eq!(host_key_change(&[], &info("ssh-rsa", "R")), (None, false), "never seen");
+        let known = [key("ssh-ed25519", "E")];
+        let (previous, replace) = host_key_change(&known, &info("ssh-rsa", "R"));
+        assert_eq!(previous, Some(known[0].clone()), "shown as a changed key");
+        assert!(!replace, "the RSA key is added, the ed25519 one is not replaced");
+        let known = [key("ssh-ed25519", "E"), key("ssh-rsa", "R1")];
+        assert_eq!(host_key_change(&known, &info("ssh-rsa", "R2")), (Some(known[1].clone()), true));
+    }
+
+    #[test]
+    fn known_key_types_are_negotiated_first() {
+        let c = config(&[key("ssh-rsa", "R")]);
+        assert!(matches!(c.preferred.key[0], russh::keys::Algorithm::Rsa { .. }));
+        assert!(c.preferred.key.len() == russh::Preferred::default().key.len());
+        let c = config(&[]);
+        assert_eq!(c.preferred.key, russh::Preferred::default().key);
+    }
+
+    #[test]
+    fn exec_output_is_bounded() {
+        let mut out = Vec::new();
+        assert!(push_bounded(&mut out, &[1; 1000]));
+        assert!(!push_bounded(&mut out, &vec![2; MAX_EXEC_OUTPUT]));
+        assert_eq!(out.len(), MAX_EXEC_OUTPUT);
+        assert!(!push_bounded(&mut out, &[3]));
+        assert_eq!(out.len(), MAX_EXEC_OUTPUT);
+    }
+
+    #[test]
+    fn debug_hides_secrets() {
+        let a = Auth::Password(Some("hunter2".into()));
+        let k = Auth::Key {
+            private: "-----BEGIN OPENSSH PRIVATE KEY-----".into(),
+            passphrase: Some("pass".into()),
+        };
+        let printed = format!("{a:?} {k:?}");
+        assert!(!printed.contains("hunter2") && !printed.contains("BEGIN") && !printed.contains("pass\""));
+    }
 }

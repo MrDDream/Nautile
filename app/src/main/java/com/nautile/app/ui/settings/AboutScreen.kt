@@ -1,7 +1,7 @@
 package com.nautile.app.ui.settings
 
-import com.nautile.i18n.tr
-
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,22 +22,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nautile.app.BuildConfig
+import com.nautile.app.ui.common.NautileWordmark
 import com.nautile.app.ui.common.NtCard
 import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.theme.Nt
 import com.nautile.app.update.UpdateChecker
+import com.nautile.i18n.tr
 import kotlinx.coroutines.launch
 
 /** « À propos »: the version, the update check at start and « Vérifier maintenant ». */
 @Composable
-fun AboutScreen(onBack: () -> Unit) {
+fun AboutScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var auto by remember { mutableStateOf(UpdateChecker.enabled(context)) }
     var checking by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     SettingsPage(tr("À propos"), onBack) {
-        com.nautile.app.ui.common.NautileWordmark(fontSize = 26.sp)
+        NautileWordmark(fontSize = 26.sp)
         Text(tr("Version %1\$s · client SSH et RDP libre (GPLv3)", BuildConfig.VERSION_NAME), color = Nt.Muted, fontSize = 13.sp)
         SectionLabel(tr("Mises à jour"), Modifier.padding(top = 8.dp))
         NtCard {
@@ -69,8 +71,10 @@ fun AboutScreen(onBack: () -> Unit) {
         SectionLabel(tr("Code source"), Modifier.padding(top = 8.dp))
         NtCard {
             LinkRow(tr("Nautile sur GitHub"), "github.com/${UpdateChecker.REPO}", "") {
-                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/${UpdateChecker.REPO}")))
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/${UpdateChecker.REPO}")))
             }
+            HorizontalDivider(color = Nt.Border)
+            LinkRow(tr("Licences tierces"), tr("Bibliothèques, polices et codes inclus"), "", onOpenLicenses)
         }
     }
 }

@@ -1,11 +1,12 @@
 package com.nautile.app.keys
 
-import com.nautile.i18n.tr
-
 import com.nautile.data.db.KeyDao
 import com.nautile.data.db.KeyUsage
+import com.nautile.data.model.AuthMethod
+import com.nautile.data.model.Host
 import com.nautile.data.model.Identity
 import com.nautile.data.model.SshKey
+import com.nautile.i18n.tr
 import com.nautile.ssh.AgentKey
 import com.nautile.ssh.KeyAlgorithm
 import com.nautile.ssh.SshKeyMaterial
@@ -66,12 +67,16 @@ class KeyRepository(private val dao: KeyDao) {
 
     fun canReencrypt(key: SshKey) = !key.encrypted || key.savedPassphrase != null
 
-    /** Keys usable by a forwarded agent without asking anything (unencrypted or passphrase remembered). */
-    suspend fun agentKeys(): List<AgentKey> = withContext(Dispatchers.Default) {
+    /**
+     * Keys a forwarded agent can sign with (unencrypted or passphrase remembered). Those of
+     * [trusted] (the keys the host's own connection uses) sign freely; the others only after the
+     * user allows them, once per connection.
+     */
+    suspend fun agentKeys(trusted: Set<Long>): List<AgentKey> = withContext(Dispatchers.Default) {
         dao.allKeys().filter { canReencrypt(it) }.mapNotNull { k ->
             runCatching {
                 val p = SshKeys.load(k.privateKey, k.savedPassphrase?.let(::finder))
-                AgentKey(p.public, p.private, k.name)
+                AgentKey(p.public, p.private, k.name, confirm = k.id !in trusted)
             }.getOrNull()
         }
     }
@@ -79,12 +84,23 @@ class KeyRepository(private val dao: KeyDao) {
     suspend fun saveIdentity(identity: Identity): Long = dao.upsertIdentity(identity)
     suspend fun deleteIdentity(identity: Identity) = dao.deleteIdentity(identity)
 
-    /** Moves milestone-2 key text stored on hosts into the keychain. */
-    suspend fun migrateLegacyKeys() {
+    /**
+     * Moves milestone-2 key text stored on hosts into the keychain. [saveHost] (the host DAO's
+     * upsert) lets a host whose « key » was only a file path (imported before IdentityFile was
+     * handled) fall back to password authentication, instead of staying on KEY with no key.
+     */
+    suspend fun migrateLegacyKeys(saveHost: (suspend (Host) -> Unit)? = null) {
         for (host in dao.hostsWithLegacyKey()) {
             val text = host.identity ?: continue
-            if (!text.contains("PRIVATE KEY") && !text.trimStart().startsWith("PuTTY-User-Key-File")) {
-                dao.clearLegacyKey(host.id)
+            // Not a key, or one refused before any decryption (too large, a derivation of minutes or gigabytes):
+            // not kept, it would be refused again at each use.
+            val refused = runCatching { SshKeys.checkCost(text) }.isFailure
+            if (refused || (!text.contains("PRIVATE KEY") && !text.trimStart().startsWith("PuTTY-User-Key-File"))) {
+                if (saveHost != null && host.authMethod == AuthMethod.KEY && host.keyId == null) {
+                    saveHost(host.copy(identity = null, authMethod = AuthMethod.PASSWORD))
+                } else {
+                    dao.clearLegacyKey(host.id)
+                }
                 continue
             }
             val key = runCatching { withContext(Dispatchers.Default) { SshKeys.parse(text, null, host.alias) } }

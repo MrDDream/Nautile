@@ -1,8 +1,7 @@
 //! The lists: hosts, snippets, keychain and tunnels.
 
 use super::*;
-#[allow(unused_imports)]
-use iced::widget::{button, column, container, image, pick_list, row, scrollable, stack, text, text_editor, text_input, Column, Space};
+use iced::widget::{Column, Space, button, column, container, row, scrollable, stack, text};
 
 pub(super) fn matches(h: &Host, q: &str) -> bool {
     let q = q.trim().to_lowercase();
@@ -13,11 +12,7 @@ pub(super) fn matches(h: &Host, q: &str) -> bool {
 }
 
 pub(super) fn host_count(n: usize) -> String {
-    if n == 1 {
-        tr("1 hôte")
-    } else {
-        trf("%1$s hôtes", &[&n])
-    }
+    if n == 1 { tr("1 hôte") } else { trf("%1$s hôtes", &[&n]) }
 }
 
 pub(super) fn host_row<'a>(app: &'a App, h: &'a Host) -> Element<'a, Message> {
@@ -97,13 +92,14 @@ pub(super) fn section<'a>(
     app: &'a App,
     name: String,
     color: Option<i64>,
+    group_icon: Option<&str>,
     n: usize,
     edit: Option<Message>,
     items: Vec<&'a Host>,
 ) -> Element<'a, Message> {
     let action: Option<Element<'a, Message>> =
         edit.map(|m| button(icon(I_EDIT).size(16)).padding(4).style(theme::ghost).on_press(m).into());
-    let mut c = column![kit::section_head(color.map(argb), name, host_count(n), action)].spacing(10);
+    let mut c = column![kit::section_head_mark(color.map(argb), group_icon, name, host_count(n), action)].spacing(10);
     if !items.is_empty() {
         c = c.push(kit::card(items.into_iter().map(|h| host_row(app, h)).collect()));
     }
@@ -192,11 +188,12 @@ pub(super) fn hosts(app: &App) -> Element<'_, Message> {
     for g in &app.groups {
         let n = app.hosts.iter().filter(|h| h.group_id == Some(g.id)).count();
         chips = chips.push(target(
-            kit::count_chip(
+            kit::count_chip_mark(
                 g.name.clone(),
                 n,
                 app.group_filter == Some(g.id),
                 Some(argb(g.color)),
+                g.icon.as_deref(),
                 Message::GroupFilter(Some(g.id)),
             ),
             Some(g.id),
@@ -226,6 +223,7 @@ pub(super) fn hosts(app: &App) -> Element<'_, Message> {
             app,
             g.name.clone(),
             Some(g.color),
+            g.icon.as_deref(),
             items.len(),
             Some(Message::EditGroup(g.id)),
             items,
@@ -237,7 +235,7 @@ pub(super) fn hosts(app: &App) -> Element<'_, Message> {
         .filter(|h| h.group_id.is_none_or(|g| !app.groups.iter().any(|x| x.id == g)))
         .collect();
     if !loose.is_empty() {
-        list = list.push(section(app, tr("Sans groupe"), None, loose.len(), None, loose));
+        list = list.push(section(app, tr("Sans groupe"), None, None, loose.len(), None, loose));
     }
     if app.hosts.is_empty() {
         list = list.push(empty(
@@ -321,21 +319,23 @@ pub(super) fn snippets(app: &App) -> Element<'_, Message> {
     for s in shown {
         let selected = matches!(&app.editor, Some(Editor::Snippet(f)) if f.original.as_ref().map(|o| o.id) == Some(s.id));
         let one_line = s.command.lines().collect::<Vec<_>>().join(" ⏎ ");
-        let mut footer = row![label(
-            [
-                Some(s.tag.clone()).filter(|t| !t.is_empty()),
-                Some(if s.run_count > 0 {
-                    trf("%1$s exécution%2$s", &[&s.run_count, &if s.run_count > 1 { "s" } else { "" }])
-                } else {
-                    tr("jamais lancé")
-                }),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ")
-        )
-        .size(12)]
+        let mut footer = row![
+            label(
+                [
+                    Some(s.tag.clone()).filter(|t| !t.is_empty()),
+                    Some(if s.run_count > 0 {
+                        trf("%1$s exécution%2$s", &[&s.run_count, &if s.run_count > 1 { "s" } else { "" }])
+                    } else {
+                        tr("jamais lancé")
+                    }),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" · ")
+            )
+            .size(12)
+        ]
         .spacing(6)
         .align_y(Alignment::Center);
         for v in s.variables() {
@@ -773,7 +773,7 @@ pub(super) fn connections(app: &App) -> Element<'_, Message> {
         );
     }
 
-    let log = app.db.as_ref().map(|db| db.connection_log(300)).unwrap_or_default();
+    let log = &app.cache.connection_log;
     if log.is_empty() && app.tabs.is_empty() {
         list = list.push(empty(
             I_HISTORY,

@@ -3,9 +3,9 @@
 //! not know, so a sync never drops what a newer phone wrote.
 
 use rusqlite::types::Value as Sql;
-use rusqlite::{params, Connection, OptionalExtension};
-use serde::de::DeserializeOwned;
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
 use crate::model::{Host, HostGroup, Identity, KnownHost, PortForward, Snippet, SshKey, SyncTombstone};
@@ -32,7 +32,7 @@ macro_rules! record {
     };
 }
 
-record!(HostGroup, "host_group", ["id", "name", "color", "sortOrder", "syncId", "updatedAt"], bools: []);
+record!(HostGroup, "host_group", ["id", "name", "color", "sortOrder", "syncId", "updatedAt", "icon"], bools: []);
 record!(Host, "host", [
     "id", "alias", "hostname", "port", "username", "protocol", "authMethod", "password", "identity", "keyId", "identityId",
     "agentForwarding", "proxyType", "proxyHost", "proxyPort", "proxyUsername", "proxyPassword", "knockSequence", "serialBaud",
@@ -52,7 +52,7 @@ record!(KnownHost, "known_host", ["id", "host", "port", "keyType", "publicKey", 
 
 /// The Android schema (Room v10, core/data/schemas), with an `extra` JSON column on shared tables.
 const SCHEMA: &str = r#"
-CREATE TABLE IF NOT EXISTS host_group (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `color` INTEGER NOT NULL, `sortOrder` INTEGER NOT NULL, `syncId` TEXT NOT NULL DEFAULT '', `updatedAt` INTEGER NOT NULL DEFAULT 0, `extra` TEXT NOT NULL DEFAULT '{}');
+CREATE TABLE IF NOT EXISTS host_group (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `color` INTEGER NOT NULL, `sortOrder` INTEGER NOT NULL, `syncId` TEXT NOT NULL DEFAULT '', `updatedAt` INTEGER NOT NULL DEFAULT 0, `icon` TEXT DEFAULT NULL, `extra` TEXT NOT NULL DEFAULT '{}');
 CREATE UNIQUE INDEX IF NOT EXISTS index_host_group_name ON host_group (`name`);
 CREATE TABLE IF NOT EXISTS ssh_key (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `keyType` TEXT NOT NULL, `description` TEXT NOT NULL, `publicKey` TEXT NOT NULL, `privateKey` TEXT NOT NULL, `fingerprint` TEXT NOT NULL, `encrypted` INTEGER NOT NULL, `savedPassphrase` TEXT, `generated` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `syncId` TEXT NOT NULL DEFAULT '', `updatedAt` INTEGER NOT NULL DEFAULT 0, `extra` TEXT NOT NULL DEFAULT '{}');
 CREATE UNIQUE INDEX IF NOT EXISTS index_ssh_key_fingerprint ON ssh_key (`fingerprint`);
@@ -74,14 +74,53 @@ CREATE TABLE IF NOT EXISTS connection_log (`id` INTEGER PRIMARY KEY AUTOINCREMEN
 CREATE INDEX IF NOT EXISTS index_connection_log_at ON connection_log (`at`);
 CREATE INDEX IF NOT EXISTS index_connection_log_hostId ON connection_log (`hostId`);
 CREATE TABLE IF NOT EXISTS sync_tombstone (`syncId` TEXT NOT NULL, `kind` TEXT NOT NULL, `deletedAt` INTEGER NOT NULL, PRIMARY KEY(`syncId`));
+CREATE INDEX IF NOT EXISTS index_host_group_syncId ON host_group (`syncId`);
+CREATE INDEX IF NOT EXISTS index_host_syncId ON host (`syncId`);
+CREATE INDEX IF NOT EXISTS index_host_alias ON host (`alias`);
+CREATE INDEX IF NOT EXISTS index_ssh_key_syncId ON ssh_key (`syncId`);
+CREATE INDEX IF NOT EXISTS index_identity_syncId ON identity (`syncId`);
+CREATE INDEX IF NOT EXISTS index_snippet_syncId ON snippet (`syncId`);
+CREATE INDEX IF NOT EXISTS index_port_forward_syncId ON port_forward (`syncId`);
 "#;
+
+/// Columns added since the first desktop version (table, column, SQL type): Room's version 11, the groups' icon.
+const ADDED_COLUMNS: &[(&str, &str, &str)] = &[("host_group", "icon", "TEXT DEFAULT NULL")];
 
 /// Epoch millis in SQL.
 const NOW: &str = "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)";
 
+/// The highest stamp ever written (2^62): far enough from i64::MAX that `stamp + 1` stays an integer
+/// (SyncSchema.MAX_STAMP).
+pub const MAX_STAMP: i64 = 4_611_686_018_427_387_904;
+
+/// How far ahead of this clock a stamp is believed (a year); beyond, it is brought back (see [stamp_cap]).
+pub const FUTURE_LIMIT_MS: i64 = 31_536_000_000;
+
+/// 2026-11-01 00:00 UTC, before this version existed: a clock earlier than that is wrong (started before the network
+/// time, no battery-backed clock…), and the stamps are not judged by it ([stamp_cap]). SyncSchema.CLOCK_FLOOR_MS.
+pub const CLOCK_FLOOR_MS: i64 = 1_793_491_200_000;
+
+/// The latest stamp believed at `now`: a year ahead, never above [MAX_STAMP]; only [MAX_STAMP] when `now` is before
+/// [CLOCK_FLOOR_MS], a clock that wrong would otherwise bring back every stamp (SyncSchema.stampCap).
+pub fn stamp_cap(now: i64) -> i64 {
+    if now < CLOCK_FLOOR_MS {
+        MAX_STAMP
+    } else {
+        now.saturating_add(FUTURE_LIMIT_MS).min(MAX_STAMP)
+    }
+}
+
+/// One past `at`, never above [MAX_STAMP] (SyncSchema.bump).
+pub fn bump(at: i64) -> i64 {
+    at.min(MAX_STAMP - 1) + 1
+}
+
+/// Tombstone id of the known host being inserted, in SQL (model::known_host_tombstone_id).
+const KH_NEW: &str = "'kh:' || NEW.host || ':' || NEW.port || ':' || NEW.keyType";
+
 /// Synced tables and the columns whose change is an edit (SyncSchema.TABLES).
 pub const SYNCED: &[(&str, &[&str])] = &[
-    ("host_group", &["name", "color", "sortOrder"]),
+    ("host_group", &["name", "color", "sortOrder", "icon"]),
     (
         "host",
         &[
@@ -147,45 +186,109 @@ pub const SYNCED: &[(&str, &[&str])] = &[
     ),
 ];
 
+/// References between synced records (SyncSchema.REFS): column → referenced table. Row ids differ between devices,
+/// so a record's canonical content (sync::content_hash) names the referenced record by its sync id.
+pub const REFS: &[(&str, &[(&str, &str)])] = &[
+    (
+        "host",
+        &[
+            ("keyId", "ssh_key"),
+            ("identityId", "identity"),
+            ("groupId", "host_group"),
+            ("jumpHostId", "host"),
+        ],
+    ),
+    ("identity", &[("keyId", "ssh_key")]),
+    ("port_forward", &[("hostId", "host")]),
+];
+
+/// The references of `table` (empty for a table without any).
+pub fn refs(table: &str) -> &'static [(&'static str, &'static str)] {
+    REFS.iter().find(|(t, _)| *t == table).map(|(_, r)| *r).unwrap_or(&[])
+}
+
+/// True outside a merge. `sync_ctl.merging` is 1 while another device's data is written (sync::merge, in its
+/// transaction): the triggers then leave updatedAt and the tombstones alone, so what SQLite does on its own
+/// (ON DELETE SET NULL / CASCADE when a remote deletion is applied) is not taken for a local edit.
+const NOT_MERGING: &str = "NOT EXISTS (SELECT 1 FROM sync_ctl WHERE merging != 0)";
+
 /// The triggers of SyncSchema.statements(), word for word.
 fn sync_statements() -> Vec<String> {
-    let mut out = Vec::new();
+    let mut out = vec![
+        "CREATE TABLE IF NOT EXISTS sync_ctl (merging INTEGER NOT NULL)".to_owned(),
+        "INSERT INTO sync_ctl (merging) SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM sync_ctl)".to_owned(),
+        // A merge never outlives its transaction; this only guards against a value left by hand.
+        "UPDATE sync_ctl SET merging = 0".to_owned(),
+    ];
     for (table, columns) in SYNCED {
         out.push(format!("UPDATE {table} SET syncId = lower(hex(randomblob(16))) WHERE syncId = ''"));
         out.push(format!("UPDATE {table} SET updatedAt = 1 WHERE updatedAt = 0"));
+        // Recreated each time (like the others): their body changes with the versions.
+        out.push(format!("DROP TRIGGER IF EXISTS sync_ins_{table}"));
         out.push(format!(
-            "CREATE TRIGGER IF NOT EXISTS sync_ins_{table} AFTER INSERT ON {table} BEGIN
+            "CREATE TRIGGER sync_ins_{table} AFTER INSERT ON {table} BEGIN
                 UPDATE {table} SET
                     syncId = CASE WHEN NEW.syncId = '' THEN lower(hex(randomblob(16))) ELSE NEW.syncId END,
-                    updatedAt = CASE WHEN NEW.updatedAt = 0 THEN {NOW} ELSE NEW.updatedAt END
+                    updatedAt = CASE WHEN NEW.updatedAt = 0 THEN {NOW} ELSE MIN(NEW.updatedAt, {MAX_STAMP}) END
                 WHERE id = NEW.id;
             END"
         ));
+        // An edit that moves updatedAt forward keeps it. Any other edit, including one saved from a stale copy
+        // (older updatedAt), is stamped now, and never below the previous value, so a row synced from a device
+        // whose clock runs ahead still moves forward; never above MAX_STAMP, so it stays an integer. Not during a
+        // merge, which writes updatedAt itself.
+        out.push(format!("DROP TRIGGER IF EXISTS sync_upd_{table}"));
         out.push(format!(
-            "CREATE TRIGGER IF NOT EXISTS sync_upd_{table} AFTER UPDATE OF {} ON {table}
-            WHEN NEW.updatedAt = OLD.updatedAt BEGIN
-                UPDATE {table} SET updatedAt = {NOW} WHERE id = NEW.id;
+            "CREATE TRIGGER sync_upd_{table} AFTER UPDATE OF {} ON {table}
+            WHEN NEW.updatedAt <= OLD.updatedAt AND {NOT_MERGING} BEGIN
+                UPDATE {table} SET updatedAt = MIN(MAX({NOW}, OLD.updatedAt + 1), {MAX_STAMP}) WHERE id = NEW.id;
             END",
             columns.join(", ")
         ));
+        // A deletion is dated after the row's last change, even one stamped by a clock running ahead, or it
+        // would apply nowhere. Not during a merge, which writes the other device's tombstones itself.
+        out.push(format!("DROP TRIGGER IF EXISTS sync_del_{table}"));
         out.push(format!(
-            "CREATE TRIGGER IF NOT EXISTS sync_del_{table} AFTER DELETE ON {table} WHEN OLD.syncId != '' BEGIN
-                INSERT OR REPLACE INTO sync_tombstone(syncId, kind, deletedAt) VALUES (OLD.syncId, '{table}', {NOW});
+            "CREATE TRIGGER sync_del_{table} AFTER DELETE ON {table} WHEN OLD.syncId != '' AND {NOT_MERGING} BEGIN
+                INSERT OR REPLACE INTO sync_tombstone(syncId, kind, deletedAt)
+                VALUES (OLD.syncId, '{table}', MIN(MAX({NOW}, OLD.updatedAt + 1), {MAX_STAMP}));
             END"
         ));
     }
+    out.push("DROP TRIGGER IF EXISTS sync_del_known_host".to_owned());
     out.push(format!(
-        "CREATE TRIGGER IF NOT EXISTS sync_del_known_host AFTER DELETE ON known_host BEGIN
+        "CREATE TRIGGER sync_del_known_host AFTER DELETE ON known_host WHEN {NOT_MERGING} BEGIN
             INSERT OR REPLACE INTO sync_tombstone(syncId, kind, deletedAt)
-            VALUES ('kh:' || OLD.host || ':' || OLD.port || ':' || OLD.keyType, 'known_host', {NOW});
+            VALUES ('kh:' || OLD.host || ':' || OLD.port || ':' || OLD.keyType, 'known_host', MIN(MAX({NOW}, OLD.addedAt + 1), {MAX_STAMP}));
         END"
     ));
-    out.push(
-        "CREATE TRIGGER IF NOT EXISTS sync_ins_known_host AFTER INSERT ON known_host BEGIN
-            DELETE FROM sync_tombstone WHERE syncId = 'kh:' || NEW.host || ':' || NEW.port || ':' || NEW.keyType;
+    // Trusting a key again cancels its tombstone, and is dated after it: a tombstone dated ahead (the key was trusted
+    // on a device whose clock runs ahead) still held by another device would otherwise delete the new trust again.
+    out.push("DROP TRIGGER IF EXISTS sync_ins_known_host".to_owned());
+    out.push(format!(
+        "CREATE TRIGGER sync_ins_known_host AFTER INSERT ON known_host BEGIN
+            UPDATE known_host SET addedAt = MIN((SELECT deletedAt FROM sync_tombstone WHERE syncId = {KH_NEW}) + 1, {MAX_STAMP})
+                WHERE id = NEW.id AND addedAt <= (SELECT deletedAt FROM sync_tombstone WHERE syncId = {KH_NEW});
+            DELETE FROM sync_tombstone WHERE syncId = {KH_NEW};
         END"
-        .to_owned(),
-    );
+    ));
+    out.extend(stamp_repairs(crate::model::now_ms()));
+    out
+}
+
+/// Brings back the stamps beyond [stamp_cap] at `now` (written before stamps were bounded, or restored from a file):
+/// a stamp that far ahead would win over every later edit, and one past i64::MAX is stored as a REAL. Tombstones are
+/// brought back the same way, never dropped: the deletion still applies. With a clock before [CLOCK_FLOOR_MS] only
+/// what is past [MAX_STAMP] is. Run at each opening and before each merge; only updatedAt / addedAt / deletedAt
+/// change, which the triggers do not watch. SyncSchema.stampRepairs, word for word.
+fn stamp_repairs(now: i64) -> Vec<String> {
+    let cap = stamp_cap(now);
+    let mut out: Vec<String> = SYNCED
+        .iter()
+        .map(|(table, _)| format!("UPDATE {table} SET updatedAt = {cap} WHERE updatedAt > {cap}"))
+        .collect();
+    out.push(format!("UPDATE known_host SET addedAt = {cap} WHERE addedAt > {cap}"));
+    out.push(format!("UPDATE sync_tombstone SET deletedAt = {cap} WHERE deletedAt > {cap}"));
     out
 }
 
@@ -204,10 +307,30 @@ fn to_json(v: Sql, boolean: bool) -> Value {
         Sql::Null => Value::Null,
         Sql::Integer(i) if boolean => Value::Bool(i != 0),
         Sql::Integer(i) => Value::from(i),
-        Sql::Real(f) => Value::from(f),
+        // Every column is an INTEGER: a REAL is a value past i64 (`i64::MAX + 1` in a trigger of an older version),
+        // read as the integer it bounds to rather than refused by the record's type.
+        Sql::Real(f) => Value::from(real_to_int(f)),
         Sql::Text(s) => Value::String(s),
         Sql::Blob(b) => Value::String(String::from_utf8_lossy(&b).into_owned()),
     }
+}
+
+/// A REAL read where an integer is stored, bounded to ±[MAX_STAMP] (NaN: 0).
+fn real_to_int(f: f64) -> i64 {
+    if f.is_nan() {
+        0
+    } else {
+        f.clamp(-(MAX_STAMP as f64), MAX_STAMP as f64) as i64
+    }
+}
+
+/// An integer column read whatever SQLite stored in it (see [real_to_int]).
+fn int_at(row: &rusqlite::Row, i: usize) -> Result<i64> {
+    Ok(match row.get::<_, Sql>(i)? {
+        Sql::Integer(n) => n,
+        Sql::Real(f) => real_to_int(f),
+        other => return Err(rusqlite::Error::InvalidColumnType(i, "integer".into(), other.data_type())),
+    })
 }
 
 /// The column values of `r` (id left out when 0, so SQLite numbers it) and its unknown fields as JSON.
@@ -256,11 +379,37 @@ impl Db {
         Self::setup(Connection::open_in_memory()?)
     }
 
+    /// For tests: the same connection, set up again as when the database opens.
+    #[cfg(test)]
+    pub(crate) fn reopened(self) -> Db {
+        Self::setup(self.conn).unwrap()
+    }
+
     fn setup(conn: Connection) -> Result<Db> {
         // Fails here, not later, when the key is wrong.
         conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))?;
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA recursive_triggers = OFF;")?;
         conn.execute_batch(SCHEMA)?;
+        for (table, column, ty) in ADDED_COLUMNS {
+            let present: bool = conn
+                .query_row(
+                    &format!("SELECT count(*) FROM pragma_table_info('{table}') WHERE name = '{column}'"),
+                    [],
+                    |r| r.get::<_, i64>(0),
+                )
+                .map(|n| n > 0)?;
+            if !present {
+                conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN `{column}` {ty}"))?;
+            }
+            // A version without the column kept the field in `extra` (unknown JSON fields, same name): moved into
+            // the column, which read() would otherwise put over it. Run on each opening: cheap, and idempotent.
+            conn.execute_batch(&format!(
+                "UPDATE {table} SET `{column}` = json_extract(extra, '$.{column}')
+                    WHERE `{column}` IS NULL AND CASE WHEN json_valid(extra) THEN json_type(extra, '$.{column}') IS NOT NULL ELSE 0 END;
+                UPDATE {table} SET extra = json_remove(extra, '$.{column}')
+                    WHERE CASE WHEN json_valid(extra) THEN json_type(extra, '$.{column}') IS NOT NULL ELSE 0 END;"
+            ))?;
+        }
         for s in sync_statements() {
             conn.execute_batch(&s)?;
         }
@@ -480,7 +629,7 @@ impl<'a> Store<'a> {
             Ok(SyncTombstone {
                 sync_id: r.get(0)?,
                 kind: r.get(1)?,
-                deleted_at: r.get(2)?,
+                deleted_at: int_at(r, 2)?,
                 extra: Map::new(),
             })
         })?;
@@ -505,9 +654,57 @@ impl<'a> Store<'a> {
         Ok(())
     }
 
+    /// The system detected on a host: local state, not an edit (`osId` is outside the triggers' columns).
+    pub fn set_os(&self, host_id: i64, os_id: &str) -> Result<()> {
+        self.0.execute("UPDATE host SET osId = ?1 WHERE id = ?2", params![os_id, host_id])?;
+        Ok(())
+    }
+
+    /// HostDao.markConnected: local state, outside the triggers' columns.
+    pub fn mark_connected(&self, host_id: i64, at: i64) -> Result<()> {
+        self.0
+            .execute("UPDATE host SET lastConnectedAt = ?1 WHERE id = ?2", params![at, host_id])?;
+        Ok(())
+    }
+
+    /// One more run of a snippet (ToolsDao): local state, outside the triggers' columns.
+    pub fn count_run(&self, snippet_id: i64) -> Result<()> {
+        self.0
+            .execute("UPDATE snippet SET runCount = runCount + 1 WHERE id = ?1", [snippet_id])?;
+        Ok(())
+    }
+
+    /// Brings back the stamps from too far ahead of `now` (see [stamp_repairs]), before a merge.
+    pub fn repair_stamps(&self, now: i64) -> Result<()> {
+        for s in stamp_repairs(now) {
+            self.0.execute_batch(&s)?;
+        }
+        Ok(())
+    }
+
+    /// Sets updatedAt of row `id` of `table` (a column the triggers do not watch).
+    pub fn restamp(&self, table: &str, id: i64, updated_at: i64) -> Result<()> {
+        self.0
+            .execute(&format!("UPDATE {table} SET updatedAt = ?1 WHERE id = ?2"), params![updated_at, id])?;
+        Ok(())
+    }
+
     pub fn set_sync_id(&self, table: &str, id: i64, sync_id: &str) -> Result<()> {
         self.0
             .execute(&format!("UPDATE {table} SET syncId = ?1 WHERE id = ?2"), params![sync_id, id])?;
+        Ok(())
+    }
+
+    /// The sync id of row `id` of `table`, None when there is no such row.
+    pub fn sync_id_of(&self, table: &str, id: i64) -> Result<Option<String>> {
+        self.0
+            .query_row(&format!("SELECT syncId FROM {table} WHERE id = ?1"), [id], |r| r.get(0))
+            .optional()
+    }
+
+    /// Puts the triggers aside (`true`) while another device's data is written, then back (see NOT_MERGING).
+    pub fn set_merging(&self, on: bool) -> Result<()> {
+        self.0.execute("UPDATE sync_ctl SET merging = ?1", [on as i64])?;
         Ok(())
     }
 
@@ -536,7 +733,10 @@ impl<'a> Store<'a> {
                     UNION ALL SELECT MAX(updatedAt) FROM snippet UNION ALL SELECT MAX(updatedAt) FROM port_forward
                     UNION ALL SELECT MAX(addedAt) FROM known_host UNION ALL SELECT MAX(deletedAt) FROM sync_tombstone)",
                 [],
-                |r| r.get::<_, Option<i64>>(0),
+                |r| match r.get::<_, Sql>(0)? {
+                    Sql::Null => Ok(None),
+                    _ => int_at(r, 0).map(Some),
+                },
             )
             .optional()
             .map(|v| v.flatten().unwrap_or(0))
@@ -546,10 +746,6 @@ impl<'a> Store<'a> {
 
     pub fn group_by_name(&self, name: &str) -> Result<Option<HostGroup>> {
         self.one("SELECT * FROM host_group WHERE name = ?1", [name])
-    }
-
-    pub fn host_by_alias(&self, alias: &str) -> Result<Option<Host>> {
-        self.one("SELECT * FROM host WHERE alias = ?1 LIMIT 1", [alias])
     }
 
     pub fn key_by_fingerprint(&self, fingerprint: &str) -> Result<Option<SshKey>> {
@@ -570,6 +766,21 @@ impl<'a> Store<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sync_lookups_are_indexed() {
+        let db = Db::in_memory().unwrap();
+        let plan: String = db
+            .conn
+            .query_row("EXPLAIN QUERY PLAN SELECT * FROM host WHERE syncId = 'x'", [], |r| r.get(3))
+            .unwrap();
+        assert!(plan.contains("index_host_syncId"), "{plan}");
+        let plan: String = db
+            .conn
+            .query_row("EXPLAIN QUERY PLAN SELECT * FROM host WHERE alias = 'x'", [], |r| r.get(3))
+            .unwrap();
+        assert!(plan.contains("index_host_alias"), "{plan}");
+    }
 
     #[test]
     fn secrets_stay_on_this_computer() {
@@ -616,6 +827,64 @@ mod tests {
         assert!(!back.rdp_audio);
         assert_eq!(back.sync_id.len(), 32, "the trigger gives it a sync id");
         assert!(back.updated_at > 1);
+    }
+
+    #[test]
+    fn a_field_kept_in_extra_by_an_older_version_moves_into_its_new_column() {
+        // The desktop 0.4.0 had no `icon` column: the icon synchronised from a phone stayed in `extra`.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE host_group (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `color` INTEGER NOT NULL,
+                `sortOrder` INTEGER NOT NULL, `syncId` TEXT NOT NULL DEFAULT '', `updatedAt` INTEGER NOT NULL DEFAULT 0,
+                `extra` TEXT NOT NULL DEFAULT '{}');
+            INSERT INTO host_group (name, color, sortOrder, syncId, updatedAt, extra)
+                VALUES ('Lab', 1, 0, 'a', 5, '{\"icon\":\"server\",\"future\":1}'), ('Plain', 1, 1, 'b', 5, '{}'), ('Odd', 1, 2, 'c', 5, 'not json');",
+        )
+        .unwrap();
+        let db = Db::setup(conn).unwrap();
+        let groups: Vec<HostGroup> = db.store().all().unwrap();
+        assert_eq!(groups[0].icon.as_deref(), Some("server"));
+        assert_eq!(groups[0].extra.get("future"), Some(&Value::from(1)));
+        assert!(!groups[0].extra.contains_key("icon"));
+        assert_eq!(groups[1].icon, None);
+        assert_eq!(groups[0].updated_at, 5, "moving a field is not an edit");
+        // Saved again, then opened again: still there.
+        db.store().update(&groups[0]).unwrap();
+        let again = Db::setup(db.conn).unwrap();
+        assert_eq!(
+            again.store().get::<HostGroup>(groups[0].id).unwrap().unwrap().icon.as_deref(),
+            Some("server")
+        );
+    }
+
+    #[test]
+    fn a_deletion_is_dated_after_a_change_stamped_in_the_future() {
+        let db = Db::in_memory().unwrap();
+        let s = db.store();
+        let ahead = crate::model::now_ms() + 3_600_000;
+        let id = s
+            .insert(&Host {
+                updated_at: ahead,
+                ..Host::new("nas", "n")
+            })
+            .unwrap();
+        let k = s
+            .insert(&KnownHost {
+                id: 0,
+                host: "n".into(),
+                port: 22,
+                key_type: "ssh-ed25519".into(),
+                public_key: "AAAA".into(),
+                fingerprint: "SHA256:x".into(),
+                added_at: ahead,
+                extra: Map::new(),
+            })
+            .unwrap();
+        s.delete::<Host>(id).unwrap();
+        s.delete::<KnownHost>(k).unwrap();
+        let tombs = s.tombstones().unwrap();
+        assert_eq!(tombs.len(), 2);
+        assert!(tombs.iter().all(|t| t.deleted_at == ahead + 1), "{tombs:?}");
     }
 }
 

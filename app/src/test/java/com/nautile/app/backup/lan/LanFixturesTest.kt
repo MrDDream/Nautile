@@ -1,6 +1,6 @@
 package com.nautile.app.backup.lan
 
-import org.junit.Assume.assumeTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -12,8 +12,9 @@ import java.security.SecureRandom
 import kotlin.concurrent.thread
 
 /**
- * Records real handshakes of the Wi-Fi protocol with fixed keys, for the desktop app (Rust) to replay:
- * `./gradlew :app:testDebugUnitTest --tests '*LanFixturesTest*' -PnautileFixtures`.
+ * Real handshakes of the Wi-Fi protocol with fixed random values, which the desktop app (Rust) replays byte for
+ * byte (desktop/crates/nautile-core/tests/lan_compat.rs). Checked against desktop/tests/fixtures/lan-*.json;
+ * rewritten with `./gradlew :app:testDebugUnitTest --tests '*LanFixturesTest*' -PnautileFixtures`.
  */
 class LanFixturesTest {
     private val dir = System.getProperty("nautile.fixtures").orEmpty()
@@ -35,49 +36,70 @@ class LanFixturesTest {
 
     private fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
 
-    private fun record(name: String, mode: Int, auth: ByteArray) {
-        val privI = ByteArray(32) { (it + 1).toByte() }
-        val privR = ByteArray(32) { (0x80 + it).toByte() }
+    private val idI = "11111111-1111-4111-8111-111111111111"
+    private val idR = "22222222-2222-4222-8222-222222222222"
+
+    /** One handshake then a few messages; the document describing it. */
+    private fun record(mode: Int, code: String, secret: ByteArray): String {
+        val randI = ByteArray(32) { (it + 1).toByte() }
+        val randR = ByteArray(32) { (0x80 + it).toByte() }
         val i2rWire = ByteArrayOutputStream()
         val r2iWire = ByteArrayOutputStream()
         val toR = PipedOutputStream(); val rIn: InputStream = PipedInputStream(toR, 1 shl 20)
         val toI = PipedOutputStream(); val iIn: InputStream = PipedInputStream(toI, 1 shl 20)
-        val fromI = "{\"id\":\"11111111-1111-4111-8111-111111111111\",\"name\":\"Pixel 9\"}"
-        val fromR = "{\"id\":\"22222222-2222-4222-8222-222222222222\",\"name\":\"PC bureau\",\"note\":\"é ✓\"}"
+        val fromI = "{\"id\":\"$idI\",\"name\":\"Pixel 9\",\"platform\":\"android\"}"
+        val fromR = "{\"id\":\"$idR\",\"name\":\"PC bureau\",\"note\":\"é ✓\"}"
         var receivedByR = ""
+        var secretR = ByteArray(0)
         val responder = thread {
             val out = Tee(toI, r2iWire)
-            check(LanProtocol.readMode(rIn) == mode)
-            val ch = LanProtocol.accept(rIn, out, mode, auth, Fixed(privR))
+            val hello = LanProtocol.readHello(rIn, out)
+            check(hello == LanProtocol.Hello(mode, idI))
+            val ch = if (mode == LanProtocol.MODE_PAIR) {
+                LanProtocol.pairAccept(rIn, out, hello, idR, code, Fixed(randR)).also { secretR = it.secret }.channel
+            } else LanProtocol.syncAccept(rIn, out, hello, idR, secret, Fixed(randR))
             receivedByR = ch.receiveText()
             ch.sendText(fromR)
             ch.sendText("")
         }
-        val ch = LanProtocol.connect(iIn, Tee(toR, i2rWire), mode, auth, Fixed(privI))
+        val out = Tee(toR, i2rWire)
+        var secretI = ByteArray(0)
+        val ch = if (mode == LanProtocol.MODE_PAIR) {
+            LanProtocol.pairConnect(iIn, out, idI, idR, code, Fixed(randI)).also { secretI = it.secret }.channel
+        } else LanProtocol.syncConnect(iIn, out, idI, idR, secret, Fixed(randI))
         ch.sendText(fromI)
         val receivedByI = ch.receiveText()
         check(ch.receiveText().isEmpty())
         responder.join()
-        check(receivedByR == fromI && receivedByI == fromR)
+        check(receivedByR == fromI && receivedByI == fromR && secretI.contentEquals(secretR))
 
         val fields = listOf(
             "mode" to q(String(Character.toChars(mode))),
-            "auth_hex" to q(hex(auth)),
-            "initiator_private_hex" to q(hex(privI)),
-            "responder_private_hex" to q(hex(privR)),
+            "initiator_id" to q(idI),
+            "responder_id" to q(idR),
+            "code" to q(code),
+            "secret_hex" to q(hex(if (mode == LanProtocol.MODE_PAIR) secretI else secret)),
+            "initiator_random_hex" to q(hex(randI)),
+            "responder_random_hex" to q(hex(randR)),
             "initiator_to_responder_hex" to q(hex(i2rWire.toByteArray())),
             "responder_to_initiator_hex" to q(hex(r2iWire.toByteArray())),
             "initiator_sends" to "[" + q(fromI) + "]",
             "responder_sends" to "[" + q(fromR) + ", " + q("") + "]",
         )
-        val doc = fields.joinToString(",\n", "{\n", "\n}") { (k, v) -> "  " + q(k) + ": " + v }
-        File(dir, "lan-$name.json").writeText(doc + "\n")
+        return fields.joinToString(",\n", "{\n", "\n}\n") { (k, v) -> "  " + q(k) + ": " + v }
     }
 
-    @Test fun writeForDesktop() {
-        assumeTrue("only with -PnautileFixtures", dir.isNotEmpty())
-        File(dir).mkdirs()
-        record("pair", LanProtocol.MODE_PAIR, "482916".toByteArray())
-        record("sync", LanProtocol.MODE_SYNC, ByteArray(32) { (0x40 + it).toByte() })
+    private fun compare(name: String, doc: String) {
+        if (dir.isNotEmpty()) {
+            File(dir).mkdirs()
+            File(dir, "lan-$name.json").writeText(doc)
+        } else {
+            val file = File(System.getProperty("user.dir"), "../desktop/tests/fixtures/lan-$name.json")
+            assertEquals("lan-$name.json, the desktop's replay", file.readText(), doc)
+        }
     }
+
+    @Test fun pairingMatchesTheDesktopsRecording() = compare("pair", record(LanProtocol.MODE_PAIR, "482916", ByteArray(0)))
+
+    @Test fun syncMatchesTheDesktopsRecording() = compare("sync", record(LanProtocol.MODE_SYNC, "", ByteArray(32) { (0x40 + it).toByte() }))
 }

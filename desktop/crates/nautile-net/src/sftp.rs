@@ -9,7 +9,7 @@ use russh_sftp::client::SftpSession;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use crate::session::{channels, Event, RUNTIME};
+use crate::session::{Event, RUNTIME, channels};
 use crate::ssh::{self, Params};
 
 /// A file or folder of a listing.
@@ -88,8 +88,32 @@ pub enum Update {
     /// A command finished (`error` set when it failed).
     Finished {
         id: u64,
-        error: Option<String>,
+        error: Option<CmdError>,
     },
+}
+
+/// Why a command failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CmdError {
+    /// [Cmd::Write] refused: the file changed on the server since the editor read it (it may be overwritten
+    /// by saving again with `expect: None`).
+    Changed,
+    Failed(String),
+}
+
+impl std::fmt::Display for CmdError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CmdError::Changed => f.write_str(&nautile_core::tr("Le fichier a changé sur le serveur depuis son ouverture")),
+            CmdError::Failed(e) => f.write_str(e),
+        }
+    }
+}
+
+impl From<String> for CmdError {
+    fn from(e: String) -> Self {
+        CmdError::Failed(e)
+    }
 }
 
 /// The interface's side.
@@ -113,6 +137,44 @@ pub fn parent(path: &str) -> String {
         Some(0) | None => "/".into(),
         Some(i) => p[..i].into(),
     }
+}
+
+/// A name a server may give in a listing: one path component, never `.`, `..` or a path.
+fn remote_name_ok(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\0'])
+}
+
+/// True when [name], received from the server, can be created inside a local folder without leaving it: a
+/// single normal component (no `..`, no absolute path, no separator, no Windows drive or stream).
+pub fn safe_local_name(name: &str) -> bool {
+    local_name_ok(name, cfg!(windows))
+}
+
+/// [safe_local_name] for Windows' rules or the others' (testable everywhere). Windows also refuses `<>"|?*`,
+/// control characters, a name ending with `.` or a space, and the devices' names (`CON`, `nul.txt`, `COM¹`…).
+pub fn local_name_ok(name: &str, windows: bool) -> bool {
+    use std::path::Component;
+    if !remote_name_ok(name) {
+        return false;
+    }
+    if windows {
+        if name.chars().any(|c| c < ' ' || "\\:<>\"|?*".contains(c)) || name.ends_with(['.', ' ']) {
+            return false;
+        }
+        let base = name.split('.').next().unwrap_or_default().trim_end_matches(' ').to_uppercase();
+        let device = matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+            || ["COM", "LPT"].iter().any(|p| {
+                base.strip_prefix(p).is_some_and(|n| {
+                    let mut c = n.chars();
+                    matches!((c.next(), c.next()), (Some('0'..='9' | '¹' | '²' | '³'), None))
+                })
+            });
+        if device {
+            return false;
+        }
+    }
+    let mut parts = Path::new(name).components();
+    matches!((parts.next(), parts.next()), (Some(Component::Normal(n)), None) if n == std::ffi::OsStr::new(name))
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -181,7 +243,7 @@ pub async fn list(sftp: &SftpSession, path: &str) -> Result<Vec<Entry>, String> 
                 mode: m.permissions,
             }
         })
-        .filter(|e| e.name != "." && e.name != "..")
+        .filter(|e| remote_name_ok(&e.name))
         .collect();
     // A link to a folder opens like a folder.
     for e in out.iter_mut().filter(|e| e.link) {
@@ -200,6 +262,32 @@ struct Meter<'a> {
     done: u64,
     total: u64,
     last: Instant,
+    /// Remote names that could not be created here, left out of a folder's download.
+    skipped: Vec<String>,
+    /// Links to folders, not followed (a link to « / » or to a parent would copy without end).
+    links: Vec<String>,
+}
+
+impl Meter<'_> {
+    /// What was left out, for the end of the transfer: None when everything was copied.
+    fn left_out(&self, upload: bool) -> Option<String> {
+        let mut parts = Vec::new();
+        if !self.skipped.is_empty() {
+            parts.push(nautile_core::trf(
+                "Téléchargé, sauf %1$s élément(s) dont le nom n'est pas permis ici : %2$s",
+                &[&self.skipped.len(), &self.skipped.join(", ")],
+            ));
+        }
+        if !self.links.is_empty() {
+            let text = if upload {
+                "Envoyé, sauf %1$s lien(s) vers des dossiers, non suivis : %2$s"
+            } else {
+                "Téléchargé, sauf %1$s lien(s) vers des dossiers, non suivis : %2$s"
+            };
+            parts.push(nautile_core::trf(text, &[&self.links.len(), &self.links.join(", ")]));
+        }
+        (!parts.is_empty()).then(|| parts.join("\n"))
+    }
 }
 
 impl Meter<'_> {
@@ -235,17 +323,31 @@ async fn remote_size(sftp: &SftpSession, path: &str) -> u64 {
     total
 }
 
+/// Bytes [upload] sends: the chosen path is followed, links to folders inside it are not (see [upload]).
 fn local_size(path: &Path) -> u64 {
     let Ok(m) = std::fs::metadata(path) else { return 0 };
     if !m.is_dir() {
         return m.len();
     }
-    std::fs::read_dir(path)
-        .map(|rd| rd.flatten().map(|e| local_size(&e.path())).sum())
-        .unwrap_or(0)
+    let mut total = 0;
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let Ok(ft) = e.file_type() else { continue };
+            if ft.is_dir() {
+                stack.push(e.path());
+            } else if let Ok(m) = std::fs::metadata(e.path()) {
+                // A link to a file counts as the file; a link to a folder is skipped.
+                if !m.is_dir() {
+                    total += m.len();
+                }
+            }
+        }
+    }
+    total
 }
 
-async fn run(sftp: &SftpSession, id: u64, cmd: Cmd, up: &UnboundedSender<Update>) -> Result<(), String> {
+async fn run(sftp: &SftpSession, id: u64, cmd: Cmd, up: &UnboundedSender<Update>) -> Result<(), CmdError> {
     match cmd {
         Cmd::List(path) => {
             let entries = list(sftp, &path).await?;
@@ -257,11 +359,15 @@ async fn run(sftp: &SftpSession, id: u64, cmd: Cmd, up: &UnboundedSender<Update>
         Cmd::Read(path) => {
             let meta = sftp.metadata(&path).await.map_err(err)?;
             if meta.size.unwrap_or(0) > MAX_EDIT_BYTES {
-                return Err(nautile_core::tr("Fichier trop gros pour l'éditeur (2 Mo au plus)"));
+                return Err(nautile_core::tr("Fichier trop gros pour l'éditeur (2 Mo au plus)").into());
             }
-            let mut f = sftp.open(&path).await.map_err(err)?;
+            let f = sftp.open(&path).await.map_err(err)?;
             let mut bytes = Vec::new();
-            f.read_to_end(&mut bytes).await.map_err(err)?;
+            // The announced size may lie: never read more than the limit.
+            f.take(MAX_EDIT_BYTES + 1).read_to_end(&mut bytes).await.map_err(err)?;
+            if bytes.len() as u64 > MAX_EDIT_BYTES {
+                return Err(nautile_core::tr("Fichier trop gros pour l'éditeur (2 Mo au plus)").into());
+            }
             let text = String::from_utf8(bytes).map_err(|_| nautile_core::tr("Ce fichier n'est pas du texte"))?;
             let _ = up.send(Update::Text {
                 path,
@@ -273,7 +379,7 @@ async fn run(sftp: &SftpSession, id: u64, cmd: Cmd, up: &UnboundedSender<Update>
             if let Some(m) = expect {
                 let now = sftp.metadata(&path).await.ok().and_then(|x| x.mtime);
                 if now.is_some_and(|n| n != m) {
-                    return Err(nautile_core::tr("Le fichier a changé sur le serveur depuis son ouverture"));
+                    return Err(CmdError::Changed);
                 }
             }
             let mut f = sftp.create(&path).await.map_err(err)?;
@@ -290,8 +396,13 @@ async fn run(sftp: &SftpSession, id: u64, cmd: Cmd, up: &UnboundedSender<Update>
                 done: 0,
                 total,
                 last: Instant::now(),
+                skipped: Vec::new(),
+                links: Vec::new(),
             };
             download(sftp, &remote, &local, &mut m).await?;
+            if let Some(e) = m.left_out(false) {
+                return Err(CmdError::Failed(e));
+            }
         }
         Cmd::Upload { local, remote } => {
             let total = local_size(&local);
@@ -301,8 +412,13 @@ async fn run(sftp: &SftpSession, id: u64, cmd: Cmd, up: &UnboundedSender<Update>
                 done: 0,
                 total,
                 last: Instant::now(),
+                skipped: Vec::new(),
+                links: Vec::new(),
             };
             upload(sftp, &local, &remote, &mut m).await?;
+            if let Some(e) = m.left_out(true) {
+                return Err(CmdError::Failed(e));
+            }
         }
     }
     Ok(())
@@ -324,6 +440,17 @@ async fn download(sftp: &SftpSession, remote: &str, local: &Path, m: &mut Meter<
     if meta.is_dir() {
         tokio::fs::create_dir_all(local).await.map_err(err)?;
         for e in list(sftp, remote).await? {
+            // Names come from the server: none may lead out of the local folder. Skipped (and told at the
+            // end), the rest is still copied.
+            if !safe_local_name(&e.name) {
+                m.skipped.push(e.name.clone());
+                continue;
+            }
+            // Links to folders are not followed (a link to « / » would copy the whole server).
+            if e.link && e.dir {
+                m.links.push(join(remote, &e.name));
+                continue;
+            }
             Box::pin(download(sftp, &join(remote, &e.name), &local.join(&e.name), m)).await?;
         }
         return Ok(());
@@ -350,6 +477,11 @@ async fn upload(sftp: &SftpSession, local: &Path, remote: &str, m: &mut Meter<'_
         }
         let mut rd = tokio::fs::read_dir(local).await.map_err(err)?;
         while let Some(e) = rd.next_entry().await.map_err(err)? {
+            // Links to folders are skipped: a link to a parent would loop forever.
+            if e.file_type().await.map_err(err)?.is_symlink() && tokio::fs::metadata(e.path()).await.map(|m| m.is_dir()).unwrap_or(true) {
+                m.links.push(e.path().display().to_string());
+                continue;
+            }
             let name = e.file_name().to_string_lossy().into_owned();
             Box::pin(upload(sftp, &e.path(), &join(remote, &name), m)).await?;
         }
@@ -398,5 +530,82 @@ mod tests {
         assert_eq!(parent("/home/mrd/"), "/home");
         assert_eq!(parent("/home"), "/");
         assert_eq!(parent("/"), "/");
+    }
+
+    #[test]
+    fn folder_links_not_followed_are_told_at_the_end() {
+        let (up, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut m = Meter {
+            id: 1,
+            up: &up,
+            done: 0,
+            total: 0,
+            last: Instant::now(),
+            skipped: Vec::new(),
+            links: Vec::new(),
+        };
+        assert_eq!(m.left_out(false), None);
+        m.links.push("/srv/www/current".into());
+        let e = m.left_out(false).unwrap();
+        assert!(e.contains("1 lien(s)") && e.contains("/srv/www/current"), "{e}");
+        m.skipped.push("a:b".into());
+        assert_eq!(m.left_out(false).unwrap().lines().count(), 2);
+    }
+
+    #[test]
+    fn remote_names_cannot_leave_the_local_folder() {
+        for windows in [false, true] {
+            for ok in ["a", "notes.txt", ".bashrc", "a b", "..x", "COM10", "console.log", "LPT.txt"] {
+                assert!(local_name_ok(ok, windows), "{ok} {windows}");
+            }
+            for bad in ["", ".", "..", "../x", "../../.bashrc", "/etc/passwd", "a/b", "a\0b"] {
+                assert!(!local_name_ok(bad, windows), "{bad:?} {windows}");
+            }
+        }
+        // Fine elsewhere, impossible (or dangerous) on Windows.
+        for name in [
+            "..\\x",
+            "a\\b",
+            "C:\\x",
+            "a:b",
+            "x..",
+            "x.",
+            "x ",
+            "a<b",
+            "a>b",
+            "a\"b",
+            "a|b",
+            "a?b",
+            "a*b",
+            "a\tb",
+            "CON",
+            "con",
+            "Nul.txt",
+            "aux.tar.gz",
+            "COM1",
+            "com0",
+            "LPT9.log",
+            "COM\u{b9}",
+            "lpt\u{b3}.txt",
+            "CON .txt",
+        ] {
+            assert!(local_name_ok(name, false), "{name:?}");
+            assert!(!local_name_ok(name, true), "{name:?}");
+        }
+        assert_eq!(safe_local_name("a:b"), !cfg!(windows));
+        assert!(!remote_name_ok("../x") && !remote_name_ok("..") && remote_name_ok("a\\b"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_local_link_loop_is_not_followed() {
+        let dir = std::env::temp_dir().join(format!("nautile-sftp-loop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("a")).unwrap();
+        std::fs::write(dir.join("a/f"), b"12345").unwrap();
+        std::os::unix::fs::symlink("..", dir.join("a/loop")).unwrap();
+        std::os::unix::fs::symlink("f", dir.join("a/f-link")).unwrap();
+        assert_eq!(local_size(&dir), 10, "the file and the link to it, not the loop");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

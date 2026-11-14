@@ -8,12 +8,12 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use nautile_core::{tr, trf};
-use ocb3::aead::{Aead, KeyInit};
 use ocb3::Ocb3;
+use ocb3::aead::{Aead, KeyInit};
 use russh::ChannelMsg;
 use tokio::net::UdpSocket;
 
-use crate::session::{channels, Event, Events, Input, Session, RUNTIME};
+use crate::session::{Event, Events, Input, RUNTIME, Session, channels};
 use crate::ssh::{self, Params};
 
 const DIRECTION_BIT: u64 = 1 << 63;
@@ -149,9 +149,12 @@ mod proto {
                 },
                 2 => {
                     let Some(len) = read(&mut i) else { break };
-                    let Some(v) = b.get(i..i + len as usize) else { break };
+                    let Some(end) = usize::try_from(len).ok().and_then(|l| i.checked_add(l)) else {
+                        break;
+                    };
+                    let Some(v) = b.get(i..end) else { break };
                     out.push((field, 0, Some(v)));
-                    i += len as usize;
+                    i = end;
                 }
                 1 => i += 8,
                 5 => i += 4,
@@ -281,6 +284,17 @@ impl State {
         self.events_at.insert(self.current, self.events.len());
     }
 
+    /// The server has state [n]: the events before it are never sent again, so they are dropped.
+    fn acknowledge(&mut self, n: u64) {
+        self.events_at.retain(|k, _| *k >= n);
+        self.acked = n;
+        let from = self.events_at.get(&n).copied().unwrap_or(0);
+        self.events.drain(..from);
+        for at in self.events_at.values_mut() {
+            *at -= from;
+        }
+    }
+
     /// The packets to send now: our state (diff from what the server acknowledged) and our ack of its state.
     fn packets(&mut self, force: bool, shutdown: bool) -> Vec<Vec<u8>> {
         let now = Instant::now();
@@ -340,8 +354,7 @@ impl State {
             return None;
         }
         if self.events_at.contains_key(&inst.ack_num) && inst.ack_num > self.acked {
-            self.events_at.retain(|k, _| *k >= inst.ack_num);
-            self.acked = inst.ack_num;
+            self.acknowledge(inst.ack_num);
         }
         if inst.new_num == u64::MAX {
             return Some((Vec::new(), true, true));
@@ -388,7 +401,11 @@ async fn start_server(conn: &ssh::Connection) -> Result<String, String> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     loop {
         match tokio::time::timeout_at(deadline, ch.wait()).await {
-            Ok(Some(ChannelMsg::Data { data })) | Ok(Some(ChannelMsg::ExtendedData { data, .. })) => out.extend_from_slice(&data),
+            Ok(Some(ChannelMsg::Data { data })) | Ok(Some(ChannelMsg::ExtendedData { data, .. })) => {
+                if !ssh::push_bounded(&mut out, &data) {
+                    break;
+                }
+            }
             Ok(Some(ChannelMsg::Eof | ChannelMsg::Close)) | Ok(None) | Err(_) => break,
             Ok(Some(_)) => {}
         }
@@ -416,8 +433,17 @@ async fn run(
     events: &Events,
     mut input: tokio::sync::mpsc::UnboundedReceiver<Input>,
 ) -> Result<(), String> {
+    // Mosh talks UDP straight to the server: it would bypass the jump hosts and the proxy.
+    if p.chain.len() > 1 || p.proxy.is_some() {
+        return Err(tr(
+            "Mosh ne passe ni par les rebonds SSH ni par un proxy : utilisez SSH pour cet hôte",
+        ));
+    }
     let udp_host = p.chain.last().map(|t| t.host.clone()).unwrap_or_default();
     let conn = ssh::connect(&p, events).await?;
+    if let Some(os) = ssh::os_of(&conn).await {
+        events.send(Event::Os(os));
+    }
     events.status(tr("Démarrage de mosh-server…"));
     let out = start_server(&conn).await;
     conn.close().await;
@@ -490,6 +516,30 @@ mod tests {
         assert_eq!(port, 60001);
         assert_eq!(key.len(), 16);
         assert!(parse_connect("sh: mosh-server: not found").unwrap_err().contains("mosh-server"));
+    }
+
+    #[test]
+    fn acknowledged_events_are_dropped() {
+        let mut st = State::new(&[1u8; 16]);
+        for k in [b"a", b"b", b"c"] {
+            st.push(proto::keystroke(k));
+        }
+        st.acknowledge(2);
+        assert_eq!(st.events, vec![proto::keystroke(b"c")]);
+        assert_eq!(st.events_at.get(&2), Some(&0));
+        assert_eq!(st.events_at.get(&3), Some(&1));
+        st.push(proto::keystroke(b"d"));
+        st.acknowledge(4);
+        assert!(st.events.is_empty());
+        assert_eq!(st.events_at.get(&4), Some(&0));
+    }
+
+    #[test]
+    fn a_huge_field_length_does_not_overflow() {
+        // Field 1, bytes, length u64::MAX.
+        let mut b = vec![0x0a];
+        b.extend_from_slice(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01]);
+        let _ = proto::parse_instruction(&b);
     }
 
     /// A server built from the same pieces: its packets go through ours and back.

@@ -1,7 +1,5 @@
 package com.nautile.app.ui.common
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -24,6 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nautile.app.R
+import com.nautile.i18n.tr
 
 /** Title of a main page: optional back arrow, the Nautile mark, the title and actions on the right. */
 @Composable

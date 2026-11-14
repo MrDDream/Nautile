@@ -2,9 +2,9 @@ package com.nautile.data.db
 
 import androidx.room.TypeConverter
 import com.nautile.data.model.AuthMethod
+import com.nautile.data.model.ForwardKind
 import com.nautile.data.model.Protocol
 import com.nautile.data.model.ProxyKind
-import com.nautile.data.model.ForwardKind
 
 class Converters {
     @TypeConverter fun protocolToString(p: Protocol): String = p.name

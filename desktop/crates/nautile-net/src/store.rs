@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use nautile_core::{tr, trf};
 use sha2::{Digest, Sha256};
 use ureq::http;
@@ -116,16 +116,24 @@ pub fn webdav_file_url(url: &str) -> String {
 }
 
 fn agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(120)))
-        .http_status_as_error(false)
-        .tls_config(
-            ureq::tls::TlsConfig::builder()
-                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
-                .build(),
-        )
-        .build()
-        .into()
+    crate::cleartext::agent(
+        ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(120)))
+            .http_status_as_error(false)
+            .tls_config(
+                ureq::tls::TlsConfig::builder()
+                    .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+                    .build(),
+            )
+            .build(),
+    )
+}
+
+/// Sends [req] once [crate::cleartext::prepare] accepts its address: no password leaves over plain http, no
+/// redirection is followed.
+fn run(agent: &ureq::Agent, req: http::Request<Vec<u8>>) -> R<http::Response<ureq::Body>> {
+    let req = crate::cleartext::prepare(agent, req).map_err(StoreError::Other)?;
+    agent.run(req).map_err(other)
 }
 
 // --- Folder ---
@@ -217,7 +225,7 @@ impl WebDavStore {
             Some(Remote { text: None, .. }) => b = b.header("If-None-Match", "*"),
             _ => {}
         }
-        let r = self.agent.run(b.body(bytes.to_vec()).map_err(other)?).map_err(other)?;
+        let r = run(&self.agent, b.body(bytes.to_vec()).map_err(other)?)?;
         match r.status().as_u16() {
             412 => Err(StoreError::Conflict),
             c if !(200..300).contains(&c) => Err(Self::error(c)),
@@ -227,7 +235,7 @@ impl WebDavStore {
 
     fn send(&self, b: http::request::Builder) {
         if let Ok(req) = b.body(Vec::new()) {
-            let _ = self.agent.run(req);
+            let _ = run(&self.agent, req);
         }
     }
 }
@@ -235,7 +243,7 @@ impl WebDavStore {
 impl Store for WebDavStore {
     fn read(&self) -> R<Remote> {
         let req = self.request("GET", &self.url).body(Vec::new()).map_err(other)?;
-        let mut r = self.agent.run(req).map_err(other)?;
+        let mut r = run(&self.agent, req)?;
         match r.status().as_u16() {
             404 => Ok(Remote::default()),
             c if (200..300).contains(&c) => {
@@ -283,7 +291,7 @@ fn sha256(b: &[u8]) -> Vec<u8> {
 }
 
 fn hmac(key: &[u8], data: &str) -> Vec<u8> {
-    let mut m = <Hmac<Sha256> as Mac>::new_from_slice(key).expect("any key size");
+    let mut m = <Hmac<Sha256> as KeyInit>::new_from_slice(key).expect("any key size");
     m.update(data.as_bytes());
     m.finalize().into_bytes().to_vec()
 }
@@ -438,6 +446,7 @@ impl S3Client {
             b = b.header(k.as_str(), v.as_str());
         }
         let req = b.header("Authorization", auth).body(body.to_vec()).map_err(other)?;
+        let req = crate::cleartext::prepare(&self.agent, req).map_err(StoreError::Other)?;
         let mut r = self.agent.run(req).map_err(|e| {
             let s = e.to_string();
             if s.contains("resolve") || s.contains("dns") {
@@ -447,7 +456,9 @@ impl S3Client {
             }
         })?;
         let etag = r.headers().get("ETag").and_then(|v| v.to_str().ok()).map(str::to_owned);
-        let body = r.body_mut().with_config().limit(64 << 20).read_to_vec().unwrap_or_default();
+        // A body cut short (or over the limit) is an error: taken as empty, it would let the next write
+        // overwrite the other devices' data with this etag.
+        let body = r.body_mut().with_config().limit(64 << 20).read_to_vec().map_err(other)?;
         Ok(S3Response {
             status: r.status().as_u16(),
             etag,

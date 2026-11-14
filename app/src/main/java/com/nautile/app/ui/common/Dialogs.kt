@@ -1,7 +1,5 @@
 package com.nautile.app.ui.common
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 
 /** « Fermer docker-01 ? » before ending a live session; [onConfirm] tells whether to stop asking. */
 @Composable
@@ -45,5 +44,38 @@ fun ConfirmCloseDialog(name: String, desktop: Boolean = false, onDismiss: () -> 
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Annuler"), color = Nt.TextSoft) } },
         confirmButton = { TextButton(onClick = { onConfirm(dontAsk) }) { Text(tr("Fermer"), color = Nt.Pink, fontWeight = FontWeight.SemiBold) } },
+    )
+}
+
+/** « Supprimer X ? » with Annuler and a pink [action] button; [message] is the optional explanation. */
+@Composable
+fun ConfirmDialog(title: String, message: String?, action: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Nt.Surface,
+        title = { Text(title) },
+        text = message?.let { { Text(it, color = Nt.TextSoft) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Annuler"), color = Nt.TextSoft) } },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(action, color = Nt.Pink, fontWeight = FontWeight.SemiBold) } },
+    )
+}
+
+/** Explanation as a bulleted list of [lines], closed with « Compris ». */
+@Composable
+fun InfoDialog(title: String, lines: List<String>, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss, containerColor = Nt.Surface,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                lines.forEach { line ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("•", color = Nt.Accent, fontSize = 14.sp)
+                        Text(line, color = Nt.TextSoft, fontSize = 14.sp, lineHeight = 20.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Compris"), color = Nt.Accent) } },
     )
 }

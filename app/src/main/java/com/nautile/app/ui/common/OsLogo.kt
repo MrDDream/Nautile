@@ -1,6 +1,7 @@
 package com.nautile.app.ui.common
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,7 +16,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.nautile.app.ui.theme.Nt
 
 /** An OS logo: a Nerd Font glyph (or short label) in the brand's color. */
 data class OsBrand(val name: String, val glyph: String, val color: Color, val isGlyph: Boolean = true)
@@ -60,11 +60,22 @@ object OsBrands {
 fun HostAvatar(osId: String?, initial: String, hostColor: Color, size: Dp = 40.dp, corner: Dp = 11.dp, fontSize: TextUnit = 15.sp) {
     val brand = OsBrands.of(osId)
     val color = brand?.color ?: hostColor
-    Box(Modifier.size(size).clip(RoundedCornerShape(corner)).background(color.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+    val shape = RoundedCornerShape(corner)
+    Box(
+        Modifier.size(size).clip(shape).background(color.copy(alpha = 0.16f)).border(1.dp, color.copy(alpha = 0.22f), shape),
+        contentAlignment = Alignment.Center,
+    ) {
         when {
             brand == null -> Text(initial, color = color, fontWeight = FontWeight.Bold, fontSize = fontSize)
-            brand.isGlyph -> Text(brand.glyph, color = color, fontFamily = Nt.Mono, fontSize = fontSize * 1.45f)
-            else -> Text(brand.glyph, color = color, fontWeight = FontWeight.Bold, fontSize = fontSize * 0.7f)
+            brand.isGlyph -> OsGlyph(brand, Modifier.size(size * 0.6f))
+            else -> Text(
+                brand.glyph, color = color, fontWeight = FontWeight.ExtraBold, maxLines = 1, letterSpacing = (-0.4).sp,
+                fontSize = fontSize * (if (brand.glyph.length <= 2) 1f else 0.78f),
+            )
         }
     }
 }
+
+/** An OS logo filling [modifier]'s box (see [FontGlyph]). */
+@Composable
+fun OsGlyph(brand: OsBrand, modifier: Modifier) = FontGlyph(brand.glyph, brand.color, modifier)

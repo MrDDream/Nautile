@@ -1,7 +1,5 @@
 package com.nautile.app.ui.sftp
 
-import com.nautile.i18n.tr
-
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.SavedStateHandle
@@ -13,6 +11,8 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.nautile.app.NautileApp
 import com.nautile.app.session.ChannelBackend
+import com.nautile.app.session.SftpPool
+import com.nautile.i18n.tr
 import com.nautile.ssh.RemoteEntry
 import com.nautile.ssh.SftpSession
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +36,7 @@ data class SftpUiState(
 class SftpViewModel(private val app: NautileApp, handle: SavedStateHandle) : ViewModel() {
     val hostId: Long = handle.get<Long>("hostId") ?: 0L
     private val pool = app.sessions.sftp
+    private var lease: SftpPool.Lease? = null
     private var sftp: SftpSession? = null
     private val _state = MutableStateFlow(SftpUiState())
     val state: StateFlow<SftpUiState> = _state.asStateFlow()
@@ -44,12 +45,16 @@ class SftpViewModel(private val app: NautileApp, handle: SavedStateHandle) : Vie
     val transfers = app.sessions.transfers.transfers
 
     init {
-        app.sessions.transfers.onRemoteChanged = { h, dir -> if (h == hostId && dir == _state.value.path) refresh() }
+        viewModelScope.launch {
+            app.sessions.transfers.remoteChanges.collect { (h, dir) -> if (h == hostId && dir == _state.value.path) refresh() }
+        }
         viewModelScope.launch {
             val alias = app.hostRepository.get(hostId)?.alias.orEmpty()
             _state.update { it.copy(hostAlias = alias) }
             runCatching { pool.acquire(hostId) }
-                .onSuccess { s ->
+                .onSuccess { l ->
+                    lease = l
+                    val s = l.sftp
                     sftp = s
                     val start = handle.get<String>("path")?.takeIf { it.isNotBlank() } ?: withContext(Dispatchers.IO) { s.home() }
                     open(start)
@@ -61,18 +66,37 @@ class SftpViewModel(private val app: NautileApp, handle: SavedStateHandle) : Vie
     fun consumeMessage() { _message.value = null }
     fun toggleHidden() = _state.update { it.copy(showHidden = !it.showHidden) }
 
-    fun open(path: String) {
+    /** The folders visited before the current one, for the back button. */
+    private val visited = ArrayDeque<String>()
+    private val _canGoBack = MutableStateFlow(false)
+    val canGoBack: StateFlow<Boolean> = _canGoBack.asStateFlow()
+
+    /** Opens [path]; [remember]: the folder left is kept to come back to. */
+    fun open(path: String, remember: Boolean = true) {
         val s = sftp ?: return
+        val from = _state.value.path
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             runCatching { withContext(Dispatchers.IO) { s.canonical(path) to s.list(path) } }
-                .onSuccess { (p, list) -> _state.update { it.copy(path = p, entries = list, loading = false) } }
+                .onSuccess { (p, list) ->
+                    if (remember && from.isNotEmpty() && p != from && visited.lastOrNull() != from) visited.addLast(from)
+                    _canGoBack.value = visited.isNotEmpty()
+                    _state.update { it.copy(path = p, entries = list, loading = false) }
+                }
                 .onFailure { e -> _state.update { it.copy(loading = false, error = ChannelBackend.describe(e)) } }
         }
     }
 
-    fun refresh() = open(_state.value.path)
+    fun refresh() = open(_state.value.path, remember = false)
     fun up() = open(SftpSession.parent(_state.value.path))
+
+    /** Back to the folder seen before; false when there is none (the screen closes). */
+    fun back(): Boolean {
+        val previous = visited.removeLastOrNull() ?: return false
+        _canGoBack.value = visited.isNotEmpty()
+        open(previous, remember = false)
+        return true
+    }
 
     private fun op(success: String, block: (SftpSession) -> Unit) {
         val s = sftp ?: return
@@ -86,7 +110,7 @@ class SftpViewModel(private val app: NautileApp, handle: SavedStateHandle) : Vie
     fun mkdir(name: String) = op(tr("Dossier créé")) { it.mkdir(SftpSession.join(_state.value.path, name)) }
     fun rename(e: RemoteEntry, name: String) = op(tr("Renommé")) { it.rename(e.path, SftpSession.join(SftpSession.parent(e.path), name)) }
     fun delete(e: RemoteEntry) = op(tr("Supprimé")) { it.delete(e.path, recursive = e.isDirectory) }
-    fun chmod(e: RemoteEntry, octal: String) = op(tr("Permissions modifiées")) { it.chmod(e.path, octal.toInt(8)) }
+    fun chmod(e: RemoteEntry, octal: String) = op(tr("Permissions modifiées")) { it.chmod(e.path, octal.toInt(8) and 0xFFF) }
 
     fun upload(uri: Uri) {
         viewModelScope.launch {
@@ -111,7 +135,7 @@ class SftpViewModel(private val app: NautileApp, handle: SavedStateHandle) : Vie
     }
 
     override fun onCleared() {
-        if (sftp != null) app.appScope.launch(NonCancellable) { pool.release(hostId) }
+        lease?.let { l -> app.appScope.launch { withContext(NonCancellable) { pool.release(l) } } }
     }
 
     companion object {

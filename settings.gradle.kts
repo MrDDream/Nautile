@@ -10,7 +10,12 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven("https://jitpack.io") { content { includeGroup("com.github.mik3y") } }
+        // JitPack builds from source on demand: only usb-serial-for-android comes from it, and it is
+        // never looked up elsewhere.
+        exclusiveContent {
+            forRepository { maven("https://jitpack.io") }
+            filter { includeGroup("com.github.mik3y") }
+        }
     }
 }
 

@@ -1,7 +1,5 @@
 package com.nautile.app.ui.settings
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,16 +10,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material.icons.outlined.Mouse
+import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -30,24 +28,26 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nautile.app.NautileApp
 import com.nautile.app.rdp.RdpTouchMode
 import com.nautile.app.ui.common.NtCard
 import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.common.Segmented
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 import com.nautile.rdp.RdpQuality
 
 /** « Bureau à distance »: defaults for every RDP session. */
 @Composable
 fun RdpSettingsScreen(onBack: () -> Unit) {
     val prefs = (LocalContext.current.applicationContext as NautileApp).sessions.rdp.prefs
-    val mode by prefs.touchMode.collectAsState()
-    val quality by prefs.quality.collectAsState()
-    val clipboard by prefs.clipboard.collectAsState()
-    val immersive by prefs.immersive.collectAsState()
-    val keyBar by prefs.keyBar.collectAsState()
-    val pointer by prefs.pointer.collectAsState()
+    val mode by prefs.touchMode.collectAsStateWithLifecycle()
+    val quality by prefs.quality.collectAsStateWithLifecycle()
+    val clipboard by prefs.clipboard.collectAsStateWithLifecycle()
+    val immersive by prefs.immersive.collectAsStateWithLifecycle()
+    val keyBar by prefs.keyBar.collectAsStateWithLifecycle()
+    val pointer by prefs.pointer.collectAsStateWithLifecycle()
 
     SettingsPage(tr("Bureau à distance"), onBack) {
         SectionLabel(tr("Contrôle tactile"))
@@ -118,7 +118,7 @@ private fun gestures(mode: RdpTouchMode): List<Pair<String, String>> = when (mod
 }
 
 @Composable
-private fun ModeCard(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun ModeCard(title: String, detail: String, icon: ImageVector, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
     Surface(
         onClick = onClick, shape = RoundedCornerShape(14.dp), color = Nt.Surface,
         modifier = modifier.border(2.dp, if (on) Nt.Accent else Nt.Border, RoundedCornerShape(14.dp))

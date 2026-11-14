@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -52,11 +53,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nautile.app.ui.common.Centered
 import com.nautile.app.ui.common.NtTextField
 import com.nautile.app.ui.theme.Nt
 import com.nautile.i18n.tr
 import com.nautile.security.AppLock
 import com.nautile.security.LockMethod
+import com.nautile.security.LockSecret
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -76,6 +79,11 @@ fun LockedScreen(
     pinLength: Int = 0,
     initialWaitUntil: Long = 0L,
     onUnlocked: () -> Unit = {},
+    /**
+     * The Keystore could not check the code typed (each time; the activity offers the phone's lock after a few):
+     * the message to show, null for the usual one.
+     */
+    onUnavailable: () -> String? = { null },
 ) {
     val scope = rememberCoroutineScope()
     var code by remember { mutableStateOf("") }
@@ -93,10 +101,12 @@ fun LockedScreen(
             when (val r = withContext(Dispatchers.Default) { check(value) }) {
                 AppLock.Check.Ok -> { wrong = null; onUnlocked() }
                 is AppLock.Check.Wrong -> {
-                    wrong = if (r.triesLeft <= 2) tr("Code incorrect · %1\$s essai(s) avant une attente", r.triesLeft) else tr("Code incorrect")
+                    wrong = if (r.unreadable) tr("Code illisible sur cet appareil : utilisez le verrouillage du téléphone")
+                    else if (r.triesLeft <= 2) tr("Code incorrect · %1\$s essai(s) avant une attente", r.triesLeft) else tr("Code incorrect")
                     code = ""
                 }
                 is AppLock.Check.Wait -> { wrong = null; code = ""; waitUntil = r.untilMs; now = System.currentTimeMillis() }
+                AppLock.Check.Unavailable -> { wrong = onUnavailable() ?: keystoreUnavailableMessage(); code = "" }
             }
             checking = false
         }
@@ -139,7 +149,7 @@ fun LockedScreen(
                         enabled = waitS == 0L && !checking,
                         canBiometric = canBiometric,
                         onDigit = { d ->
-                            if (code.length < com.nautile.security.LockSecret.PIN_MAX) {
+                            if (code.length < LockSecret.PIN_MAX) {
                                 code += d; wrong = null
                                 if (pinLength > 0 && code.length == pinLength) submit(code)
                             }
@@ -197,10 +207,13 @@ fun LockedScreen(
     }
 }
 
+/** The Keystore failed for a moment: nothing was counted. */
+internal fun keystoreUnavailableMessage() = tr("Le Keystore d'Android ne répond pas : réessayez, ou redémarrez le téléphone.")
+
 @Composable
 private fun Message(text: String?) {
     Box(Modifier.fillMaxWidth().height(44.dp), contentAlignment = Alignment.Center) {
-        if (text != null) Text(text, color = Nt.Pink, fontSize = 13.sp, maxLines = 2)
+        if (text != null) Text(text, color = Nt.Pink, fontSize = 13.sp, maxLines = 3, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
 
@@ -260,13 +273,13 @@ private fun DigitKey(d: Char, enabled: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.size(KEY).background(Nt.Surface, CircleShape).clickable(enabled = enabled, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Text(d.toString(), fontSize = 28.sp, color = if (enabled) Nt.Text else Nt.Muted, style = com.nautile.app.ui.common.Centered) }
+    ) { Text(d.toString(), fontSize = 28.sp, color = if (enabled) Nt.Text else Nt.Muted, style = Centered) }
 }
 
 @Composable
-private fun IconKey(icon: ImageVector, label: String, enabled: Boolean, tint: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+private fun IconKey(icon: ImageVector, label: String, enabled: Boolean, tint: Color, onClick: () -> Unit) {
     Box(
-        Modifier.size(KEY).background(androidx.compose.ui.graphics.Color.Transparent, CircleShape).clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+        Modifier.size(KEY).background(Color.Transparent, CircleShape).clickable(enabled = enabled, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(26.dp)) }
 }

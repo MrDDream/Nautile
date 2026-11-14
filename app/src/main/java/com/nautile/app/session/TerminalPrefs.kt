@@ -4,6 +4,11 @@ import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import java.util.UUID
 
 /** Terminal appearance settings shared by every session. */
 class TerminalPrefs(private val context: Context) {
@@ -45,7 +50,7 @@ class TerminalPrefs(private val context: Context) {
 
     /** Copies [bytes] to app storage; throws when they are not a usable font. Returns the new font, now selected. */
     fun importFont(name: String, bytes: ByteArray): TerminalFont {
-        val id = "imp_" + java.util.UUID.randomUUID().toString().take(8)
+        val id = "imp_" + UUID.randomUUID().toString().take(8)
         val file = TerminalFonts.file(context, id)
         file.parentFile?.mkdirs()
         file.writeBytes(bytes)
@@ -69,7 +74,7 @@ class TerminalPrefs(private val context: Context) {
         val json = kotlinx.serialization.json.buildJsonArray {
             list.forEach { f ->
                 add(kotlinx.serialization.json.buildJsonObject {
-                    put("id", kotlinx.serialization.json.JsonPrimitive(f.id)); put("name", kotlinx.serialization.json.JsonPrimitive(f.name))
+                    put("id", JsonPrimitive(f.id)); put("name", JsonPrimitive(f.name))
                 })
             }
         }
@@ -77,13 +82,13 @@ class TerminalPrefs(private val context: Context) {
     }
 
     private fun loadImportedFonts(): List<TerminalFont> = runCatching {
-        val arr = kotlinx.serialization.json.Json.parseToJsonElement(prefs.getString(KEY_FONTS, null) ?: return@runCatching emptyList())
-            as kotlinx.serialization.json.JsonArray
+        val arr = Json.parseToJsonElement(prefs.getString(KEY_FONTS, null) ?: return@runCatching emptyList())
+            as JsonArray
         arr.map { e ->
-            val o = e as kotlinx.serialization.json.JsonObject
+            val o = e as JsonObject
             TerminalFont(
-                (o["id"] as kotlinx.serialization.json.JsonPrimitive).content,
-                (o["name"] as kotlinx.serialization.json.JsonPrimitive).content,
+                (o["id"] as JsonPrimitive).content,
+                (o["name"] as JsonPrimitive).content,
                 imported = true,
             )
         }.filter { TerminalFonts.file(context, it.id).isFile }
@@ -113,6 +118,14 @@ class TerminalPrefs(private val context: Context) {
     /** Record each session's output to a log file. */
     val logSessions: StateFlow<Boolean> = _logSessions.asStateFlow()
     fun setLogSessions(enabled: Boolean) { _logSessions.value = enabled; prefs.edit().putBoolean(KEY_LOGS, enabled).apply() }
+
+    private val _remoteClipboard = MutableStateFlow(prefs.getBoolean(KEY_REMOTE_CLIPBOARD, false))
+    /** Let programs set the clipboard (OSC 52, e.g. tmux or vim yanks); never while the app is locked. */
+    val remoteClipboard: StateFlow<Boolean> = _remoteClipboard.asStateFlow()
+    fun setRemoteClipboard(enabled: Boolean) {
+        _remoteClipboard.value = enabled
+        prefs.edit().putBoolean(KEY_REMOTE_CLIPBOARD, enabled).apply()
+    }
 
     private val _compactKeys = MutableStateFlow(
         prefs.getString(KEY_COMPACT, null)?.split(',')?.filter { it.isNotBlank() && it != "joystick" } ?: DEFAULT_COMPACT_KEYS,
@@ -148,10 +161,10 @@ class TerminalPrefs(private val context: Context) {
         val json = kotlinx.serialization.json.buildJsonArray {
             list.forEach { t ->
                 add(kotlinx.serialization.json.buildJsonObject {
-                    put("id", kotlinx.serialization.json.JsonPrimitive(t.id)); put("name", kotlinx.serialization.json.JsonPrimitive(t.name))
-                    put("bg", kotlinx.serialization.json.JsonPrimitive(t.background)); put("fg", kotlinx.serialization.json.JsonPrimitive(t.foreground))
-                    put("cursor", kotlinx.serialization.json.JsonPrimitive(t.cursor))
-                    put("ansi", kotlinx.serialization.json.JsonArray(t.ansi.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                    put("id", JsonPrimitive(t.id)); put("name", JsonPrimitive(t.name))
+                    put("bg", JsonPrimitive(t.background)); put("fg", JsonPrimitive(t.foreground))
+                    put("cursor", JsonPrimitive(t.cursor))
+                    put("ansi", JsonArray(t.ansi.map { JsonPrimitive(it) }))
                 })
             }
         }
@@ -159,13 +172,13 @@ class TerminalPrefs(private val context: Context) {
     }
 
     private fun loadCustom(): List<TerminalTheme> = runCatching {
-        val arr = kotlinx.serialization.json.Json.parseToJsonElement(prefs.getString(KEY_CUSTOM, null) ?: return@runCatching emptyList()).let { it as kotlinx.serialization.json.JsonArray }
+        val arr = Json.parseToJsonElement(prefs.getString(KEY_CUSTOM, null) ?: return@runCatching emptyList()).let { it as JsonArray }
         arr.map { e ->
-            val o = e as kotlinx.serialization.json.JsonObject
-            fun l(k: String) = (o[k] as kotlinx.serialization.json.JsonPrimitive).content.toLong()
+            val o = e as JsonObject
+            fun l(k: String) = (o[k] as JsonPrimitive).content.toLong()
             TerminalTheme(
-                (o["id"] as kotlinx.serialization.json.JsonPrimitive).content, (o["name"] as kotlinx.serialization.json.JsonPrimitive).content,
-                l("bg"), l("fg"), l("cursor"), (o["ansi"] as kotlinx.serialization.json.JsonArray).map { (it as kotlinx.serialization.json.JsonPrimitive).content.toLong() },
+                (o["id"] as JsonPrimitive).content, (o["name"] as JsonPrimitive).content,
+                l("bg"), l("fg"), l("cursor"), (o["ansi"] as JsonArray).map { (it as JsonPrimitive).content.toLong() },
             )
         }
     }.getOrDefault(emptyList()).also { TerminalThemes.custom = it }
@@ -185,6 +198,7 @@ class TerminalPrefs(private val context: Context) {
         private const val KEY_FONTS = "imported_fonts"
         private const val KEY_HISTORY = "history"
         private const val KEY_LOGS = "log_sessions"
+        private const val KEY_REMOTE_CLIPBOARD = "remote_clipboard"
         private const val KEY_HAPTIC = "haptic"
         private const val KEY_AI_LINES = "ai_lines"
         private const val KEY_CONFIRM_CLOSE = "confirm_close"

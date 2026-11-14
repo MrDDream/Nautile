@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use nautile_core::{i18n, tr, trf};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -108,12 +108,24 @@ impl std::fmt::Display for ProviderKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Config {
     pub kind: ProviderKind,
     pub api_key: Option<String>,
     pub model: String,
     pub base_url: Option<String>,
+}
+
+/// Without the API key, so that a `{:?}` never prints it.
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("kind", &self.kind)
+            .field("api_key", &self.api_key.as_ref().map(|_| "***"))
+            .field("model", &self.model)
+            .field("base_url", &self.base_url)
+            .finish()
+    }
 }
 
 /// One message of a conversation: the user's or the model's.
@@ -197,22 +209,25 @@ pub fn pretty_model(id: &str) -> String {
 }
 
 fn agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .timeout_connect(Some(Duration::from_secs(15)))
-        .timeout_global(Some(Duration::from_secs(300)))
-        .http_status_as_error(false)
-        .tls_config(
-            ureq::tls::TlsConfig::builder()
-                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
-                .build(),
-        )
-        .build()
-        .into()
+    crate::cleartext::agent(
+        ureq::Agent::config_builder()
+            .timeout_connect(Some(Duration::from_secs(15)))
+            .timeout_global(Some(Duration::from_secs(300)))
+            .http_status_as_error(false)
+            .tls_config(
+                ureq::tls::TlsConfig::builder()
+                    .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+                    .build(),
+            )
+            .build(),
+    )
 }
 
 /// Sends [req] and returns its JSON, or a readable error.
 fn send(req: ureq::http::Request<Vec<u8>>, provider: &str) -> Result<Value, String> {
-    let mut r = agent().run(req).map_err(|e| trf("%1$s injoignable : %2$s", &[&provider, &e]))?;
+    let agent = agent();
+    let req = crate::cleartext::prepare(&agent, req)?;
+    let mut r = agent.run(req).map_err(|e| trf("%1$s injoignable : %2$s", &[&provider, &e]))?;
     let code = r.status().as_u16();
     let body = r.body_mut().with_config().limit(32 << 20).read_to_string().unwrap_or_default();
     if !(200..300).contains(&code) {
@@ -236,7 +251,9 @@ fn send(req: ureq::http::Request<Vec<u8>>, provider: &str) -> Result<Value, Stri
     serde_json::from_str(&body).map_err(|e| e.to_string())
 }
 
+/// Requests are built only for an address [crate::cleartext::check] accepts: no key leaves over plain http.
 fn post(url: &str, headers: &[(&str, String)], body: &Value) -> Result<ureq::http::Request<Vec<u8>>, String> {
+    crate::cleartext::check(url)?;
     let mut b = ureq::http::Request::builder()
         .method("POST")
         .uri(url)
@@ -248,6 +265,7 @@ fn post(url: &str, headers: &[(&str, String)], body: &Value) -> Result<ureq::htt
 }
 
 fn get(url: &str, headers: &[(&str, String)]) -> Result<ureq::http::Request<Vec<u8>>, String> {
+    crate::cleartext::check(url)?;
     let mut b = ureq::http::Request::builder().method("GET").uri(url);
     for (k, v) in headers {
         b = b.header(*k, v.as_str());
@@ -688,12 +706,14 @@ mod tests {
         assert_eq!(ask(claude.clone()).unwrap(), "```bash\nls\n```");
 
         let url = server(r#"{"stop_reason":"refusal","content":[]}"#, |_, _| {});
-        assert!(ask(Config {
-            base_url: Some(url),
-            ..claude
-        })
-        .unwrap_err()
-        .contains("refus"));
+        assert!(
+            ask(Config {
+                base_url: Some(url),
+                ..claude
+            })
+            .unwrap_err()
+            .contains("refus")
+        );
 
         let url = server(r#"{"choices":[{"message":{"content":"ok"}}]}"#, |head, body| {
             assert!(head.starts_with("POST /v1/chat/completions "));

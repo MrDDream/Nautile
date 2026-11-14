@@ -105,8 +105,8 @@ class ScreenshotTest {
     private fun seed() = runBlocking {
         val now = System.currentTimeMillis()
         val dao = app.database.hostDao()
-        val homelab = dao.insertGroup(HostGroup(name = "Homelab", color = 0xFFFFB547, sortOrder = 0))
-        val vps = dao.insertGroup(HostGroup(name = "VPS", color = 0xFF7AA2F7, sortOrder = 1))
+        val homelab = dao.insertGroup(HostGroup(name = "Homelab", color = 0xFFFFB547, sortOrder = 0, icon = "home"))
+        val vps = dao.insertGroup(HostGroup(name = "VPS", color = 0xFF7AA2F7, sortOrder = 1, icon = "cloud"))
         val office = dao.insertGroup(HostGroup(name = tr("Bureau"), color = 0xFF5BD69A, sortOrder = 2))
         fun h(alias: String, host: String, user: String, group: Long, os: String?, ago: Long?, port: Int = 22, proto: Protocol = Protocol.SSH, color: Long = 0xFFFFB547) =
             Host(alias = alias, hostname = host, port = port, username = user, protocol = proto, authMethod = AuthMethod.KEY, groupId = group, osId = os,
@@ -359,7 +359,7 @@ class ScreenshotTest {
     }
 
     private val demoGroups get() = listOf(
-        HostGroup(id = 1, name = "Homelab", color = 0xFFFFB547), HostGroup(id = 2, name = "VPS", color = 0xFF7AA2F7),
+        HostGroup(id = 1, name = "Homelab", color = 0xFFFFB547, icon = "home"), HostGroup(id = 2, name = "VPS", color = 0xFF7AA2F7, icon = "cloud"),
         HostGroup(id = 3, name = tr("Bureau"), color = 0xFF5FD38D),
     )
     private val demoCounts = mapOf(1L to 4, 2L to 1, 3L to 1)

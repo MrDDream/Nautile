@@ -3,9 +3,9 @@
 use std::io::{Read, Write};
 
 use nautile_core::trf;
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
-use crate::session::{channels, Event, Input, Session};
+use crate::session::{Event, Input, Session, channels};
 
 /// The shells offered for a local terminal, the default first.
 pub fn shells() -> Vec<String> {
@@ -24,10 +24,12 @@ pub fn shells() -> Vec<String> {
     }
     #[cfg(not(windows))]
     {
-        let mut v = vec![std::env::var("SHELL")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "/bin/sh".into())];
+        let mut v = vec![
+            std::env::var("SHELL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "/bin/sh".into()),
+        ];
         for s in ["/bin/bash", "/usr/bin/zsh", "/usr/bin/fish", "/bin/sh"] {
             if std::path::Path::new(s).exists() && !v.iter().any(|x| x == s) {
                 v.push(s.into());
@@ -75,6 +77,7 @@ pub fn spawn(shell: Option<String>, cols: u16, rows: u16) -> Session {
         }
     };
     events.send(Event::Connected);
+    events.send(Event::Os(nautile_core::os::local()));
 
     let mut killer = child.clone_killer();
     let out = events.clone();

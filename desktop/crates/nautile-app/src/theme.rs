@@ -1,7 +1,7 @@
 //! The mobile app's colours (app/.../ui/theme/Theme.kt, « Nt ») and the widget styles built on them.
 
 use iced::widget::{button, container, pick_list, text_input};
-use iced::{border, Background, Border, Color, Font, Shadow, Theme, Vector};
+use iced::{Background, Border, Color, Font, Shadow, Theme, Vector, border};
 
 pub const UI: Font = Font::with_name("Inter");
 pub const MONO: Font = Font::with_name("JetBrainsMonoNL Nerd Font Mono");
@@ -20,7 +20,7 @@ pub const FONT_ICONS: &[u8] = include_bytes!("../assets/fonts/MaterialIconsOutli
 fn png(bytes: &[u8]) -> iced::widget::image::Handle {
     let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     let decoded = decoder.read_info().ok().and_then(|mut r| {
-        let mut buf = vec![0; r.output_buffer_size()];
+        let mut buf = vec![0; r.output_buffer_size()?];
         let info = r.next_frame(&mut buf).ok()?;
         buf.truncate(info.buffer_size());
         Some((info.width, info.height, buf))
@@ -204,11 +204,7 @@ impl Accent {
             Accent::Nacre => (0xF3A6C8, 0x2E0B1C, 0xA3255F),
             Accent::Lavande => (0xB39DFF, 0x170F38, 0x5B3FC4),
         };
-        if dark {
-            (rgb(d), rgb(ink))
-        } else {
-            (rgb(l), rgb(0xFFFFFF))
-        }
+        if dark { (rgb(d), rgb(ink)) } else { (rgb(l), rgb(0xFFFFFF)) }
     }
 
     fn id(self) -> &'static str {
@@ -540,6 +536,11 @@ pub fn fab(t: &Theme, s: button::Status) -> button::Style {
         st.text_color = n.on_accent;
     }
     st
+}
+
+/// `0xRRGGBB` as a colour.
+pub fn rgb_hex(hex: u32) -> Color {
+    Color::from_rgb8((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
 /// [a] with [t] of [b] over it.

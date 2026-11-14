@@ -19,8 +19,12 @@ ironrdp-graphics = "0.11"
 ironrdp-input = "0.9"
 ironrdp-pdu = "0.11"
 ironrdp-blocking = "0.12"
+# WriteBuf, for the Deactivation-Reactivation Sequence.
+ironrdp-core = "0.3"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-x509-cert = { version = "0.2", default-features = false, features = ["std"] }
+x509-cert = { version = "0.3", default-features = false, features = ["std"] }
+# The handshake signature of an RSA key under 2048 bits (ring's legacy PKCS#1 check).
+ring = "0.17"
 sha2.workspace = true
 
 [dev-dependencies]

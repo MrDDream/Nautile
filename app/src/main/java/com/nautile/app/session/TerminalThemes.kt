@@ -1,7 +1,6 @@
 package com.nautile.app.session
 
 import com.nautile.i18n.tr
-
 import com.termux.terminal.TerminalColors
 import java.util.Properties
 

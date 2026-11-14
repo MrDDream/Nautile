@@ -30,6 +30,19 @@ fn localhost() -> String {
     "127.0.0.1".into()
 }
 
+/// Debug output of a record as its JSON fields, the [secrets] ones (when set) printed as `***`.
+fn debug_masked<T: Serialize>(f: &mut std::fmt::Formatter<'_>, name: &str, record: &T, secrets: &[&str]) -> std::fmt::Result {
+    let mut v = serde_json::to_value(record).unwrap_or_default();
+    if let Value::Object(fields) = &mut v {
+        for k in secrets {
+            if let Some(x) = fields.get_mut(*k).filter(|x| !x.is_null()) {
+                *x = Value::from("***");
+            }
+        }
+    }
+    write!(f, "{name} {v}")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Protocol {
@@ -99,11 +112,21 @@ pub struct HostGroup {
     pub sync_id: String,
     #[serde(default)]
     pub updated_at: i64,
+    /// A Material Design Icons name (« server », « home »…) shown instead of the colour dot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Without its secrets, so that a `{:?}` never prints them.
+impl std::fmt::Debug for Host {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        debug_masked(f, "Host", self, &["password", "proxyPassword", "identity"])
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Host {
     #[serde(default)]
@@ -226,7 +249,14 @@ pub struct KnownHost {
     pub extra: Map<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Without its secrets, so that a `{:?}` never prints them.
+impl std::fmt::Debug for SshKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        debug_masked(f, "SshKey", self, &["privateKey", "savedPassphrase"])
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SshKey {
     #[serde(default)]
@@ -255,7 +285,14 @@ pub struct SshKey {
     pub extra: Map<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Without its secrets, so that a `{:?}` never prints them.
+impl std::fmt::Debug for Identity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        debug_masked(f, "Identity", self, &["password"])
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Identity {
     #[serde(default)]
@@ -431,5 +468,31 @@ fn two() -> i32 {
 impl Default for BackupData {
     fn default() -> Self {
         serde_json::from_str("{}").expect("defaults")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_hides_the_secrets_and_keeps_the_rest() {
+        let mut h = Host::new("nas", "10.0.0.2");
+        h.password = Some("hunter2".into());
+        h.proxy_password = Some("proxy-pw".into());
+        let printed = format!("{h:?}");
+        assert!(printed.contains("10.0.0.2") && printed.contains("\"password\":\"***\""));
+        assert!(!printed.contains("hunter2") && !printed.contains("proxy-pw"));
+        assert!(printed.contains("\"identity\":null"), "unset secrets stay null");
+        let k: SshKey = serde_json::from_value(serde_json::json!({
+            "name": "k", "keyType": "ssh-ed25519", "description": "ED25519", "publicKey": "ssh-ed25519 AAAA",
+            "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----", "fingerprint": "SHA256:x", "encrypted": true,
+            "savedPassphrase": "s3cret-words"
+        }))
+        .unwrap();
+        let printed = format!("{k:?}");
+        assert!(!printed.contains("BEGIN") && !printed.contains("s3cret-words") && printed.contains("SHA256:x"));
+        let i: Identity = serde_json::from_value(serde_json::json!({ "name": "me", "username": "root", "password": "pw1" })).unwrap();
+        assert!(!format!("{i:?}").contains("pw1"));
     }
 }

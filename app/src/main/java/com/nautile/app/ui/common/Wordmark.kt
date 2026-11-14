@@ -1,7 +1,5 @@
 package com.nautile.app.ui.common
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -19,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nautile.app.R
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 
 /** The « nautile_ » wordmark: spiral mark, name in JetBrains Mono, amber cursor. */
 @Composable

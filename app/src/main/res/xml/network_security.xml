@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Plain HTTP is allowed for a local AI server (Ollama, LM Studio) on the LAN; cloud APIs use HTTPS. -->
+<!--
+  Plain HTTP stays possible for the local network (Ollama / LM Studio, a WebDAV NAS): this file cannot
+  express address ranges, so the HTTP clients enforce it themselves (backup/CleartextGuard.kt refuses
+  http:// to anything but loopback, private, link-local and VPN addresses). Cloud APIs use HTTPS.
+-->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

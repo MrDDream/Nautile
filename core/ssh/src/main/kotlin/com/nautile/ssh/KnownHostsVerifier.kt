@@ -17,9 +17,12 @@ class KnownHostsVerifier(
         val info = describe(hostname, port, key)
         val known = store.find(hostname, port)
         if (known.any { it.keyType == info.keyType && it.publicKey == info.publicKey }) return true
-        val previous = known.firstOrNull { it.keyType == info.keyType }
+        // A known host offering only another key type is treated as a changed key, not a new host:
+        // a man in the middle can simply avoid the algorithm we know.
+        val sameType = known.firstOrNull { it.keyType == info.keyType }
+        val previous = sameType ?: known.firstOrNull()
         if (!prompts.confirmHostKey(info, previous)) return false
-        store.trust(info, replace = previous != null)
+        store.trust(info, replace = sameType != null)
         return true
     }
 

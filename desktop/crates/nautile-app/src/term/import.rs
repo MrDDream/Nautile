@@ -22,10 +22,6 @@ fn hex(v: &str) -> Option<u32> {
     (h.len() == 6).then(|| u32::from_str_radix(h, 16).ok()).flatten()
 }
 
-fn color(c: u32) -> Color {
-    Color::from_rgb8((c >> 16) as u8, (c >> 8) as u8, c as u8)
-}
-
 fn iterm(text: &str) -> HashMap<String, u32> {
     let mut out = HashMap::new();
     let mut rest = text;
@@ -158,7 +154,7 @@ fn alacritty(text: &str) -> HashMap<String, u32> {
     out
 }
 
-/// A theme read from [text]; its id is `custom-` and its name in lower case.
+/// A theme read from [text]; its id is `custom-` and its name in lower case (any alphabet).
 pub fn parse_theme(text: &str, name: &str) -> Result<SavedTheme, String> {
     let c = if text.contains("<plist") || text.contains("Ansi 0 Color") {
         iterm(text)
@@ -185,12 +181,13 @@ pub fn parse_theme(text: &str, name: &str) -> Result<SavedTheme, String> {
     let slug: String = name
         .to_lowercase()
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+        .map(|ch| if ch.is_alphanumeric() { ch } else { '-' })
         .collect::<String>()
         .split('-')
         .filter(|p| !p.is_empty())
         .collect::<Vec<_>>()
         .join("-");
+    let slug = if slug.is_empty() { "theme".to_owned() } else { slug };
     Ok(SavedTheme {
         id: format!("custom-{slug}"),
         name: name.to_owned(),
@@ -215,14 +212,14 @@ pub struct SavedTheme {
 impl SavedTheme {
     /// For the renderer: its names live as long as the app (a few small strings per imported theme).
     pub fn to_theme(&self) -> Option<TermTheme> {
-        let c = |s: &str| u32::from_str_radix(s, 16).ok().map(color);
+        let c = |s: &str| u32::from_str_radix(s, 16).ok().map(crate::theme::rgb_hex);
         let mut ansi = [Color::BLACK; 16];
         for (i, a) in self.ansi.iter().enumerate().take(16) {
             ansi[i] = c(a)?;
         }
         Some(TermTheme {
-            id: Box::leak(self.id.clone().into_boxed_str()),
-            name: Box::leak(self.name.clone().into_boxed_str()),
+            id: intern(&self.id),
+            name: intern(&self.name),
             background: c(&self.background)?,
             foreground: c(&self.foreground)?,
             cursor: c(&self.cursor)?,
@@ -243,9 +240,25 @@ pub fn load_themes(dir: &Path) -> Vec<TermTheme> {
     v
 }
 
-pub fn save_theme(dir: &Path, t: &SavedTheme) -> std::io::Result<()> {
+/// Saves [t] and returns it as saved: a theme of the same name is replaced, another one whose name gives the
+/// same id (« Thème » and « thème! ») is kept, the new one taking `id-2`, `id-3`…
+pub fn save_theme(dir: &Path, t: &SavedTheme) -> std::io::Result<SavedTheme> {
     std::fs::create_dir_all(dir)?;
-    std::fs::write(dir.join(format!("{}.json", t.id)), serde_json::to_vec_pretty(t)?)
+    let mut t = t.clone();
+    let base = t.id.clone();
+    for n in 2.. {
+        let path = dir.join(format!("{}.json", t.id));
+        let other = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<SavedTheme>(&s).ok())
+            .is_some_and(|old| old.name != t.name);
+        if !other {
+            break;
+        }
+        t.id = format!("{base}-{n}");
+    }
+    std::fs::write(dir.join(format!("{}.json", t.id)), serde_json::to_vec_pretty(&t)?)?;
+    Ok(t)
 }
 
 fn be16(b: &[u8], i: usize) -> Option<u16> {
@@ -297,6 +310,32 @@ pub fn font_info(b: &[u8]) -> Option<(String, bool)> {
     Some((name?, mono))
 }
 
+/// [s] for as long as the app runs: the renderer wants `&'static str` names. Each distinct text is kept once,
+/// so importing or deleting themes and fonts again and again does not keep growing the memory.
+pub fn intern(s: &str) -> &'static str {
+    static KEPT: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
+    let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(k) = kept.iter().find(|k| **k == s) {
+        return k;
+    }
+    let k: &'static str = Box::leak(s.to_owned().into_boxed_str());
+    kept.push(k);
+    k
+}
+
+/// The imported font in [bytes], saved as `data/fonts/<file>`.
+pub fn imported_font(file: &str, bytes: &[u8]) -> Option<TermFont> {
+    let (family, _) = font_info(bytes)?;
+    let family = intern(&family);
+    Some(TermFont {
+        id: intern(&format!("file:{file}")),
+        name: family,
+        font: iced::Font::with_name(family),
+        bytes: None,
+        nerd: family.contains("Nerd"),
+    })
+}
+
 /// The imported fonts: each file's family, for the renderer (loaded at start).
 pub fn load_fonts(dir: &Path) -> Vec<(TermFont, Vec<u8>)> {
     std::fs::read_dir(dir)
@@ -310,20 +349,7 @@ pub fn load_fonts(dir: &Path) -> Vec<(TermFont, Vec<u8>)> {
         })
         .filter_map(|e| {
             let bytes = std::fs::read(e.path()).ok()?;
-            let (family, _) = font_info(&bytes)?;
-            let id: &'static str = Box::leak(format!("file:{}", e.file_name().to_string_lossy()).into_boxed_str());
-            let family: &'static str = Box::leak(family.into_boxed_str());
-            let nerd = family.contains("Nerd");
-            Some((
-                TermFont {
-                    id,
-                    name: family,
-                    font: iced::Font::with_name(family),
-                    bytes: None,
-                    nerd,
-                },
-                bytes,
-            ))
+            Some((imported_font(&e.file_name().to_string_lossy(), &bytes)?, bytes))
         })
         .collect()
 }
@@ -360,7 +386,22 @@ mod tests {
 <key>Background Color</key><dict><key>Blue Component</key><real>0.1</real><key>Green Component</key><real>0.1</real><key>Red Component</key><real>0.1</real></dict>
 </dict></plist>"#;
         let t = parse_theme(plist, "Mon Thème!").unwrap();
-        assert_eq!(t.id, "custom-mon-th-me");
+        assert_eq!(t.id, "custom-mon-thème");
+        // Other alphabets give their own ids; same id, other name: kept apart.
+        assert_eq!(parse_theme(plist, "Тёмная").unwrap().id, "custom-тёмная");
+        assert_eq!(parse_theme(plist, "!!").unwrap().id, "custom-theme");
+        let dir = std::env::temp_dir().join(format!("nautile-themes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(save_theme(&dir, &t).unwrap().id, "custom-mon-thème");
+        let twin = parse_theme(plist, "mon thème").unwrap();
+        assert_eq!(save_theme(&dir, &twin).unwrap().id, "custom-mon-thème-2");
+        assert_eq!(
+            save_theme(&dir, &t).unwrap().id,
+            "custom-mon-thème",
+            "the same theme again is replaced"
+        );
+        assert_eq!(load_themes(&dir).len(), 2);
+        let _ = std::fs::remove_dir_all(dir);
         assert_eq!((rgb(&t, 1), rgb(&t, 9), t.background.as_str()), ("FF0000", "FF0000", "1A1A1A"));
 
         let x = "! comment\n*.foreground: #c5c8c6\n*.background: #1d1f21\n*.cursorColor: #ffcc00\n".to_owned()

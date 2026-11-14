@@ -12,7 +12,7 @@ use tokio::net::{TcpStream, UdpSocket};
 
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Proxy {
     pub kind: ProxyKind,
     pub host: String,
@@ -21,8 +21,45 @@ pub struct Proxy {
     pub password: Option<String>,
 }
 
+/// Without the password, so that a `{:?}` never prints it.
+impl std::fmt::Debug for Proxy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Proxy")
+            .field("kind", &self.kind)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "***"))
+            .finish()
+    }
+}
+
 fn err(msg: String) -> io::Error {
     io::Error::other(msg)
+}
+
+/// A SOCKS5 field: one length byte, then at most 255 bytes.
+fn push_field(msg: &mut Vec<u8>, bytes: &[u8], what: &str) -> io::Result<()> {
+    let len = u8::try_from(bytes.len()).map_err(|_| err(trf("Proxy SOCKS5 : %1$s trop long (255 octets au plus)", &[&what])))?;
+    msg.push(len);
+    msg.extend_from_slice(bytes);
+    Ok(())
+}
+
+/// The username / password message (RFC 1929).
+fn socks5_login(username: &str, password: &str) -> io::Result<Vec<u8>> {
+    let mut msg = vec![1];
+    push_field(&mut msg, username.as_bytes(), &tr("identifiant"))?;
+    push_field(&mut msg, password.as_bytes(), &tr("mot de passe"))?;
+    Ok(msg)
+}
+
+/// CONNECT to a host name (the proxy resolves it).
+fn socks5_request(host: &str, port: u16) -> io::Result<Vec<u8>> {
+    let mut req = vec![5, 1, 0, 3];
+    push_field(&mut req, host.as_bytes(), &tr("nom d'hôte"))?;
+    req.extend_from_slice(&port.to_be_bytes());
+    Ok(req)
 }
 
 /// Opens a TCP connection to `host:port`, through [proxy] when set.
@@ -56,12 +93,7 @@ async fn socks5(s: &mut TcpStream, p: &Proxy, host: &str, port: u16) -> io::Resu
     match two[1] {
         0 => {}
         2 => {
-            let u = p.username.as_deref().unwrap_or_default().as_bytes();
-            let pw = p.password.as_deref().unwrap_or_default().as_bytes();
-            let mut msg = vec![1, u.len() as u8];
-            msg.extend_from_slice(u);
-            msg.push(pw.len() as u8);
-            msg.extend_from_slice(pw);
+            let msg = socks5_login(p.username.as_deref().unwrap_or_default(), p.password.as_deref().unwrap_or_default())?;
             s.write_all(&msg).await?;
             s.read_exact(&mut two).await?;
             if two[1] != 0 {
@@ -70,11 +102,7 @@ async fn socks5(s: &mut TcpStream, p: &Proxy, host: &str, port: u16) -> io::Resu
         }
         _ => return Err(err(tr("Proxy SOCKS5 : aucune méthode d'authentification acceptée"))),
     }
-    let name = host.as_bytes();
-    let mut req = vec![5, 1, 0, 3, name.len() as u8];
-    req.extend_from_slice(name);
-    req.extend_from_slice(&port.to_be_bytes());
-    s.write_all(&req).await?;
+    s.write_all(&socks5_request(host, port)?).await?;
     let mut head = [0u8; 4];
     s.read_exact(&mut head).await?;
     if head[0] != 5 {
@@ -192,6 +220,28 @@ mod tests {
         );
         assert!(parse_knocks("7000,abc").is_err());
         assert!(parse_knocks("0").is_err());
+    }
+
+    #[test]
+    fn socks5_fields_longer_than_255_bytes_are_refused() {
+        assert_eq!(socks5_request("ab", 22).unwrap(), [5, 1, 0, 3, 2, b'a', b'b', 0, 22]);
+        assert_eq!(socks5_request(&"h".repeat(255), 22).unwrap().len(), 4 + 1 + 255 + 2);
+        assert!(socks5_request(&"h".repeat(256), 22).is_err());
+        assert_eq!(socks5_login("u", "pw").unwrap(), [1, 1, b'u', 2, b'p', b'w']);
+        assert!(socks5_login(&"u".repeat(300), "pw").is_err());
+        assert!(socks5_login("u", &"p".repeat(256)).is_err());
+    }
+
+    #[test]
+    fn debug_hides_the_proxy_password() {
+        let p = Proxy {
+            kind: ProxyKind::Socks5,
+            host: "proxy".into(),
+            port: 1080,
+            username: Some("me".into()),
+            password: Some("hunter2".into()),
+        };
+        assert!(!format!("{p:?}").contains("hunter2"));
     }
 
     #[tokio::test]

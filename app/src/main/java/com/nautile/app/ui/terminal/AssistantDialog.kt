@@ -1,7 +1,11 @@
 package com.nautile.app.ui.terminal
 
-import com.nautile.i18n.tr
-
+import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.Intent
+import android.provider.OpenableColumns
+import android.speech.RecognizerIntent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,6 +13,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +23,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,13 +33,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Forum
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,10 +56,10 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,7 +69,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
@@ -73,23 +83,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nautile.app.NautileApp
 import com.nautile.app.ai.AiAssistant
 import com.nautile.app.ai.AiFile
 import com.nautile.app.ai.AiFiles
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material.icons.outlined.AttachFile
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Dns
-import androidx.compose.material.icons.outlined.PhoneAndroid
-import androidx.compose.material3.TextButton
 import com.nautile.app.ai.prettyModel
 import com.nautile.app.session.ActiveSession
 import com.nautile.app.session.aiKey
 import com.nautile.app.ui.common.ProviderLogo
 import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.theme.Nt
-import kotlinx.coroutines.Job
+import com.nautile.i18n.I18n
+import com.nautile.i18n.tr
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -129,67 +136,70 @@ internal fun AssistantPanel(
     val app = LocalContext.current.applicationContext as NautileApp
     val ai = app.ai
     val scope = rememberCoroutineScope()
-    val lines by app.terminalPrefs.aiLines.collectAsState()
-    val prompts by ai.prompts.collectAsState()
-    val promptId by ai.promptId.collectAsState()
+    val lines by app.terminalPrefs.aiLines.collectAsStateWithLifecycle()
+    val prompts by ai.prompts.collectAsStateWithLifecycle()
+    val promptId by ai.promptId.collectAsStateWithLifecycle()
     val ready = remember { ai.readyProviders() }
     var kind by remember { mutableStateOf(ready.firstOrNull()) }
     var request by remember { mutableStateOf(initialRequest) }
     var withScreen by remember { mutableStateOf(false) }
     var files by remember { mutableStateOf(initialFiles) }
-    val turns by ai.conversation(session.aiKey).collectAsState()
+    val turns by remember(session.aiKey) { ai.conversationFlow(session.aiKey) }.collectAsStateWithLifecycle(ai.loadedConversation(session.aiKey).orEmpty())
     var showConversation by remember { mutableStateOf(false) }
     var serverDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    var job by remember { mutableStateOf<Job?>(null) }
+    // The request belongs to the session: it goes on while the sheet is hidden (app locked).
+    val pending = session.assistant
+    val busy by pending.busy.collectAsStateWithLifecycle()
+    val answered by pending.result.collectAsStateWithLifecycle()
+    val error by pending.error.collectAsStateWithLifecycle()
     // Reopened: the conversation goes on, its last answer in view.
-    var result by remember { mutableStateOf(initialResult ?: ai.conversation(session.aiKey).value.lastOrNull()?.answer) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val busy = job != null
+    var result by remember {
+        mutableStateOf(initialResult ?: pending.result.value ?: ai.loadedConversation(session.aiKey)?.lastOrNull()?.answer)
+    }
+    LaunchedEffect(answered) { answered?.let { result = it } }
 
     fun send(text: String = request, screenToo: Boolean = withScreen) {
         val k = kind ?: return
         if (text.isBlank() || busy) return
-        error = null; result = null
-        job = scope.launch {
-            runCatching { ai.ask(text.trim(), "${session.address} (${session.protocolLabel})", if (screenToo) screen() else null, k, files = files, conversation = session.aiKey) }
-                .onSuccess { result = it }
-                .onFailure { if (it !is kotlinx.coroutines.CancellationException) error = it.message ?: tr("Échec de la requête") }
-            job = null
-        }
+        result = null
+        val attached = files
+        val where = "${session.address} (${session.protocolLabel})"
+        val shown = if (screenToo) screen() else null
+        pending.start { ai.ask(text.trim(), where, shown, k, files = attached, conversation = session.aiKey) }
     }
 
     // Voice: Android's own speech recognition screen (no microphone permission needed here).
     val speech = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+        ActivityResultContracts.StartActivityForResult(),
     ) { r ->
-        val heard = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
+        val heard = r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
         if (!heard.isNullOrEmpty()) request = if (request.isBlank()) heard.replaceFirstChar { it.uppercase() } else request.trimEnd() + " " + heard
     }
     // Files: any document of the phone, read as text.
     val pickFile = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+        ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             runCatching {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val name = context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                         ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: uri.lastPathSegment.orEmpty()
                     context.contentResolver.openInputStream(uri)?.use { AiFiles.read(name, it) } ?: error(tr("Fichier illisible"))
                 }
             }.onSuccess { f -> files = files.filterNot { it.name == f.name } + f }
-                .onFailure { error = it.message ?: tr("Fichier illisible") }
+                .onFailure { pending.setError(it.message ?: tr("Fichier illisible")) }
         }
     }
 
     fun dictate() {
-        val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, if (com.nautile.i18n.I18n.english) "en-US" else "fr-FR")
-            .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, tr("Que voulez-vous faire ?"))
-        try { speech.launch(intent) } catch (e: android.content.ActivityNotFoundException) {
-            error = tr("Aucune reconnaissance vocale sur cet appareil (installez Google ou une app de dictée).")
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, if (I18n.english) "en-US" else "fr-FR")
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, tr("Que voulez-vous faire ?"))
+        try { speech.launch(intent) } catch (e: ActivityNotFoundException) {
+            pending.setError(tr("Aucune reconnaissance vocale sur cet appareil (installez Google ou une app de dictée)."))
         }
     }
 
@@ -229,7 +239,7 @@ internal fun AssistantPanel(
                     if (turns.size == 1) tr("Suite d'une conversation (1 échange)") else tr("Suite d'une conversation (%1\$s échanges)", turns.size),
                     color = Nt.TextSoft, fontSize = 13.sp, modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { ai.clearConversation(session.aiKey); result = null }) { Text(tr("Nouvelle"), color = Nt.Accent, fontSize = 13.sp) }
+                TextButton(onClick = { ai.clearConversation(session.aiKey); pending.clearResult(); result = null }) { Text(tr("Nouvelle"), color = Nt.Accent, fontSize = 13.sp) }
             }
 
             if (ready.isEmpty()) {
@@ -329,7 +339,7 @@ internal fun AssistantPanel(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(tr("%1\$s réfléchit…", kind?.shortLabel ?: ""), color = Nt.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
                     Text(tr("Annuler"), color = Nt.TextSoft, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { job?.cancel(); job = null }.padding(8.dp))
+                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { pending.cancel() }.padding(8.dp))
                 }
             }
             error?.let { Notice(it) }
@@ -371,7 +381,8 @@ private fun FileChip(f: AiFile, onRemove: () -> Unit) {
 internal fun Answer(r: AiAssistant.Suggestion, onInsert: (String, Boolean) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         r.command?.let { cmd ->
-            val clipboard = LocalClipboardManager.current
+            val clipboard = LocalClipboard.current
+            val scope = rememberCoroutineScope()
             var copied by remember(cmd) { mutableStateOf(false) }
             LaunchedEffect(copied) { if (copied) { delay(1500); copied = false } }
             Column(
@@ -379,7 +390,10 @@ internal fun Answer(r: AiAssistant.Suggestion, onInsert: (String, Boolean) -> Un
             ) {
                 Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(tr("Commande"), color = Nt.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    IconButton(onClick = { clipboard.setText(AnnotatedString(cmd)); copied = true }, modifier = Modifier.size(36.dp)) {
+                    IconButton(onClick = {
+                        scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("plain text", cmd))) }
+                        copied = true
+                    }, modifier = Modifier.size(36.dp)) {
                         Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, contentDescription = tr("Copier"),
                             tint = if (copied) Nt.Green else Nt.TextSoft, modifier = Modifier.size(18.dp))
                     }
@@ -420,10 +434,10 @@ private fun Notice(text: String) {
 }
 
 /** Chips that wrap onto the next line instead of hiding behind the edge. */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChipRow(content: @Composable () -> Unit) {
-    androidx.compose.foundation.layout.FlowRow(
+    FlowRow(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),

@@ -1,7 +1,5 @@
 package com.nautile.app.ui.tools
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,7 +12,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -64,6 +61,7 @@ import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.theme.Nt
 import com.nautile.data.model.Host
 import com.nautile.data.model.Snippet
+import com.nautile.i18n.tr
 
 /** New or edited snippet, in a sheet: name, command with quick inserts, category. */
 @OptIn(ExperimentalMaterial3Api::class)

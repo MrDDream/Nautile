@@ -9,7 +9,7 @@ use nautile_net::sftp::{self, Cmd, Entry, Update};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::app::{App, Message};
-use crate::sessions::{PendingPrompt, TabState};
+use crate::sessions::TabState;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
@@ -68,12 +68,8 @@ pub struct RemoteEditor {
     pub error: Option<String>,
     /// The file changed on the server since it was opened.
     pub conflict: bool,
-}
-
-impl RemoteEditor {
-    pub fn modified(&self) -> bool {
-        self.content.text() != self.original
-    }
+    /// The text differs from what was read (worked out at each edit, not at each redraw).
+    pub modified: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -256,7 +252,11 @@ impl Files {
             }
             FilesMsg::EditorAction(a) => {
                 if let Some(e) = &mut self.editor {
+                    let edit = a.is_edit();
                     e.content.perform(a);
+                    if edit {
+                        e.modified = e.content.text() != e.original;
+                    }
                 }
             }
             FilesMsg::EditorSave(force) => {
@@ -314,6 +314,11 @@ impl Files {
             }
             FilesMsg::Transfer { remote, name } => {
                 if remote {
+                    // The name comes from the server: `../../.bashrc` or `/etc/x` must never land outside.
+                    if !sftp::safe_local_name(&name) {
+                        self.local_error = Some(trf("Nom de fichier refusé : %1$s", &[&name]));
+                        return;
+                    }
                     let src = sftp::join(&self.remote_path, &name);
                     let local = self.local_path.join(&name);
                     self.send(Cmd::Download { remote: src, local }, Some(format!("↓ {name}")));
@@ -402,6 +407,7 @@ impl Files {
                     saving: false,
                     error: None,
                     conflict: false,
+                    modified: false,
                 });
             }
             Update::Saved { path, mtime } => {
@@ -409,6 +415,7 @@ impl Files {
                     e.saving = false;
                     e.mtime = mtime;
                     e.original = e.content.text();
+                    e.modified = false;
                 }
                 let p = self.remote_path.clone();
                 self.cd_remote(p);
@@ -426,7 +433,7 @@ impl Files {
                 if job.transfer {
                     job.finished = true;
                     job.done = job.total.max(job.done);
-                    job.error = error.clone();
+                    job.error = error.as_ref().map(ToString::to_string);
                 } else {
                     self.jobs.remove(i);
                 }
@@ -441,12 +448,12 @@ impl Files {
                 // A failed save stays in the editor (with « Écraser quand même » when it changed meanwhile).
                 if let (Some(e), Some(ed)) = (&error, self.editor.as_mut().filter(|ed| ed.saving)) {
                     ed.saving = false;
-                    ed.conflict = *e == nautile_core::tr("Le fichier a changé sur le serveur depuis son ouverture");
-                    ed.error = Some(e.clone());
+                    ed.conflict = *e == nautile_net::sftp::CmdError::Changed;
+                    ed.error = Some(e.to_string());
                     return None;
                 }
                 if let Some(e) = error {
-                    return Some(e);
+                    return Some(e.to_string());
                 }
             }
             Update::Conn(_) => {}
@@ -464,7 +471,7 @@ impl App {
         if !matches!(h.protocol, Protocol::Ssh | Protocol::Mosh) {
             return self.say(tr("Les fichiers passent par SSH"));
         }
-        let params = match self.ssh_params_for(&h) {
+        let params = match self.ssh_params(&h) {
             Ok(mut p) => {
                 p.forwards.clear();
                 p.startup_command = None;
@@ -473,34 +480,20 @@ impl App {
             Err(e) => return self.say(e),
         };
         self.editor = None;
-        let id = self.new_tab(Some(h.id), trf("%1$s — fichiers", &[&h.alias]), h.color, h.protocol);
+        let id = self.open_tab(Some(h.id), trf("%1$s — fichiers", &[&h.alias]), h.color, h.protocol);
         let browser = sftp::spawn(params);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
             let mut f = Files::new();
             f.cmd = Some(browser.cmd);
             t.files = Some(Box::new(f));
         }
-        let rx = browser.updates;
-        let stream = iced::futures::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|e| (e, rx)) });
-        Task::run(stream, move |u| Message::Sftp(id, u))
+        Task::run(crate::sessions::recv_stream(browser.updates), move |u| Message::Sftp(id, u))
     }
 
     pub fn on_sftp(&mut self, id: u64, u: Update) -> Task<Message> {
         if let Update::Conn(e) = u {
             return match e {
-                nautile_net::Event::Prompt(p) => {
-                    let secret = matches!(p, nautile_net::Prompt::Secret { .. });
-                    self.prompts.push(PendingPrompt {
-                        tab: Some(id),
-                        forward: None,
-                        prompt: p,
-                    });
-                    if secret && self.prompts.len() == 1 {
-                        iced::widget::operation::focus("prompt-secret")
-                    } else {
-                        Task::none()
-                    }
-                }
+                nautile_net::Event::Prompt(p) => self.push_prompt(Some(id), None, p),
                 nautile_net::Event::Closed(reason) => {
                     if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
                         t.state = TabState::Closed(reason);
@@ -549,6 +542,32 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_names_never_leave_the_download_folder() {
+        let mut f = Files::new();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        f.cmd = Some(tx);
+        f.remote_path = "/srv".into();
+        // `..\x` is a plain name outside Windows.
+        let windows = cfg!(windows).then_some("..\\x");
+        for bad in ["../../.bashrc", "/etc/passwd", "a/b", "..", ""].into_iter().chain(windows) {
+            f.update(FilesMsg::Transfer {
+                remote: true,
+                name: bad.into(),
+            });
+            assert!(rx.try_recv().is_err(), "{bad:?} downloaded");
+            assert!(f.local_error.take().is_some());
+        }
+        f.update(FilesMsg::Transfer {
+            remote: true,
+            name: "notes.txt".into(),
+        });
+        match rx.try_recv() {
+            Ok((_, Cmd::Download { local, .. })) => assert_eq!(local, f.local_path.join("notes.txt")),
+            other => panic!("{other:?}"),
+        }
+    }
 
     #[test]
     fn dates_are_readable() {

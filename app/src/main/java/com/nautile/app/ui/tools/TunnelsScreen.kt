@@ -1,8 +1,5 @@
 package com.nautile.app.ui.tools
 
-import kotlinx.coroutines.flow.map
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -35,7 +32,6 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,27 +47,32 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nautile.app.NautileApp
 import com.nautile.app.session.TunnelState
 import com.nautile.app.ui.common.NtCard
 import com.nautile.app.ui.common.NtTextField
+import com.nautile.app.ui.common.PageHeader
 import com.nautile.app.ui.common.Segmented
-import com.nautile.app.ui.theme.Nt
 import com.nautile.app.ui.common.primaryBorder
+import com.nautile.app.ui.theme.Nt
 import com.nautile.data.model.ForwardKind
 import com.nautile.data.model.Host
 import com.nautile.data.model.PortForward
+import com.nautile.data.model.usesSsh
+import com.nautile.i18n.tr
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @Composable
 fun TunnelsScreen(onBack: () -> Unit) {
     val app = LocalContext.current.applicationContext as NautileApp
     val dao = app.database.toolsDao()
-    val rules by dao.observeForwards().collectAsState(initial = emptyList())
+    val rules by remember(dao) { dao.observeForwards() }.collectAsStateWithLifecycle(initialValue = emptyList())
     // Port forwarding needs an SSH connection.
-    val hosts by androidx.compose.runtime.remember { app.hostRepository.hosts.map { list -> list.filter { it.protocol == com.nautile.data.model.Protocol.SSH || it.protocol == com.nautile.data.model.Protocol.MOSH } } }
-        .collectAsState(initial = emptyList())
-    val states by app.sessions.tunnels.states.collectAsState()
+    val hosts by androidx.compose.runtime.remember { app.hostRepository.hosts.map { list -> list.filter { it.protocol.usesSsh } } }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val states by app.sessions.tunnels.states.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var editing by remember { mutableStateOf<PortForward?>(null) }
     var creating by remember { mutableStateOf(false) }
@@ -81,7 +82,7 @@ fun TunnelsScreen(onBack: () -> Unit) {
         LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Column(Modifier.padding(bottom = 4.dp)) {
-                    com.nautile.app.ui.common.PageHeader(tr("Tunnels"), onBack = onBack)
+                    PageHeader(tr("Tunnels"), onBack = onBack)
                     Text(tr("%1\$s actif%2\$s · redirections locales, distantes et SOCKS", active, if (active > 1) "s" else ""), color = Nt.Muted, fontSize = 13.sp)
                 }
             }
@@ -146,7 +147,7 @@ fun TunnelsScreen(onBack: () -> Unit) {
 
 private fun label(k: ForwardKind) = when (k) { ForwardKind.LOCAL -> tr("Locale"); ForwardKind.REMOTE -> tr("Distante"); ForwardKind.DYNAMIC -> "SOCKS5" }
 private fun fromLabel(r: PortForward) = if (r.kind == ForwardKind.REMOTE) tr("serveur:%1\$s", r.bindPort) else "${r.bindHost}:${r.bindPort}"
-private fun toLabel(r: PortForward) = if (r.kind == ForwardKind.DYNAMIC) "dynamique" else "${r.destHost}:${r.destPort}"
+private fun toLabel(r: PortForward) = if (r.kind == ForwardKind.DYNAMIC) tr("dynamique") else "${r.destHost}:${r.destPort}"
 
 @Composable
 private fun Endpoint(text: String, modifier: Modifier) {
@@ -177,7 +178,7 @@ private fun ForwardDialog(initial: PortForward?, hosts: List<Host>, onDismiss: (
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 NtTextField(name, { name = it }, tr("Nom"), placeholder = tr("Jellyfin"))
-                Segmented(listOf(ForwardKind.LOCAL to "Locale", ForwardKind.REMOTE to "Distante", ForwardKind.DYNAMIC to "SOCKS"), kind, { kind = it })
+                Segmented(listOf(ForwardKind.LOCAL to tr("Locale"), ForwardKind.REMOTE to tr("Distante"), ForwardKind.DYNAMIC to "SOCKS"), kind, { kind = it })
                 NtCard {
                     Box {
                         Column(Modifier.fillMaxWidth().clickable { hostMenu = true }.padding(horizontal = 14.dp, vertical = 12.dp)) {
@@ -203,7 +204,7 @@ private fun ForwardDialog(initial: PortForward?, hosts: List<Host>, onDismiss: (
                         isError = bindPort.isNotEmpty() && bp == null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 }
                 if (kind != ForwardKind.DYNAMIC) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    NtTextField(destHost, { destHost = it }, "Destination", Modifier.weight(2f), mono = true)
+                    NtTextField(destHost, { destHost = it }, tr("Destination"), Modifier.weight(2f), mono = true)
                     NtTextField(destPort, { destPort = it.filter(Char::isDigit).take(5) }, tr("Port"), Modifier.weight(1.2f), mono = true,
                         isError = destPort.isNotEmpty() && dp == null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 }

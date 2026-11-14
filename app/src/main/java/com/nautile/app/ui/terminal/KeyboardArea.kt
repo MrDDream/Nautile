@@ -1,23 +1,26 @@
 package com.nautile.app.ui.terminal
 
-import com.nautile.i18n.tr
-
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -29,8 +32,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DataObject
-import androidx.compose.material.icons.automirrored.outlined.ArrowForward
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.GridView
@@ -40,40 +41,46 @@ import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.runtime.remember
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.zIndex
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Close
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nautile.app.NautileApp
+import com.nautile.app.session.TerminalFonts
 import com.nautile.app.session.TerminalPrefs
 import com.nautile.app.session.TerminalThemes
+import com.nautile.app.ui.common.NtSearchField
 import com.nautile.app.ui.theme.Nt
 import com.nautile.data.model.CommandHistory
 import com.nautile.data.model.Snippet
+import com.nautile.i18n.tr
 
 private val KeyBg get() = Nt.KeyBg
 
@@ -101,7 +108,7 @@ private enum class PanelTab(val label: String) { KEYS(tr("Touches")), SNIPPETS(t
  * The accessory keyboard: a scrollable row of favourite keys and a tab strip, always shown above the
  * system keyboard; a tab opens the panel (keys, snippets, history, themes) in place of the keyboard.
  */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun KeyboardArea(
     target: KeyTarget,
@@ -113,11 +120,11 @@ fun KeyboardArea(
     onSnippet: (Snippet) -> Unit,
     onHistory: (String) -> Unit,
 ) {
-    val ids by prefs.compactKeys.collectAsState()
+    val ids by prefs.compactKeys.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(PanelTab.KEYS) }
     var editing by rememberSaveable { mutableStateOf(false) }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
-    val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+    val imeVisible = WindowInsets.isImeVisible
 
     fun toggle(id: String) {
         prefs.setCompactKeys(if (id in ids) ids - id else ids + id)
@@ -221,7 +228,7 @@ private fun EditBar(
                 else tr("Retirez la touche sélectionnée, ou glissez-la pour la déplacer."),
                 color = Nt.Muted, fontSize = 11.sp, modifier = Modifier.weight(1f),
             )
-            if (selected != null) androidx.compose.material3.IconButton(onClick = onRemove) { Icon(Icons.Outlined.Delete, tr("Retirer de la barre"), tint = Nt.Pink) }
+            if (selected != null) IconButton(onClick = onRemove) { Icon(Icons.Outlined.Delete, tr("Retirer de la barre"), tint = Nt.Pink) }
             else TextButton(onClick = onReset) { Text(tr("Par défaut"), color = Nt.TextSoft, fontSize = 12.sp) }
             TextButton(onClick = onDone) { Text(tr("Terminé"), color = Nt.Accent, fontWeight = FontWeight.SemiBold) }
         }
@@ -249,8 +256,8 @@ internal fun ReorderableKeyRow(ids: List<String>, selected: String?, onSelect: (
     var order by remember(ids) { mutableStateOf(ids) }
     var dragging by remember { mutableStateOf<String?>(null) }
     var offset by remember { mutableFloatStateOf(0f) }
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val view = androidx.compose.ui.platform.LocalView.current
+    val density = LocalDensity.current
+    val view = LocalView.current
     val gap = 5.dp
     fun widthPx(id: String) = with(density) { ((KeyCatalog.byId(id)?.let(::keyWidth) ?: 42.dp) + gap).toPx() }
 
@@ -276,7 +283,7 @@ internal fun ReorderableKeyRow(ids: List<String>, selected: String?, onSelect: (
                             detectDragGesturesAfterLongPress(
                                 onDragStart = {
                                     dragging = id; offset = 0f
-                                    view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                                 },
                                 onDrag = { change, amount ->
                                     change.consume()
@@ -313,7 +320,7 @@ private fun KeysGrid(target: KeyTarget, editing: Boolean, ids: List<String>, onT
         Modifier.fillMaxSize().padding(horizontal = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
+        contentPadding = PaddingValues(vertical = 8.dp),
     ) {
         if (!editing) item(span = { GridItemSpan(4) }) {
             Surface(onClick = onCustomize, shape = RoundedCornerShape(10.dp), color = KeyBg, border = BorderStroke(1.dp, Nt.Border), modifier = Modifier.height(44.dp)) {
@@ -354,11 +361,11 @@ private fun EditableKey(def: KeyDef, inBar: Boolean, onClick: () -> Unit) {
 private fun Key(def: KeyDef, target: KeyTarget, modifier: Modifier) {
     val active = target.isActive(def)
     val shape = RoundedCornerShape(10.dp)
-    val view = androidx.compose.ui.platform.LocalView.current
-    val haptic by (view.context.applicationContext as com.nautile.app.NautileApp).terminalPrefs.haptic.collectAsState()
+    val view = LocalView.current
+    val haptic by (view.context.applicationContext as NautileApp).terminalPrefs.haptic.collectAsStateWithLifecycle()
     Surface(
         onClick = {
-            if (haptic) view.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+            if (haptic) view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             target.press(def)
         },
         shape = shape,
@@ -377,22 +384,11 @@ private fun <T> SimpleList(items: List<T>, empty: String, title: (T) -> String, 
     val q = query.trim()
     val shown = if (q.isEmpty()) items else items.filter { title(it).contains(q, true) || subtitle(it)?.contains(q, true) == true }
     Column(Modifier.fillMaxSize()) {
-        if (items.size > 3) androidx.compose.material3.OutlinedTextField(
-            value = query, onValueChange = { query = it }, singleLine = true,
-            leadingIcon = { Icon(androidx.compose.material.icons.Icons.Outlined.Search, contentDescription = null, tint = Nt.Muted) },
-            trailingIcon = {
-                if (query.isNotEmpty()) androidx.compose.material3.IconButton(onClick = { query = "" }) {
-                    Icon(androidx.compose.material.icons.Icons.Outlined.Close, contentDescription = tr("Effacer la recherche"), tint = Nt.Muted)
-                }
-            },
-            placeholder = { Text(tr("Rechercher"), color = Nt.Placeholder, fontSize = 13.sp) },
-            textStyle = androidx.compose.ui.text.TextStyle(fontFamily = Nt.Mono, fontSize = 13.sp, color = Nt.Text),
-            shape = RoundedCornerShape(12.dp),
-            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                unfocusedContainerColor = Nt.Surface, focusedContainerColor = Nt.Surface,
-                unfocusedBorderColor = Nt.Border, focusedBorderColor = Nt.Accent, cursorColor = Nt.Accent,
-            ),
-            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 4.dp),
+        if (items.size > 3) NtSearchField(
+            query, { query = it }, tr("Rechercher"),
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 4.dp),
+            textStyle = TextStyle(fontFamily = Nt.Mono, fontSize = 13.sp, color = Nt.Text),
+            placeholderSize = 13.sp, shape = RoundedCornerShape(12.dp),
         )
         if (shown.isEmpty()) Text(tr("Aucun résultat pour « %1\$s »", q), color = Nt.Muted, modifier = Modifier.padding(20.dp))
         LazyColumn(Modifier.fillMaxSize()) {
@@ -407,24 +403,24 @@ private fun <T> SimpleList(items: List<T>, empty: String, title: (T) -> String, 
 }
 
 /** Display settings at hand while typing: size and cursor, colours, font. */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ThemesTab(prefs: TerminalPrefs) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val theme by prefs.theme.collectAsState()
-    val custom by prefs.customThemes.collectAsState()
-    val size by prefs.fontSize.collectAsState()
-    val cursor by prefs.cursorStyle.collectAsState()
-    val font by prefs.font.collectAsState()
-    val imported by prefs.importedFonts.collectAsState()
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val theme by prefs.theme.collectAsStateWithLifecycle()
+    val custom by prefs.customThemes.collectAsStateWithLifecycle()
+    val size by prefs.fontSize.collectAsStateWithLifecycle()
+    val cursor by prefs.cursorStyle.collectAsStateWithLifecycle()
+    val font by prefs.font.collectAsStateWithLifecycle()
+    val imported by prefs.importedFonts.collectAsStateWithLifecycle()
     val sp = (size / density.fontScale / density.density).toInt()
     val step = with(density) { 1.sp.toPx() }.toInt().coerceAtLeast(1)
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StepButton("A−", tr("Réduire"), enabled = size - step >= TerminalPrefs.MIN_FONT) { prefs.setFontSize(size - step) }
-            Text("$sp", fontFamily = Nt.Mono, fontSize = 15.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.width(32.dp)
+            Text("$sp", fontFamily = Nt.Mono, fontSize = 15.sp, textAlign = TextAlign.Center, modifier = Modifier.width(32.dp)
                 .semantics { contentDescription = tr("Taille du texte : %1\$s", sp) })
             StepButton("A+", tr("Agrandir"), enabled = size + step <= TerminalPrefs.MAX_FONT) { prefs.setFontSize(size + step) }
             Box(Modifier.weight(1f))
@@ -464,11 +460,11 @@ private fun ThemesTab(prefs: TerminalPrefs) {
         }
 
         Text(tr("POLICE"), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = Nt.Muted)
-        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            (com.nautile.app.session.TerminalFonts.builtIn + imported).forEach { f ->
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            (TerminalFonts.builtIn + imported).forEach { f ->
                 val on = f.id == font.id
                 val family = androidx.compose.runtime.remember(f.id) {
-                    androidx.compose.ui.text.font.FontFamily(com.nautile.app.session.TerminalFonts.typeface(context, f))
+                    FontFamily(TerminalFonts.typeface(context, f))
                 }
                 Surface(
                     onClick = { prefs.setFont(f) }, shape = RoundedCornerShape(10.dp),
@@ -477,7 +473,7 @@ private fun ThemesTab(prefs: TerminalPrefs) {
                 ) {
                     Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
                         Text(
-                            if (f.id == com.nautile.app.session.TerminalFonts.SYSTEM_ID) tr("Système") else f.name,
+                            if (f.id == TerminalFonts.SYSTEM_ID) tr("Système") else f.name,
                             fontFamily = family, fontSize = 13.sp, color = if (on) Nt.Accent else Nt.Text, maxLines = 1,
                         )
                     }

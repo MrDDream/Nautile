@@ -1,5 +1,7 @@
 package com.nautile.app.ui.settings
 
+import android.annotation.SuppressLint
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -7,7 +9,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,14 +26,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -40,6 +42,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.fragment.app.FragmentActivity
 import com.nautile.app.ui.common.NtTextField
 import com.nautile.app.ui.common.Segmented
 import com.nautile.app.ui.theme.Nt
@@ -88,6 +91,7 @@ internal fun AppLockCard(lock: AppLock) {
     var state by remember { mutableStateOf(lock.state()) }
     var setting by remember { mutableStateOf<LockMethod?>(null) }
     var guarded by remember { mutableStateOf<Guarded?>(null) }
+    var setupError by remember { mutableStateOf<String?>(null) }
     fun refresh() { state = lock.state() }
 
     /** Applies [g] once the current code (if any) is confirmed. */
@@ -119,15 +123,36 @@ internal fun AppLockCard(lock: AppLock) {
     setting?.let { m ->
         CodeSetupDialog(m, onDismiss = { setting = null }) { code ->
             scope.launch {
-                withContext(Dispatchers.Default) { lock.setCode(m, code) }
-                lock.enabled = true
+                // The Keystore may fail for a moment: the lock is switched on only with a code saved.
+                val saved = withContext(Dispatchers.Default) { runCatching { lock.setCode(m, code) } }
+                if (saved.isSuccess) lock.enabled = true
+                else setupError = com.nautile.app.ui.keystoreUnavailableMessage()
                 setting = null
                 refresh()
             }
         }
     }
+    setupError?.let { e ->
+        AlertDialog(
+            onDismissRequest = { setupError = null }, containerColor = Nt.Surface,
+            title = { Text(tr("Code non enregistré")) },
+            text = { Text(e, color = Nt.TextSoft, fontSize = 14.sp, lineHeight = 20.sp) },
+            confirmButton = { TextButton(onClick = { setupError = null }) { Text(tr("Compris"), color = Nt.Accent) } },
+        )
+    }
     guarded?.let { g ->
-        CodeCheckDialog(state.method, check = { lock.check(it) }, onDismiss = { guarded = null }) { guarded = null; run(g) }
+        val activity = LocalActivity.current as? FragmentActivity
+        // Read off the main thread: a slow Keystore would freeze the screen. The lint check misses the assignment.
+        @SuppressLint("ProduceStateDoesNotAssignValue")
+        val codeUnreadable by produceState(false, g) { value = withContext(Dispatchers.IO) { lock.codeUnreadable } }
+        CodeCheckDialog(
+            state.method, check = { lock.check(it) },
+            // The stored code cannot be decrypted here: the phone's own lock confirms instead, so that the
+            // lock can still be turned off or given a new code.
+            deviceLock = activity?.let { a -> { onOk: () -> Unit, onError: (String) -> Unit -> lock.prompt(a, onOk, onError) } },
+            startUnreadable = codeUnreadable,
+            onDismiss = { guarded = null },
+        ) { guarded = null; run(g) }
     }
 }
 
@@ -264,19 +289,39 @@ internal fun CodeSetupDialog(method: LockMethod, onDismiss: () -> Unit, onSet: (
 
 /** The current PIN / password, before turning the lock off or changing it. */
 @Composable
-private fun CodeCheckDialog(method: LockMethod, check: (String) -> AppLock.Check, onDismiss: () -> Unit, onOk: () -> Unit) {
+private fun CodeCheckDialog(
+    method: LockMethod,
+    check: (String) -> AppLock.Check,
+    deviceLock: ((onOk: () -> Unit, onError: (String) -> Unit) -> Unit)?,
+    startUnreadable: Boolean,
+    onDismiss: () -> Unit,
+    onOk: () -> Unit,
+) {
     val scope = rememberCoroutineScope()
     var code by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
+    var unreadable by remember { mutableStateOf(startUnreadable) }
+    var error by remember { mutableStateOf(if (startUnreadable) tr("Code illisible sur cet appareil : utilisez le verrouillage du téléphone") else null) }
     var busy by remember { mutableStateOf(false) }
+    // Known only once the Keystore has answered (read in the background).
+    LaunchedEffect(startUnreadable) {
+        if (startUnreadable) {
+            unreadable = true
+            error = tr("Code illisible sur cet appareil : utilisez le verrouillage du téléphone")
+        }
+    }
     val pin = method == LockMethod.PIN
     fun submit() {
         busy = true
         scope.launch {
             when (val r = withContext(Dispatchers.Default) { check(code) }) {
                 AppLock.Check.Ok -> onOk()
-                is AppLock.Check.Wrong -> { error = tr("Code incorrect"); code = "" }
+                is AppLock.Check.Wrong -> {
+                    unreadable = r.unreadable
+                    error = if (r.unreadable) tr("Code illisible sur cet appareil : utilisez le verrouillage du téléphone") else tr("Code incorrect")
+                    code = ""
+                }
                 is AppLock.Check.Wait -> { error = tr("Trop d'essais : réessayez dans %1\$s s", ((r.untilMs - System.currentTimeMillis()) / 1000).coerceAtLeast(1)); code = "" }
+                AppLock.Check.Unavailable -> { error = com.nautile.app.ui.keystoreUnavailableMessage(); code = "" }
             }
             busy = false
         }
@@ -294,6 +339,9 @@ private fun CodeCheckDialog(method: LockMethod, check: (String) -> AppLock.Check
                     isError = error != null,
                 )
                 error?.let { Text(it, color = Nt.Pink, fontSize = 12.sp) }
+                if (unreadable && deviceLock != null) TextButton(onClick = { deviceLock(onOk) { e -> if (e.isNotEmpty()) error = e } }) {
+                    Text(tr("Utiliser le verrouillage du téléphone"), color = Nt.Accent)
+                }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Annuler"), color = Nt.TextSoft) } },

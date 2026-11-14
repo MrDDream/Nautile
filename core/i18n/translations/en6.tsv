@@ -1,0 +1,163 @@
+ ; %1\$s clé(s) à importer dans le trousseau (mot de passe en attendant)	; %1\$s key(s) to import into the keychain (password until then)
+ ; lignes Include non suivies	; Include lines not followed
+Utiliser le verrouillage du téléphone	Use the phone's screen lock
+http non chiffré : accepté seulement si %1\$s est sur le réseau local	Unencrypted http: accepted only if %1\$s is on the local network
+Paramètres de chiffrement hors limites (au plus 256 Mio, 10 passes, 8 voies) : fichier altéré ou trop exigeant	Encryption parameters out of bounds (at most 256 MiB, 10 passes, 8 lanes): the file was tampered with or asks too much
+Mémoire insuffisante pour déchiffrer cette sauvegarde	Not enough memory to decrypt this backup
+Le code ne peut plus être vérifié sur cet appareil : déverrouillez avec l'empreinte ou le code du téléphone.	The code can no longer be checked on this device: unlock with your fingerprint or the phone's code.
+Le code ne peut plus être vérifié et le téléphone n'a pas de verrouillage : effacez les données de Nautile dans les réglages d'Android.	The code can no longer be checked and the phone has no screen lock: clear Nautile's data in Android's settings.
+Code illisible sur cet appareil : utilisez le verrouillage du téléphone	Code unreadable on this device: use the phone's screen lock
+Connexion non chiffrée (http) refusée vers %1\$s : utilisez https, ou une adresse du réseau local.	Unencrypted connection (http) to %1\$s refused: use https, or an address on the local network.
+Somme de contrôle introuvable pour %1\$s : mise à jour refusée.	No checksum found for %1\$s: update refused.
+La mise à jour n'est pas signée par la même clé que l'application installée : elle a été supprimée.	The update is not signed with the same key as the installed app: it was deleted.
+Données illisibles sur cet appareil	Data unreadable on this device
+Les données de Nautile ont été chiffrées avec une clé d'un autre appareil (transfert de téléphone ?) et ne peuvent pas être ouvertes ici. Une base vide a été créée : restaurez une sauvegarde ou synchronisez pour retrouver vos hôtes.	Nautile's data was encrypted with another device's key (phone transfer?) and cannot be opened here. An empty database was created: restore a backup or sync to get your hosts back.
+Taille d'écran VNC non prise en charge (%1\$s×%2\$s)	Unsupported VNC screen size (%1\$s×%2\$s)
+Curseur VNC trop grand (%1\$s×%2\$s)	VNC cursor too large (%1\$s×%2\$s)
+Mosh passe en UDP direct vers l'hôte : il ne fonctionne pas avec un rebond SSH ni avec un proxy. Utilisez SSH pour cet hôte.	Mosh sends UDP straight to the host: it does not work through a jump host or a proxy. Use SSH for this host.
+Ce fichier est en %1\$s : un des caractères saisis ne peut pas y être enregistré	This file is in %1\$s: one of the characters typed cannot be saved in it
+Permissions (octal)	Permissions (octal)
+Le serveur %1\$s demande à signer avec la clé « %2\$s », qui ne sert pas à s'y connecter. 	Server %1\$s asks to sign with the key “%2\$s”, which is not used to connect to it. 
+Refusez si vous ne venez pas de lancer une connexion depuis ce serveur.	Refuse unless you just started a connection from that server.
+Autoriser pour cette session	Allow for this session
+Ce serveur était connu avec une clé %1\$s ; il ne propose plus qu'une clé %2\$s. Un serveur légitime garde d'habitude ses anciennes clés.	This server was known with a %1\$s key; it now only offers a %2\$s key. A legitimate server usually keeps its old keys.
+Faire confiance à cette clé	Trust this key
+Adaptateur : %1\$s	Adapter: %1\$s
+Mémoire insuffisante pour cet écran	Not enough memory for this screen
+dynamique	dynamic
+Nom de fichier refusé : %1\$s	File name refused: %1\$s
+La clé de la base est introuvable (trousseau du système verrouillé ou indisponible ?)	The database key cannot be found (system keyring locked or unavailable?)
+Le trousseau du système ne donne plus la clé de la base	The system keyring no longer gives the database key
+Presse-papiers pour les programmes	Clipboard for programs
+Un programme du serveur (tmux, vim) peut remplacer le presse-papiers de cet ordinateur (OSC 52)	A program on the server (tmux, vim) can replace this computer's clipboard (OSC 52)
+⚠ Une clé d'un autre type est connue pour cet hôte	⚠ A key of another type is known for this host
+%1\$s:%2\$s présente une clé %3\$s alors qu'une clé %4\$s est enregistrée. 	%1\$s:%2\$s presents a %3\$s key while a %4\$s key is saved. 
+Clé enregistrée (%1\$s)	Saved key (%1\$s)
+Mettez à jour Nautile sur l'autre appareil	Update Nautile on the other device
+Mettez à jour Nautile sur cet appareil	Update Nautile on this device
+Aucun code valide sur l'autre appareil : affichez-en un nouveau	No valid code on the other device: show a new one
+L'autre appareil ne reconnaît pas celui-ci : associez-les à nouveau	The other device does not know this one: pair them again
+L'autre appareil est occupé, réessayez dans un instant	The other device is busy, try again in a moment
+Un appareil avec une ancienne version de Nautile a essayé de se connecter : mettez-le à jour	A device with an older version of Nautile tried to connect: update it
+Un appareil avec une version plus récente de Nautile a essayé de se connecter : mettez à jour celui-ci	A device with a newer version of Nautile tried to connect: update this one
+Nouvelle version de la synchro Wi-Fi : associez à nouveau vos appareils	New version of the Wi-Fi sync: pair your devices again
+À associer à nouveau	To pair again
+L'association utilise SPAKE2 : le code ne peut pas être deviné en écoutant le réseau. La liaison est chiffrée (AES-256-GCM) et seuls les appareils associés sont acceptés.	Pairing uses SPAKE2: the code cannot be guessed by listening to the network. The link is encrypted (AES-256-GCM) and only paired devices are accepted.
+Taille d'écran VNC invalide (%1\$s)	Invalid VNC screen size (%1\$s)
+Curseur VNC trop grand	VNC cursor too large
+Nom de fichier distant refusé : %1\$s	Remote file name refused: %1\$s
+Mosh ne passe ni par les rebonds SSH ni par un proxy : utilisez SSH pour cet hôte	Mosh cannot go through SSH jump hosts or a proxy: use SSH for this host
+Proxy SOCKS5 : %1\$s trop long (255 octets au plus)	SOCKS5 proxy: %1\$s too long (255 bytes at most)
+identifiant	username
+nom d'hôte	host name
+Cette version ne publie pas la somme de contrôle du fichier : mise à jour refusée.	This release does not publish the file's checksum: update refused.
+Le Keystore d'Android ne répond pas : réessayez, ou redémarrez le téléphone.	The Android Keystore is not responding: try again, or restart the phone.
+Code non enregistré	Code not saved
+Impossible d'ouvrir vos données	Your data cannot be opened
+L'Android Keystore, qui garde la clé de la base de données, n'a pas répondu. Rien n'a été effacé. Réessayez dans un instant ; si cela persiste, redémarrez le téléphone.	The Android Keystore, which keeps the database key, did not respond. Nothing was erased. Try again in a moment; if it keeps happening, restart the phone.
+Détail : %1\$s	Detail: %1\$s
+Repartir de zéro…	Start afresh…
+Repartir de zéro ?	Start afresh?
+Repartir de zéro	Start afresh
+Vos données actuelles seront mises de côté sur le téléphone (rien n'est effacé), mais Nautile ne pourra probablement plus les ouvrir. Une base vide sera créée : restaurez ensuite une sauvegarde ou synchronisez. À faire seulement si un redémarrage n'a pas suffi.	Your current data will be set aside on the phone (nothing is erased), but Nautile will probably never open it again. An empty database will be created: then restore a backup or synchronise. Only do this if restarting did not help.
+Les données de Nautile n'ont pas pu être déchiffrées ici (clé perdue, ou données copiées depuis un autre appareil). Elles ont été mises de côté sur le téléphone, rien n'a été effacé, et une base vide a été créée : restaurez une sauvegarde ou synchronisez pour retrouver vos hôtes.\n\nLes sauvegardes automatiques sont suspendues pour que cette base vide ne remplace pas vos sauvegardes. Reprenez-les une fois vos données retrouvées.	Nautile's data could not be decrypted here (lost key, or data copied from another device). It was set aside on the phone, nothing was erased, and an empty database was created: restore a backup or synchronise to get your hosts back.\n\nAutomatic backups are paused so that this empty database does not replace your backups. Resume them once your data is back.
+Reprendre les sauvegardes	Resume backups
+Téléchargé, sauf %1\$s élément(s) dont le nom n'est pas permis ici : %2\$s	Downloaded, except %1\$s item(s) whose name is not allowed here: %2\$s
+L'autre appareil est injoignable ou occupé, réessayez	The other device is unreachable or busy, try again
+Trop d'essais, affichez un nouveau code	Too many attempts, show a new code
+Enregistrement impossible : %1\$s	Could not save: %1\$s
+Hôte supprimé entre-temps	Host deleted in the meantime
+%1\$s a été supprimé pendant la modification, sans doute sur un autre appareil. L'enregistrer comme un nouvel hôte ?	%1\$s was deleted while being edited, probably on another device. Save it as a new host?
+Recréer	Recreate
+Le Keystore d'Android ne répond toujours pas : déverrouillez avec l'empreinte ou le code du téléphone.	Android's Keystore still does not answer: unlock with your fingerprint or the phone's code.
+Le Keystore d'Android ne répond toujours pas : redémarrez le téléphone. Si cela persiste, effacez les données de Nautile (Réglages Android › Applications › Nautile › Stockage) puis restaurez une sauvegarde.	Android's Keystore still does not answer: restart the phone. If it goes on, clear Nautile's data (Android Settings › Apps › Nautile › Storage), then restore a backup.
+La clé de la base de données semble perdue. Rien n'a été effacé. Redémarrez le téléphone : si elle reste illisible au prochain lancement, vos données seront mises de côté sur le téléphone et une base vide sera créée.	The database key seems to be lost. Nothing was deleted. Restart the phone: if it is still unreadable at the next launch, your data will be set aside on the phone and an empty database will be created.
+Contenu de sauvegarde incompatible	Incompatible backup content
+Clés privées stockées dans la base chiffrée, dont la clé est protégée par l'Android Keystore. Chiffrées sur cet appareil ; elles le quittent dans vos sauvegardes et synchronisations (chiffrées avec votre mot de passe) ou si vous les exportez.	Private keys stored in the encrypted database, whose key is protected by the Android Keystore. Encrypted on this device; they leave it in your backups and synchronisations (encrypted with your password) or if you export them.
+Les sauvegardes déjà faites la contiennent encore.	Backups made before still contain it.
+Vérifier automatiquement les mises à jour ?	Check for updates automatically?
+Nautile contacte GitHub une fois par jour pour savoir si une nouvelle version existe ; rien n'est téléchargé ni installé sans votre accord. Modifiable ensuite dans Réglages › À propos.	Nautile contacts GitHub once a day to find out whether a new version exists; nothing is downloaded or installed without your consent. You can change this later in Settings › About.
+Le serveur ne lit plus ce qui lui est envoyé	The server no longer reads what is sent to it
+Le serveur demande un bureau trop grand (%1\$s)	The server asks for a desktop that is too large (%1\$s)
+Erreur interne du client RDP : %1\$s	Internal RDP client error: %1\$s
+Sécurité RDP standard : le serveur n'est pas authentifié, un intermédiaire pourrait lire la session. Le mot de passe enregistré n'est pas envoyé : saisissez-le dans l'écran de connexion de Windows.	Standard RDP security: the server is not authenticated, someone in the middle could read the session. The saved password is not sent: type it in the Windows logon screen.
+Écriture de %1\$s interrompue : le fichier est peut-être incomplet. La version complète est conservée dans %2\$s	Writing %1\$s was interrupted: the file may be incomplete. The complete version is kept in %2\$s
+Clé refusée : paramètres de chiffrement excessifs (%1\$s)	Key refused: excessive encryption parameters (%1\$s)
+Fichier trop volumineux pour une clé	File too large for a key
+Autoriser les programmes à écrire dans le presse-papiers	Allow programs to write to the clipboard
+Copie demandée par un programme distant (tmux, vim…, séquence OSC 52), jamais quand l'appli est verrouillée	Copy requested by a remote program (tmux, vim…, OSC 52 sequence), never while the app is locked
+La clé de la base est introuvable : ni db.key.enc ni db.key dans le dossier data	The database key cannot be found: neither db.key.enc nor db.key in the data folder
+Un mot de passe maître existe déjà	A master password already exists
+Le fichier db.key est illisible	The db.key file is unreadable
+Mot de passe maître incorrect	Wrong master password
+Le fichier db.key.enc est illisible	The db.key.enc file is unreadable
+Mot de passe maître actuel incorrect	Wrong current master password
+Le fichier db.key.enc n'a pas pu être relu	The db.key.enc file could not be read back
+Mode portable : la clé de la base demande le mot de passe maître	Portable mode: the database key needs the master password
+Le mot de passe maître doit faire au moins %1\$s caractères	The master password must be at least %1\$s characters long
+Mot de passe maître changé	Master password changed
+Patientez %1\$s s avant de réessayer	Wait %1\$s s before trying again
+Déverrouillez Nautile pour le quitter	Unlock Nautile to quit it
+La base n'est pas ouverte	The database is not open
+Le fichier téléchargé a changé depuis sa vérification : il a été supprimé.	The downloaded file changed after it was checked: it was deleted.
+Mode portable, protégé par le mot de passe maître	Portable mode, protected by the master password
+Créer le mot de passe maître	Create the master password
+Mot de passe maître	Master password
+Mode portable : ce mot de passe chiffre la clé de la base. Il est demandé à chaque démarrage, sur tout ordinateur.	Portable mode: this password encrypts the database key. It is asked at every start, on any computer.
+Mot de passe perdu = données perdues : personne ne peut le retrouver ni le réinitialiser.	Lost password = lost data: nobody can recover or reset it.
+La clé de la base, gardée en clair par l'ancienne version (db.key), sera chiffrée puis effacée.	The database key, kept in clear by the older version (db.key), will be encrypted then erased.
+Mode portable : saisissez le mot de passe maître pour ouvrir vos données.	Portable mode: enter the master password to open your data.
+Nouveau mot de passe (%1\$s caractères au moins)	New password (at least %1\$s characters)
+Créer et ouvrir	Create and open
+Ouvrir	Open
+Oui	Yes
+Non	No
+Nautile contacte GitHub (MrDDream/Nautile) une fois par jour au plus pour savoir si une nouvelle version existe. Rien n'est installé sans votre accord.	Nautile contacts GitHub (MrDDream/Nautile) at most once a day to find out whether a new version exists. Nothing is installed without your consent.
+Vous pourrez changer d'avis dans Réglages, Mises à jour.	You can change your mind in Settings, Updates.
+Le verrou protège l'interface quand vous vous absentez. Les données du dossier data sont protégées par le mot de passe maître (Données).	The lock protects the interface while you are away. The data in the data folder is protected by the master password (Data).
+Le verrou protège l'interface quand vous vous absentez, pas les fichiers : la clé de la base reste accessible à votre session (trousseau du système ou fichier).	The lock protects the interface while you are away, not the files: the database key stays available to your session (system keyring or file).
+Verrouiller en cachant la fenêtre	Lock when the window is hidden
+Dans la zone de notification ou réduite, et après une mise en veille de l'ordinateur.	In the notification area or minimised, and after the computer slept.
+Il chiffre la clé de la base (Argon2id, AES-256-GCM) : sans lui, le dossier data est illisible. Perdu, il ne peut pas être retrouvé.	It encrypts the database key (Argon2id, AES-256-GCM): without it, the data folder cannot be read. Lost, it cannot be recovered.
+Mot de passe maître actuel	Current master password
+Changer le mot de passe maître	Change the master password
+Mode portable : la clé de la base voyage avec le dossier data, chiffrée par le mot de passe maître (db.key.enc)	Portable mode: the database key travels with the data folder, encrypted by the master password (db.key.enc)
+Option = Méta	Option = Meta
+Alt (Option sur Mac) envoie Échap avant la touche, pour Emacs et le shell. Désactivé, Option tape les caractères du clavier (@, |, ~ sur Mac).	Alt (Option on a Mac) sends Esc before the key, for Emacs and the shell. Off, Option types the keyboard's characters (@, |, ~ on a Mac).
+Clé de chiffrement indisponible	Encryption key unavailable
+Exporter les journaux (texte déchiffré)	Export the logs (decrypted text)
+Exporté : %1\$s	Exported: %1\$s
+Les journaux sont chiffrés sur cet ordinateur : exportez-les pour les lire.	Logs are encrypted on this computer: export them to read them.
+Tout exporter…	Export all…
+Supprimé entre-temps	Deleted in the meantime
+Cet élément a été supprimé pendant la modification, sans doute sur un autre appareil. L'enregistrer de nouveau ?	This item was deleted while being edited, probably on another device. Save it again?
+Fichier trop volumineux pour une clé (1 Mio au plus)	File too large for a key (1 MiB at most)
+Paramètres de chiffrement de la clé hors limites : fichier altéré ou trop exigeant	Key encryption parameters out of bounds: the file was tampered with or asks too much
+Envoyé, sauf %1\$s lien(s) vers des dossiers, non suivis : %2\$s	Uploaded, except %1\$s link(s) to folders, not followed: %2\$s
+Téléchargé, sauf %1\$s lien(s) vers des dossiers, non suivis : %2\$s	Downloaded, except %1\$s link(s) to folders, not followed: %2\$s
+Le serveur a réinitialisé l'affichage (changement de résolution…) et la session n'a pas pu reprendre : %1\$s	The server reset the display (resolution change…) and the session could not resume: %1\$s
+paramètres refusés	parameters refused
+le serveur redirige la session, reconnectez-vous	the server redirects the session, reconnect
+Licences tierces	Third-party licenses
+Nautile est un logiciel libre (GPLv3) construit avec ces bibliothèques, polices et codes tiers, chacun sous sa propre licence.	Nautile is free software (GPLv3) built with these third-party libraries, fonts and code, each under its own license.
+Codes et polices tiers	Third-party code and fonts
+Bibliothèques de l'application	Libraries in the app
+Termux, FreeRDP, OpenSSL, cJSON, uriparser, Nerd Fonts, icônes	Termux, FreeRDP, OpenSSL, cJSON, uriparser, Nerd Fonts, icons
+Chaque bibliothèque, sa version et sa licence	Each library, its version and its license
+Texte de la licence	License text
+Bibliothèques, polices et codes inclus	Included libraries, fonts and code
+Bibliothèques, polices et codes inclus dans Nautile Desktop	Libraries, fonts and code included in Nautile Desktop
+Auto n'accepte que TLS ou NLA ; NLA vérifie le mot de passe avant d'ouvrir la session.	Auto only accepts TLS or NLA; NLA checks the password before opening the session.
+La clé de la base de données semble perdue. Rien n'a été effacé. Redémarrez le téléphone : si elle reste illisible en rouvrant Nautile après le redémarrage, vos données seront mises de côté sur le téléphone et une base vide sera créée.	The database key seems to be lost. Nothing was deleted. Restart the phone: if it is still unreadable when you open Nautile after the restart, your data will be set aside on the phone and an empty database will be created.
+Clé refusée : mémoire insuffisante pour la déchiffrer	Key refused: not enough memory to decrypt it
+Collage refusé : %1\$s, c'est trop pour l'envoyer d'un coup au terminal.	Paste refused: %1\$s is too much to send to the terminal at once.
+Saisie non envoyée : le serveur n'a pas encore lu ce qui lui a été envoyé avant.	Input not sent: the server has not yet read what was sent to it before.
+Un programme (tmux, vim…) a voulu copier dans le presse-papiers : c'est désactivé dans les réglages du terminal.	A program (tmux, vim…) tried to copy to the clipboard: this is turned off in the terminal settings.
+Autoriser	Allow
+Le fichier db.key n'ouvre pas la base de données	The db.key file does not open the database
+La clé de db.key.enc n'ouvre pas la base de données	The key in db.key.enc does not open the database
+L'hôte de ce tunnel n'existe plus : choisissez-en un autre	This tunnel's host no longer exists: pick another one
+Verrouillage retiré : choisissez un nouveau code dans les réglages	Lock removed: choose a new code in the settings
+Revenir au code	Back to the code
+Code oublié ? Utiliser le mot de passe maître	Forgot the code? Use the master password
+Une fois par jour au plus, sur GitHub (MrDDream/Nautile) ; rien n'est installé sans votre accord. Chaque fichier est vérifié par sa somme de contrôle.	At most once a day, on GitHub (MrDDream/Nautile); nothing is installed without your consent. Each file is checked against its checksum.

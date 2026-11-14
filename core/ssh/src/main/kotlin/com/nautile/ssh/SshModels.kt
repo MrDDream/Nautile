@@ -40,10 +40,15 @@ interface KnownHostStore {
  * block until the user answers. Returning null / false cancels the connection.
  */
 interface SshPrompts {
-    /** [previous] non-null means the key CHANGED since it was trusted. */
+    /**
+     * [previous] non-null means the key CHANGED since it was trusted; its [KnownKey.keyType] may
+     * differ from [HostKeyInfo.keyType] when the server no longer offers the known key type.
+     */
     fun confirmHostKey(info: HostKeyInfo, previous: KnownKey?): Boolean
     fun password(target: SshTarget): String?
     fun passphrase(target: SshTarget): String?
+    /** The forwarded agent is asked to sign with [key], marked [AgentKey.confirm]; true allows it for this connection. */
+    fun confirmAgentUse(key: AgentKey): Boolean = false
 }
 
 class SshCancelledException(message: String) : Exception(message)

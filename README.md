@@ -110,17 +110,19 @@ com.nautile
 From version 0.4.0, each [release](https://github.com/MrDDream/Nautile/releases/latest) also carries the desktop app, a native Rust program (about 35 MB of RAM) that reads the phone's backups and syncs with it (shared file or straight over Wi-Fi):
 
 - `Nautile-X.Y.Z-setup.exe`: Windows installer, no administrator rights needed;
-- `Nautile-X.Y.Z-portable.zip`: Windows, everything (encrypted data included) stays in the folder, e.g. on a USB stick;
+- `Nautile-X.Y.Z-portable.zip`: Windows, everything (encrypted data included) stays in the folder, e.g. on a USB stick; the database key there is encrypted with a master password asked at every start (lost password = lost data);
 - `nautile_X.Y.Z-1_amd64.deb` (Debian, Ubuntu), `nautile-X.Y.Z-1.x86_64.rpm` (Fedora, openSUSE), `nautile-X.Y.Z-linux-x86_64.tar.gz` (others);
-- `Nautile-X.Y.Z-macos-arm64.dmg`: macOS (Apple silicon), not notarised yet: right click › Open the first time.
+- `Nautile-X.Y.Z-macos-arm64.dmg`: macOS (Apple silicon), not notarised yet: open it once, then System Settings › Privacy & Security › *Open Anyway* (before macOS 15: right click › Open).
 
 It has the phone's interface (same settings, same themes) plus what a PC needs: an icon in the notification area (closing the window keeps it running), start with the session, Ctrl+K search over everything, right click on hosts, drag and drop, a server monitor, an SFTP file editor, `~/.ssh/config` import, sync that waits for the VPN and in-app updates.
+
+What protects what: the app's PIN or password lock hides the interface while you are away (its hash and wrong tries are kept in the encrypted database); it does not encrypt anything by itself. Installed, the database key is in the system keyring of your session; in portable mode only the master password (Argon2id, AES-256-GCM) opens it. Forgot the lock code? Installed, start `nautile --reset-lock` once (the lock is removed, nothing else); in portable mode, « Forgot the code? » on the lock screen removes it with the master password.
 
 The Windows files are not signed yet: SmartScreen shows « Windows protected your PC » → *More info* → *Run anyway*. Checksums are in `SHA256SUMS-desktop.txt`.
 
 ## 🛠️ Build from source
 
-Requirements: JDK 17 and the Android SDK (platform 34).
+Requirements: JDK 17 and the Android SDK (platform 37).
 
 ```bash
 ./gradlew testDebugUnitTest assembleDebug
@@ -134,13 +136,13 @@ scripts/build-freerdp.sh
 
 SSH integration tests run against `sshd`, `mosh-server` and proxies in Docker: `scripts/ssh-it.sh`; VNC ones against x11vnc: `scripts/vnc-it.sh`; S3 against RustFS: `scripts/s3-it.sh`.
 
-The desktop app lives in `desktop/` (Rust 1.89+, iced, IronRDP, russh): `cd desktop && cargo run --release -p nautile-app`. Its own integration tests: `scripts/ssh-it.sh --desktop`, `scripts/vnc-it.sh --desktop`, `scripts/rdp-it.sh`, `scripts/store-it.sh`.
+The desktop app lives in `desktop/` (Rust 1.94+, iced, IronRDP, russh): `cd desktop && cargo run --release -p nautile-app`. Its own integration tests: `scripts/ssh-it.sh --desktop`, `scripts/vnc-it.sh --desktop`, `scripts/rdp-it.sh`, `scripts/store-it.sh`.
 
 Modules: `app` (Compose UI), `core:data` (Room + SQLCipher, import, backup, sync), `core:security` (Keystore, lock), `core:ssh` (sshj, Mosh, Telnet; pure JVM), `core:rdp` (FreeRDP over JNI), `core:vnc` (VNC client; pure JVM), `core:i18n`, and the Termux `terminal-emulator` / `terminal-view` under `third_party/`.
 
 ## 🔒 Privacy
 
-Nautile has no server and collects nothing. Your hosts, keys and passwords stay in an encrypted database on the phone. Data leaves the device only when you ask: a connection to your own servers, a backup or sync file to the destination you picked (encrypted first), or a request to the AI provider you configured (only your question, the host's address and protocol, the terminal screen if you tick it and the files you attach). After a crash, Nautile shows an anonymised report that you can post as a GitHub issue yourself.
+Nautile has no server and collects nothing. Your hosts, keys and passwords stay in an encrypted database on the phone. No data leaves without your consent; the update check, if you accept it at first launch, contacts GitHub once a day. Otherwise data leaves the device only when you ask: a connection to your own servers, a backup or sync file to the destination you picked (encrypted first), or a request to the AI provider you configured (only your question, the host's address and protocol, the terminal screen if you tick it and the files you attach). After a crash, Nautile shows an anonymised report that you can post as a GitHub issue yourself.
 
 ## 🤝 Contributing
 
@@ -148,4 +150,4 @@ Bug reports and ideas are welcome in the [issues](https://github.com/MrDDream/Na
 
 ## 📄 License
 
-Nautile is free software under the [GNU GPL v3](LICENSE). It builds on [Termux](https://github.com/termux/termux-app) terminal-emulator (Apache 2.0), [sshj](https://github.com/hierynomus/sshj), [FreeRDP](https://www.freerdp.com) (Apache 2.0 / MPL 2.0), OpenSSL, BouncyCastle, SQLCipher and [Nerd Fonts](https://www.nerdfonts.com). See [third_party/NOTICE.md](third_party/NOTICE.md).
+Nautile is free software under the [GNU GPL v3](LICENSE). It builds on [Termux](https://github.com/termux/termux-app) terminal-emulator (Apache 2.0), [sshj](https://github.com/hierynomus/sshj), [FreeRDP](https://www.freerdp.com) (Apache 2.0 / MPL 2.0), OpenSSL, BouncyCastle, SQLCipher and [Nerd Fonts](https://www.nerdfonts.com). See [third_party/NOTICE.md](third_party/NOTICE.md); the full list of libraries and their licences is in the app (Settings › About › Third-party licences) and in every desktop package (`THIRD-PARTY-LICENSES.txt`).

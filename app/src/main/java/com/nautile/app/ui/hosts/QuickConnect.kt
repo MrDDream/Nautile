@@ -23,6 +23,8 @@ object QuickConnect {
     private val SCHEMES = mapOf("ssh" to Protocol.SSH, "mosh" to Protocol.MOSH, "telnet" to Protocol.TELNET, "rdp" to Protocol.RDP, "vnc" to Protocol.VNC)
     private val HOST = Regex("""^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$""")
     private val USER = Regex("""^[A-Za-z0-9._\\-]+$""")
+    private val SPACES = Regex("\\s+")
+    private val SCHEME = Regex("""^([a-z]+)://(.*)$""", RegexOption.IGNORE_CASE)
 
     fun parse(input: String, fallback: Protocol = Protocol.SSH): QuickTarget? {
         var text = input.trim()
@@ -31,7 +33,7 @@ object QuickConnect {
         var port: Int? = null
         // `ssh [-p N] user@host [-p N]`
         if (text.startsWith("ssh ") || text.startsWith("mosh ")) {
-            val words = text.split(Regex("\\s+"))
+            val words = text.split(SPACES)
             protocol = if (words[0] == "mosh") Protocol.MOSH else Protocol.SSH
             var target: String? = null
             var i = 1
@@ -46,7 +48,7 @@ object QuickConnect {
             }
             text = target ?: return null
         }
-        Regex("""^([a-z]+)://(.*)$""", RegexOption.IGNORE_CASE).matchEntire(text)?.let { m ->
+        SCHEME.matchEntire(text)?.let { m ->
             protocol = SCHEMES[m.groupValues[1].lowercase()] ?: return null
             text = m.groupValues[2].trimEnd('/')
         }
@@ -70,11 +72,10 @@ object QuickConnect {
         return QuickTarget(protocol, user, host, p)
     }
 
-    /** Whether [input] reads as a machine to reach rather than a search word (`root@x`, `x:22`, an IP, a scheme…). */
+    /** Whether [input] reads as a machine to reach rather than a search word (`root@x`, `x:22`, an IP, a dotted name, a scheme…). */
     fun looksLikeTarget(input: String): Boolean {
         val t = input.trim()
         val q = parse(t) ?: return false
-        return '@' in t || "://" in t || t.startsWith("ssh ") || t.startsWith("mosh ") || ':' in t ||
-            Regex("""^\d{1,3}(\.\d{1,3}){3}$""").matches(q.hostname) || q.hostname.count { it == '.' } >= 1
+        return '@' in t || "://" in t || t.startsWith("ssh ") || t.startsWith("mosh ") || ':' in t || '.' in q.hostname
     }
 }

@@ -2,8 +2,8 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 
-use iced::futures::StreamExt;
 use iced::Task;
+use iced::futures::StreamExt;
 use nautile_app::app::{App, Message};
 use nautile_app::assistant::AiMsg;
 use nautile_app::sessions::{Tab, TabState};
@@ -22,10 +22,10 @@ fn drive(app: &mut App, first: Task<Message>) {
                 continue;
             };
             while let Some(a) = s.next().await {
-                if let iced_runtime::Action::Output(m) = a {
-                    if !matches!(m, Message::ToastClear) {
-                        queue.push(app.update(m));
-                    }
+                if let iced_runtime::Action::Output(m) = a
+                    && !matches!(m, Message::ToastClear)
+                {
+                    queue.push(app.update(m));
                 }
             }
         }
@@ -80,6 +80,8 @@ fn a_question_becomes_a_command() {
     };
     settings.ai_urls.insert("LOCAL".into(), url);
     settings.ai_models.insert("LOCAL".into(), "llama3.1".into());
+    // Conversations are sealed with a key derived from the database key (read at start by `App::boot`).
+    nautile_app::sealed::set_database_key(&[1; 32]);
     let mut app = App::with(
         Paths {
             data: data.clone(),
@@ -125,7 +127,10 @@ fn a_question_becomes_a_command() {
     assert_eq!(turns[0].command.as_deref(), Some("df -h /"));
     assert!(turns[0].turn.screen);
     // Kept on this computer for the next time.
-    let files: Vec<_> = std::fs::read_dir(data.join("ai-conversations")).unwrap().collect();
+    let files: Vec<_> = std::fs::read_dir(data.join("ai-conversations")).unwrap().flatten().collect();
     assert_eq!(files.len(), 1);
+    let raw = std::fs::read(files[0].path()).unwrap();
+    assert!(raw.starts_with(nautile_app::sealed::FILE_MAGIC), "sealed on the disk");
+    assert!(!String::from_utf8_lossy(&raw).contains("df -h"), "nothing in clear");
     let _ = std::fs::remove_dir_all(&data);
 }

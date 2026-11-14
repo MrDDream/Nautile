@@ -6,10 +6,10 @@ import android.view.inputmethod.InputMethodManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.nautile.app.session.TerminalPrefs
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
-import com.nautile.app.session.TerminalPrefs
 import kotlin.math.roundToInt
 
 /** Sticky CTRL / ALT from the extra-keys row: active for the next key only. */

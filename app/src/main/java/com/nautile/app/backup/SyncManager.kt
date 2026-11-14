@@ -1,14 +1,17 @@
 package com.nautile.app.backup
 
-import com.nautile.i18n.tr
-
-import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import androidx.room.InvalidationTracker
 import com.nautile.app.NautileApp
 import com.nautile.data.backup.BackupCodec
 import com.nautile.data.backup.SyncDevice
+import com.nautile.data.backup.WrongBackupPasswordException
 import com.nautile.data.sync.SyncMerge
+import com.nautile.i18n.tr
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,14 +23,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import okhttp3.Credentials
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.FileNotFoundException
 import java.io.IOException
-import java.util.concurrent.TimeUnit
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 /**
  * Keeps several devices in step through one encrypted file (the backup destination):
@@ -38,15 +38,10 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
     private val mutex = Mutex()
     private val _running = MutableStateFlow(false)
     val running: StateFlow<Boolean> = _running.asStateFlow()
-    private val http by lazy { OkHttpClient.Builder().callTimeout(2, TimeUnit.MINUTES).build() }
     private val prefs get() = app.backupPrefs
     private var pending: Job? = null
     /** Servers unreachable in a row: retried silently (a VPN not up yet, a server asleep). */
     private var netFailures = 0
-    private val _waitingVpn = MutableStateFlow(false)
-    /** « Seulement via le VPN » and no VPN is up: the synchronisation waits for it. */
-    val waitingVpn: StateFlow<Boolean> = _waitingVpn.asStateFlow()
-
 
     /** Downloads, merges and uploads. [password] overrides the stored one (first synchronisation). */
     suspend fun sync(password: String? = null): Result<SyncMerge.Stats> = mutex.withLock {
@@ -55,10 +50,8 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
             val pw = password ?: prefs.password() ?: error(tr("Mot de passe de sauvegarde non enregistré"))
             val dest = prefs.syncTarget ?: error(tr("Aucun emplacement de synchronisation choisi"))
             if (prefs.network.value == BackupNetwork.VPN && !AutoBackup.isLocal(dest.dest) && !AutoBackup.vpnUp(app)) {
-                _waitingVpn.value = true
                 return@withLock Result.failure(IOException(tr("En attente du VPN")))
             }
-            _waitingVpn.value = false
             val merge = SyncMerge(app.database)
             var attempt = 0
             while (true) {
@@ -100,7 +93,7 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
                 return@withLock Result.failure(IOException(e.message ?: e.javaClass.simpleName, e))
             }
             val reason = when (e) {
-                is com.nautile.data.backup.WrongBackupPasswordException -> tr("Le mot de passe ne déchiffre pas le fichier de synchronisation")
+                is WrongBackupPasswordException -> tr("Le mot de passe ne déchiffre pas le fichier de synchronisation")
                 else -> e.message ?: e.javaClass.simpleName
             }
             prefs.markSyncFailed(reason)
@@ -111,31 +104,25 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
     }
 
     private fun unreachable(e: Throwable): Boolean = generateSequence(e) { it.cause }.any {
-        it is java.net.UnknownHostException || it is java.net.ConnectException ||
-            it is java.net.SocketTimeoutException || it is java.net.NoRouteToHostException
+        it is UnknownHostException || it is ConnectException ||
+            it is SocketTimeoutException || it is NoRouteToHostException
     }
 
     /** Synchronises as soon as a VPN comes up, when the synchronisation waits for one. */
     fun watchVpn() {
-        val cm = app.getSystemService(android.net.ConnectivityManager::class.java) ?: return
-        val request = android.net.NetworkRequest.Builder()
-            .addTransportType(android.net.NetworkCapabilities.TRANSPORT_VPN)
-            .removeCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+        val cm = app.getSystemService(ConnectivityManager::class.java) ?: return
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
-        cm.registerNetworkCallback(request, object : android.net.ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: android.net.Network) {
+        cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
                 if (prefs.network.value == BackupNetwork.VPN) {
                     netFailures = 0
                     requestSoon(2_000)
                 }
             }
         })
-    }
-
-    /** Whether the destination already holds a file (another device set it up). */
-    suspend fun remoteExists(): Boolean = withContext(Dispatchers.IO) {
-        val dest = prefs.syncTarget ?: return@withContext false
-        runCatching { BackupStores.of(app, dest, prefs).read().text != null }.getOrDefault(false)
     }
 
     /** Checks [password] against the existing remote file. */

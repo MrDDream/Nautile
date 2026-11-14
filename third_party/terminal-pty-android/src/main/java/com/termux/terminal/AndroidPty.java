@@ -23,6 +23,7 @@ public final class AndroidPty implements Pty {
     private final int mFd;
     private final int mPid;
     private final FileDescriptor mWrapped;
+    private boolean mClosed;
 
     private AndroidPty(int fd, int pid) throws IOException {
         mFd = fd;
@@ -34,7 +35,12 @@ public final class AndroidPty implements Pty {
 
     @Override public OutputStream getOutputStream() { return new FileOutputStream(mWrapped); }
 
-    @Override public void setWindowSize(int columns, int rows) { JNI.setPtyWindowSize(mFd, rows, columns); }
+    @Override public void setWindowSize(int columns, int rows) {
+        // Nautile: never touch the descriptor number once closed, it may belong to another file by now.
+        synchronized (this) {
+            if (!mClosed) JNI.setPtyWindowSize(mFd, rows, columns);
+        }
+    }
 
     @Override public int waitFor() { return JNI.waitFor(mPid); }
 
@@ -48,7 +54,19 @@ public final class AndroidPty implements Pty {
         }
     }
 
-    @Override public void close() { JNI.close(mFd); }
+    /**
+     * Nautile: closes once, through the FileDescriptor the streams share, which invalidates it: a stream closed
+     * later (or still reading) can no longer reach a reused descriptor number.
+     */
+    @Override public synchronized void close() {
+        if (mClosed) return;
+        mClosed = true;
+        try {
+            Os.close(mWrapped);
+        } catch (ErrnoException e) {
+            System.err.println("W/AndroidPty: failed closing the terminal: " + e.getMessage());
+        }
+    }
 
     private static FileDescriptor wrap(int fd) throws IOException {
         FileDescriptor result = new FileDescriptor();

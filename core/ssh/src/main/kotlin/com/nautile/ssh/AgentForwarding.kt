@@ -1,5 +1,6 @@
 package com.nautile.ssh
 
+import com.hierynomus.sshj.signature.SignatureEdDSA
 import net.schmizz.sshj.common.Buffer
 import net.schmizz.sshj.common.KeyType
 import net.schmizz.sshj.common.SSHPacket
@@ -10,19 +11,22 @@ import net.schmizz.sshj.connection.channel.forwarded.AbstractForwardedChannelOpe
 import net.schmizz.sshj.signature.Signature
 import net.schmizz.sshj.signature.SignatureECDSA
 import net.schmizz.sshj.signature.SignatureRSA
-import com.hierynomus.sshj.signature.SignatureEdDSA
 import java.io.DataInputStream
 import java.io.EOFException
 import java.security.PrivateKey
 import java.security.PublicKey
 import java.util.concurrent.TimeUnit
 
-/** A key the forwarded agent may sign with. */
-class AgentKey(val public: PublicKey, val private: PrivateKey, val comment: String)
+/** A key the forwarded agent may sign with; [confirm]: each connection asks the user before its first use. */
+class AgentKey(val public: PublicKey, val private: PrivateKey, val comment: String, val confirm: Boolean = false)
 
 /** Serves `auth-agent@openssh.com` channels opened by the server with [keys]. */
-internal class AgentForwarder(conn: Connection, private val keys: () -> List<AgentKey>) :
-    AbstractForwardedChannelOpener(TYPE, conn) {
+internal class AgentForwarder(
+    conn: Connection,
+    private val keys: () -> List<AgentKey>,
+    confirm: (AgentKey) -> Boolean = { false },
+) : AbstractForwardedChannelOpener(TYPE, conn) {
+    private val consent = AgentConsent(confirm)
 
     override fun handleOpen(buf: SSHPacket) {
         val chan = AgentChannel(conn, buf.readUInt32AsInt(), buf.readUInt32(), buf.readUInt32())
@@ -38,7 +42,7 @@ internal class AgentForwarder(conn: Connection, private val keys: () -> List<Age
                 val len = inp.readInt()
                 if (len <= 0 || len > 256 * 1024) break
                 val msg = ByteArray(len).also(inp::readFully)
-                val reply = AgentProtocol.handle(msg, keys())
+                val reply = AgentProtocol.handle(msg, keys(), consent::mayUse)
                 out.write(Buffer.PlainBuffer().putBytes(reply).compactData)
                 out.flush()
             }
@@ -55,6 +59,22 @@ internal class AgentForwarder(conn: Connection, private val keys: () -> List<Age
     companion object { const val TYPE = "auth-agent@openssh.com" }
 }
 
+/**
+ * The user's answers for the [AgentKey.confirm] keys on one connection. Each key is asked about at
+ * most once: a refusal (or a dismissed prompt) holds for the rest of the connection, so a hostile
+ * server cannot reopen the dialog in a loop, and parallel requests wait for the first answer.
+ */
+internal class AgentConsent(private val confirm: (AgentKey) -> Boolean) {
+    private val answers = mutableMapOf<String, Boolean>()
+
+    @Synchronized
+    fun mayUse(key: AgentKey): Boolean {
+        if (!key.confirm) return true
+        val id = java.util.Base64.getEncoder().encodeToString(SshKeys.publicBlob(key.public))
+        return answers.getOrPut(id) { runCatching { confirm(key) }.getOrDefault(false) }
+    }
+}
+
 /** The subset of the ssh-agent protocol a forwarded agent needs (list and sign). */
 object AgentProtocol {
     private const val FAILURE = 5
@@ -65,7 +85,8 @@ object AgentProtocol {
     private const val RSA_SHA2_256 = 2
     private const val RSA_SHA2_512 = 4
 
-    fun handle(msg: ByteArray, keys: List<AgentKey>): ByteArray = try {
+    /** [mayUse] is asked before signing (not listing) with a key. */
+    fun handle(msg: ByteArray, keys: List<AgentKey>, mayUse: (AgentKey) -> Boolean = { true }): ByteArray = try {
         val buf = Buffer.PlainBuffer(msg)
         when (buf.readByte().toInt()) {
             REQUEST_IDENTITIES -> Buffer.PlainBuffer().putByte(IDENTITIES_ANSWER.toByte()).putUInt32(keys.size.toLong()).apply {
@@ -76,11 +97,13 @@ object AgentProtocol {
                 val data = buf.readBytes()
                 val flags = buf.readUInt32().toInt()
                 val key = keys.firstOrNull { SshKeys.publicBlob(it.public).contentEquals(blob) } ?: return failure()
-                val sig = signer(key.public, flags)
-                sig.initSign(key.private)
-                sig.update(data)
-                val encoded = Buffer.PlainBuffer().putString(sig.signatureName).putBytes(sig.encode(sig.sign())).compactData
-                Buffer.PlainBuffer().putByte(SIGN_RESPONSE.toByte()).putBytes(encoded).compactData
+                if (!mayUse(key)) failure() else {
+                    val sig = signer(key.public, flags)
+                    sig.initSign(key.private)
+                    sig.update(data)
+                    val encoded = Buffer.PlainBuffer().putString(sig.signatureName).putBytes(sig.encode(sig.sign())).compactData
+                    Buffer.PlainBuffer().putByte(SIGN_RESPONSE.toByte()).putBytes(encoded).compactData
+                }
             }
             else -> failure()
         }

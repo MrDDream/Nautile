@@ -2,7 +2,9 @@ package com.nautile.data
 
 import com.nautile.data.importer.SshConfigParser
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SshConfigParserTest {
@@ -55,5 +57,15 @@ class SshConfigParserTest {
         assertEquals("root", h.getValue("nas").username)
         assertEquals("pi", h.getValue("quoted alias").username)
         assertEquals("quoted alias", h.getValue("quoted alias").hostname)
+    }
+
+    @Test fun byteOrderMarkQuotedHashIncludeAndPort() {
+        val text = "\uFEFFHost web # the web server\n  HostName 10.0.0.1\n  Port 0\n  IdentityFile \"~/keys/#1\"\nInclude conf.d/*\n"
+        val web = SshConfigParser.parse(text).single()
+        assertEquals("web", web.alias)
+        assertEquals(22, web.port)
+        assertEquals("~/keys/#1", web.identityFile)
+        assertTrue(SshConfigParser.hasInclude(text))
+        assertFalse(SshConfigParser.hasInclude(config))
     }
 }

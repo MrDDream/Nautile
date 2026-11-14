@@ -6,9 +6,9 @@ cleanup() { docker rm -f nautile-s3 nautile-dav >/dev/null 2>&1 || true; }
 cleanup
 trap cleanup EXIT
 docker run -d --name nautile-s3 -p 127.0.0.1:29000:9000 -e RUSTFS_ACCESS_KEY=nautile -e RUSTFS_SECRET_KEY=nautile-secret \
-  rustfs/rustfs:latest >/dev/null
+  rustfs/rustfs:latest@sha256:b81d16a90ee25bd9511280127ca1471788c6e874cf0f0da759645f46b2dc1d74 >/dev/null
 docker run -d --name nautile-dav -p 127.0.0.1:28080:80 -e AUTH_TYPE=Basic -e USERNAME=nautile -e PASSWORD=nautile \
-  bytemark/webdav >/dev/null
+  bytemark/webdav:latest@sha256:21eed0df1238d17766080425f9ef46da2c1130e3e3aa9eaf36794d2a72e7c616 >/dev/null
 echo "Waiting for the servers…"
 for _ in $(seq 1 60); do
   curl -s -o /dev/null http://127.0.0.1:29000/ && curl -s -o /dev/null http://127.0.0.1:28080/ && break

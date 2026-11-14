@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use russh::ChannelMsg;
 
-use crate::session::{channels, Event, Input, Session, RUNTIME};
+use crate::session::{Event, Input, RUNTIME, Session, channels};
 use crate::ssh::{self, Params};
 
 /// What is read on the server: the first line of /proc/stat, the memory, the root disk, the load, the uptime,
@@ -101,7 +101,11 @@ async fn read_once(conn: &ssh::Connection) -> Result<String, String> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
         match tokio::time::timeout_at(deadline, ch.wait()).await {
-            Ok(Some(ChannelMsg::Data { data })) => out.extend_from_slice(&data),
+            Ok(Some(ChannelMsg::Data { data })) => {
+                if !ssh::push_bounded(&mut out, &data) {
+                    break;
+                }
+            }
             Ok(Some(ChannelMsg::Eof | ChannelMsg::Close)) | Ok(None) | Err(_) => break,
             Ok(Some(_)) => {}
         }

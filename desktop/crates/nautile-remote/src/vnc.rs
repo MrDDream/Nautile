@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use des::cipher::{BlockCipherEncrypt, KeyInit};
 use nautile_core::{tr, trf};
-use nautile_net::session::Reply;
 use nautile_net::Prompt;
+use nautile_net::session::Reply;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{Cursor, Framebuffer, Remote, RemoteEvent, RemoteInput, SharedFrame};
@@ -58,6 +58,22 @@ impl From<io::Error> for VncError {
 }
 
 type R<T> = Result<T, VncError>;
+
+/// Largest framebuffer side and area accepted from a server (a 16K desktop, 256 MiB of RGBA at most).
+const MAX_SIDE: u32 = 16384;
+const MAX_PIXELS: u64 = 1 << 26;
+/// Largest pointer shape accepted from a server.
+const MAX_CURSOR_SIDE: u32 = 256;
+/// Read delay while connecting: a silent server must not block the thread forever.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// RGBA bytes of a [w]×[h] desktop, or `None` when the server asks for an absurd size.
+fn frame_bytes(w: u32, h: u32) -> Option<usize> {
+    if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE || u64::from(w) * u64::from(h) > MAX_PIXELS {
+        return None;
+    }
+    usize::try_from(u64::from(w) * u64::from(h) * 4).ok()
+}
 
 fn mirror(b: u8) -> u8 {
     b.reverse_bits()
@@ -128,12 +144,12 @@ impl<S: Read> Client<S> {
         let mut inp = BufReader::with_capacity(64 * 1024, input);
         let mut version = [0u8; 12];
         inp.read_exact(&mut version)?;
-        let v = std::str::from_utf8(&version).unwrap_or_default();
-        if !v.starts_with("RFB ") {
+        if !version.starts_with(b"RFB ") {
             return Err(VncError::Protocol(tr("Ce n'est pas un serveur VNC")));
         }
-        let major: u32 = v[4..7].parse().unwrap_or(0);
-        let minor: u32 = v[8..11].parse().unwrap_or(0);
+        let number = |b: &[u8]| -> u32 { std::str::from_utf8(b).ok().and_then(|t| t.parse().ok()).unwrap_or(0) };
+        let major = number(&version[4..7]);
+        let minor = number(&version[8..11]);
         // 3.3 and 3.7 as such; 3.8 and anything newer (Apple's 3.889…) as 3.8.
         let ver = if major > 3 || minor >= 8 {
             8
@@ -155,7 +171,8 @@ impl<S: Read> Client<S> {
             if t == 0 {
                 return Err(VncError::Protocol(reason(&mut inp)));
             }
-            t as u8
+            // A type that does not fit a byte is unknown (0 is never a valid one here).
+            u8::try_from(t).unwrap_or(0)
         } else {
             let n = u8_(&mut inp)?;
             if n == 0 {
@@ -207,7 +224,7 @@ impl<S: Read> Client<S> {
                 return Err(VncError::Protocol(trf(
                     "Méthode d'authentification VNC non prise en charge (%1$s)",
                     &[&t],
-                )))
+                )));
             }
         }
 
@@ -230,7 +247,7 @@ impl<S: Read> Client<S> {
             zpos: 0,
             pending_cursor: None,
         };
-        c.resize(w, h);
+        c.resize(w, h)?;
 
         // SetPixelFormat: 32 bpp, depth 24, little endian, true colour, 0x00RRGGBB.
         let mut m = vec![0u8, 0, 0, 0, 32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 16, 8, 0, 0, 0, 0];
@@ -246,13 +263,16 @@ impl<S: Read> Client<S> {
         Ok(c)
     }
 
-    fn resize(&mut self, w: u32, h: u32) {
+    fn resize(&mut self, w: u32, h: u32) -> R<()> {
+        let bytes =
+            frame_bytes(w, h).ok_or_else(|| VncError::Protocol(trf("Taille d'écran VNC invalide (%1$s)", &[&format!("{w}×{h}")])))?;
         self.width = w;
         self.height = h;
         let mut f = self.frame.lock().unwrap_or_else(|e| e.into_inner());
         f.width = w;
         f.height = h;
-        f.rgba = vec![0; (w * h * 4) as usize];
+        f.rgba = vec![0; bytes];
+        Ok(())
     }
 
     /// Reads one message from the server.
@@ -293,7 +313,7 @@ impl<S: Read> Client<S> {
             // Rectangles outside the screen would write out of bounds.
             let inside = x + w <= self.width && y + h <= self.height;
             match enc {
-                ENC_DESKTOP_SIZE => self.resize(w, h),
+                ENC_DESKTOP_SIZE => self.resize(w, h)?,
                 ENC_LAST_RECT => return Ok(()),
                 ENC_CURSOR => self.cursor(x, y, w, h)?,
                 _ if !inside => return Err(VncError::Protocol(tr("Rectangle VNC hors de l'écran"))),
@@ -533,6 +553,9 @@ impl<S: Read> Client<S> {
             self.pending_cursor = Some(None);
             return Ok(());
         }
+        if w > MAX_CURSOR_SIDE || h > MAX_CURSOR_SIDE {
+            return Err(VncError::Protocol(tr("Curseur VNC trop grand")));
+        }
         let mut px = vec![0u8; (w * h * 4) as usize];
         self.inp.read_exact(&mut px)?;
         let row_bytes = w.div_ceil(8) as usize;
@@ -613,10 +636,16 @@ fn run(
         .ok_or_else(|| VncError::Protocol(trf("Adresse introuvable : %1$s", &[&host])))?;
     let stream = TcpStream::connect_timeout(&addr, Duration::from_secs(15))?;
     stream.set_nodelay(true)?;
+    // Bounded reads while connecting (the password prompt itself does not read), none afterwards.
+    stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
     let mut out = BufWriter::new(stream.try_clone()?);
     let mut client = Client::handshake(stream.try_clone()?, &mut out, frame, || {
         password.filter(|p| !p.is_empty()).or_else(|| ask_password(events, label, host))
     })?;
+    stream.set_read_timeout(None)?;
+    // One writer for both threads: each message goes out whole, never interleaved with another.
+    let out = Arc::new(Mutex::new(out));
+    let input_out = out.clone();
     let _ = events.send(RemoteEvent::Ready(client.name.clone()));
     let _ = events.send(RemoteEvent::Frame);
     // Input goes out from its own thread.
@@ -650,12 +679,12 @@ fn run(
                     break;
                 }
             };
+            let mut out = input_out.lock().unwrap_or_else(|e| e.into_inner());
             if out.write_all(&m).and_then(|_| out.flush()).is_err() {
                 break;
             }
         }
     })?;
-    let mut updates = BufWriter::new(stream.try_clone()?);
     loop {
         let ev = match client.read_message() {
             Ok(e) => e,
@@ -666,7 +695,7 @@ fn run(
                     io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionAborted | io::ErrorKind::NotConnected
                 ) =>
             {
-                return Ok(())
+                return Ok(());
             }
             Err(e) => return Err(e),
         };
@@ -680,8 +709,9 @@ fn run(
             }
             if frame {
                 *size.lock().unwrap_or_else(|e| e.into_inner()) = (client.width, client.height);
-                updates.write_all(&update_request(true, client.width, client.height))?;
-                updates.flush()?;
+                let mut out = out.lock().unwrap_or_else(|e| e.into_inner());
+                out.write_all(&update_request(true, client.width, client.height))?;
+                out.flush()?;
             }
         }
     }
@@ -709,6 +739,68 @@ mod tests {
         }
         assert_eq!(back, challenge);
         assert_ne!(r, challenge);
+    }
+
+    /// An RFB 3.8 server without password announcing a [w]×[h] desktop.
+    fn server_init(w: u16, h: u16) -> Vec<u8> {
+        let mut server = Vec::new();
+        server.extend_from_slice(b"RFB 003.008\n");
+        server.extend_from_slice(&[1, SEC_NONE]);
+        server.extend_from_slice(&0u32.to_be_bytes()); // OK
+        server.extend_from_slice(&w.to_be_bytes());
+        server.extend_from_slice(&h.to_be_bytes());
+        server.extend_from_slice(&[0u8; 16]);
+        server.extend_from_slice(&0u32.to_be_bytes());
+        server
+    }
+
+    #[test]
+    fn absurd_desktop_sizes_are_refused() {
+        assert_eq!(frame_bytes(4, 2), Some(32));
+        assert_eq!(frame_bytes(7680, 4320), Some(7680 * 4320 * 4));
+        assert_eq!(frame_bytes(0, 10), None);
+        assert_eq!(frame_bytes(32768, 32768), None);
+        assert_eq!(frame_bytes(16384, 16384), None, "1 GiB");
+        for (w, h) in [(32768, 32768), (65535, 65535), (0, 0)] {
+            let server = server_init(w, h);
+            let r = Client::handshake(&server[..], &mut Vec::new(), Arc::default(), || None);
+            assert!(matches!(r, Err(VncError::Protocol(_))), "{w}×{h}");
+        }
+        // A DesktopSize rectangle is checked the same way.
+        let mut server = server_init(4, 2);
+        server.extend_from_slice(&[0, 0]);
+        server.extend_from_slice(&1u16.to_be_bytes());
+        for v in [0u16, 0, 32768, 32768] {
+            server.extend_from_slice(&v.to_be_bytes());
+        }
+        server.extend_from_slice(&ENC_DESKTOP_SIZE.to_be_bytes());
+        let frame: SharedFrame = Arc::default();
+        let mut c = Client::handshake(&server[..], &mut Vec::new(), frame.clone(), || None).unwrap();
+        assert!(matches!(c.read_message(), Err(VncError::Protocol(_))));
+        assert_eq!(frame.lock().unwrap().rgba.len(), 32, "the old framebuffer is kept");
+    }
+
+    #[test]
+    fn huge_cursors_are_refused() {
+        let mut server = server_init(4, 2);
+        server.extend_from_slice(&[0, 0]);
+        server.extend_from_slice(&1u16.to_be_bytes());
+        for v in [0u16, 0, 40000, 40000] {
+            server.extend_from_slice(&v.to_be_bytes());
+        }
+        server.extend_from_slice(&ENC_CURSOR.to_be_bytes());
+        let mut c = Client::handshake(&server[..], &mut Vec::new(), Arc::default(), || None).unwrap();
+        assert!(matches!(c.read_message(), Err(VncError::Protocol(_))));
+    }
+
+    #[test]
+    fn a_garbled_version_does_not_panic() {
+        // Valid UTF-8 with a character across the major version's end.
+        let mut server = "RFB 00é003\n".as_bytes().to_vec();
+        assert_eq!(server.len(), 12);
+        server.extend_from_slice(&3u32.to_be_bytes());
+        let r = Client::handshake(&server[..], &mut Vec::new(), Arc::default(), || None);
+        assert!(r.is_err());
     }
 
     /// A tiny RFB 3.8 server: password, one Raw rectangle, one CopyRect, one ZRLE tile.

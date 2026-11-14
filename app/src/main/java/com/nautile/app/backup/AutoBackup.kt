@@ -1,9 +1,10 @@
 package com.nautile.app.backup
 
-import com.nautile.i18n.tr
-
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -13,14 +14,13 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.nautile.app.NautileApp
+import com.nautile.i18n.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.Credentials
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.time.Instant
+import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 
 /** Writes encrypted backups to the chosen places, now or each on its own schedule. */
@@ -29,7 +29,24 @@ object AutoBackup {
     private const val SYNC_WORK = "sync"
     private const val KEY_TARGET = "target"
     const val FILE_NAME = "nautile.backup"
-    private val http by lazy { OkHttpClient.Builder().callTimeout(2, TimeUnit.MINUTES).build() }
+    private val http by lazy {
+        OkHttpClient.Builder().callTimeout(2, TimeUnit.MINUTES).dns(CleartextGuard.dns).addNetworkInterceptor(CleartextGuard).build()
+    }
+
+    private const val PREFS_PAUSE = "nautile_backup_pause"
+    private const val KEY_PAUSED = "paused"
+
+    /**
+     * The automatic backups are paused: the data could not be decrypted and an empty database was
+     * started, which must not replace the good backups (each place keeps only a few copies). The
+     * synchronisation goes on (it merges, and brings the data back); backups asked by hand go on too.
+     */
+    fun autoPaused(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_PAUSE, Context.MODE_PRIVATE).getBoolean(KEY_PAUSED, false)
+
+    fun setAutoPaused(context: Context, paused: Boolean) {
+        context.getSharedPreferences(PREFS_PAUSE, Context.MODE_PRIVATE).edit().putBoolean(KEY_PAUSED, paused).commit()
+    }
 
     /**
      * Backs up to [targetId], or to every place when null; [password] defaults to the stored one.
@@ -79,13 +96,13 @@ object AutoBackup {
     }
 
     /** « Téléphone › Syncthing › Nautile » for a folder picked with Android's picker. */
-    fun describeFolder(context: Context, tree: Uri): String {
+    fun describeFolder(tree: Uri): String {
         val provider = when (tree.authority) {
             "com.android.externalstorage.documents" -> tr("Téléphone")
             "org.nextcloud.documents", "com.nextcloud.client.documents" -> "Nextcloud"
             else -> tree.authority.orEmpty()
         }
-        val path = runCatching { android.provider.DocumentsContract.getTreeDocumentId(tree).substringAfter(':') }.getOrNull().orEmpty()
+        val path = runCatching { DocumentsContract.getTreeDocumentId(tree).substringAfter(':') }.getOrNull().orEmpty()
         return listOf(provider, path.replace("/", " › ")).filter { it.isNotEmpty() }.joinToString(" › ")
     }
 
@@ -115,9 +132,9 @@ object AutoBackup {
 
     /** Whether a VPN network is up (WireGuard, Tailscale, OpenVPN… all show as TRANSPORT_VPN). */
     fun vpnUp(context: Context): Boolean {
-        val cm = context.getSystemService(android.net.ConnectivityManager::class.java) ?: return false
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return false
         @Suppress("DEPRECATION")
-        return cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true }
+        return cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }
     }
 
     /** Schedules each place's automatic backup and the synchronisation, cancels the rest. */
@@ -172,8 +189,8 @@ object AutoBackup {
         val slack = if (f == BackupFrequency.MONTH) 2 * 24 * 3_600_000L else period / 2
         val earliest = maxOf(now, (last ?: 0L) + period - slack)
         if (!f.atTime) return maxOf(now + 15 * 60_000L, (last ?: now) + period)
-        val zone = java.time.ZoneId.systemDefault()
-        var day = java.time.Instant.ofEpochMilli(earliest).atZone(zone).toLocalDate()
+        val zone = ZoneId.systemDefault()
+        var day = Instant.ofEpochMilli(earliest).atZone(zone).toLocalDate()
         repeat(40) {
             val at = day.atTime(minutes / 60, minutes % 60).atZone(zone).toInstant().toEpochMilli()
             if (at >= earliest && (f != BackupFrequency.WEEK || day.dayOfWeek.value == weekday)) return at
@@ -195,7 +212,14 @@ object AutoBackup {
         override suspend fun doWork(): Result {
             val app = applicationContext as NautileApp
             val id = inputData.getString(KEY_TARGET) ?: return Result.failure()
-            if (app.backupPrefs.target(id) == null) return Result.failure()
+            val prefs = app.backupPrefs
+            if (prefs.target(id) == null) return Result.failure()
+            // Opened first. A database found unreadable is never set aside from here (only by a launch on screen):
+            // the work waits and tries again.
+            if (app.openDatabaseOrError() != null) return if (runAttemptCount < 3) Result.retry() else Result.failure()
+            // After the data was reset: no automatic backup until the user says so (the synchronisation still runs).
+            val syncing = prefs.syncEnabled.value && id == prefs.syncTargetId.value
+            if (!syncing && autoPaused(app)) return Result.success()
             return AutoBackup.run(app, id).fold(
                 onSuccess = { Result.success() },
                 onFailure = { e -> if (e is IOException && runAttemptCount < 3) Result.retry() else Result.failure() },

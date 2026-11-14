@@ -7,23 +7,23 @@ use std::time::{Duration, Instant};
 
 use alacritty_terminal::index::Side;
 use alacritty_terminal::selection::SelectionType;
-use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::TermMode;
+use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, CursorShape, NamedColor};
 use iced::advanced::clipboard::Kind;
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer::{self, Quad};
 use iced::advanced::text::{self, Paragraph, Text};
-use iced::advanced::widget::{tree, Tree, Widget};
+use iced::advanced::widget::{Tree, Widget, tree};
 use iced::advanced::{Clipboard, Shell};
 use iced::alignment::Vertical;
-use iced::keyboard::{self, key::Named, Key};
+use iced::keyboard::{self, Key, key::Named};
 use iced::mouse::{self, ScrollDelta};
 use iced::widget::text::{LineHeight, Shaping, Wrapping};
 use iced::{Border, Color, Element, Event, Font, Length, Pixels, Point, Rectangle, Size};
 
-use super::themes::TermTheme;
 use super::Terminal;
+use super::themes::TermTheme;
 
 /// Inner margin around the grid.
 pub const PADDING: f32 = 8.0;
@@ -44,6 +44,8 @@ pub enum Action {
 
 pub struct TermView<'a, Message> {
     term: &'a Terminal,
+    /// The tab shown: the widget's state outlives a tab switch.
+    key: u64,
     font: Font,
     size: f32,
     focused: bool,
@@ -52,6 +54,7 @@ pub struct TermView<'a, Message> {
 
 pub fn view<'a, Message>(
     term: &'a Terminal,
+    key: u64,
     font: Font,
     size: f32,
     focused: bool,
@@ -59,6 +62,7 @@ pub fn view<'a, Message>(
 ) -> TermView<'a, Message> {
     TermView {
         term,
+        key,
         font,
         size,
         focused,
@@ -71,8 +75,8 @@ struct State {
     /// Measured size of a cell for the current font size.
     cell: Size,
     measured_for: Option<(f32, Font)>,
-    /// The last size asked with [Action::Resize].
-    reported: (u16, u16),
+    /// The last size asked with [Action::Resize], and for which tab.
+    reported: (u64, u16, u16),
     selecting: bool,
     last_cell: (usize, usize),
     clicks: u32,
@@ -236,19 +240,31 @@ where
         if state.cell.width <= 0.0 {
             return;
         }
-        // The grid follows the widget's size.
-        let wanted = Self::grid_size(state, bounds.size());
-        if wanted != state.reported && wanted != (self.term.cols(), self.term.rows()) {
+        // The grid follows the widget's size (a tab shown again after the window was resized catches up too).
+        if state.reported.0 != self.key {
+            // Another tab: what the mouse was doing was on the previous one.
+            state.selecting = false;
+            state.clicks = 0;
+        }
+        let (cols, rows) = Self::grid_size(state, bounds.size());
+        let wanted = (self.key, cols, rows);
+        if (cols, rows) == (self.term.cols(), self.term.rows()) {
             state.reported = wanted;
-            shell.publish((self.on_action)(Action::Resize(wanted.0, wanted.1)));
-        } else if wanted == (self.term.cols(), self.term.rows()) {
+        } else if wanted != state.reported {
             state.reported = wanted;
+            shell.publish((self.on_action)(Action::Resize(cols, rows)));
         }
 
         let publish = |shell: &mut Shell<'_, Message>, a: Action| shell.publish((self.on_action)(a));
         match event {
             Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => state.modifiers = *m,
-            Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, text, .. }) if self.focused => {
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key,
+                modifiers,
+                text,
+                physical_key,
+                ..
+            }) if self.focused => {
                 let (ctrl, shift) = (modifiers.control(), modifiers.shift());
                 // Left to the window: tabs and the app's own shortcuts.
                 let digit =
@@ -290,7 +306,8 @@ where
                     }
                 }
                 let app_cursor = self.term.mode().contains(TermMode::APP_CURSOR);
-                if let Some(bytes) = super::keys::encode(key, *modifiers, text.as_deref(), app_cursor) {
+                let latin = super::keys::latin(physical_key);
+                if let Some(bytes) = super::keys::encode(key, *modifiers, text.as_deref(), latin, super::keys::option_meta(), app_cursor) {
                     publish(shell, Action::Input(bytes));
                     shell.capture_event();
                 }
@@ -304,12 +321,12 @@ where
                     mouse::Button::Right => Some(2),
                     _ => None,
                 };
-                if !state.modifiers.shift() {
-                    if let Some(r) = report_code.and_then(|b| self.mouse_report(b, row, col, true, state.modifiers)) {
-                        publish(shell, Action::Input(r));
-                        shell.capture_event();
-                        return;
-                    }
+                if !state.modifiers.shift()
+                    && let Some(r) = report_code.and_then(|b| self.mouse_report(b, row, col, true, state.modifiers))
+                {
+                    publish(shell, Action::Input(r));
+                    shell.capture_event();
+                    return;
                 }
                 match button {
                     mouse::Button::Left => {
@@ -403,7 +420,7 @@ where
                 } else if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) {
                     // less, man, vim without mouse: the wheel moves by lines.
                     let key: &[u8] = if lines > 0 { b"\x1bOA" } else { b"\x1bOB" };
-                    publish(shell, Action::Input(key.repeat(lines.unsigned_abs() as usize)));
+                    publish(shell, Action::Input(key.repeat(lines.unsigned_abs().min(10) as usize)));
                 } else {
                     publish(shell, Action::Scroll(lines));
                 }
@@ -465,7 +482,7 @@ where
         let selection = content.selection;
         let selection_bg = Color {
             a: 1.0,
-            ..mix(palette.background, palette.cursor, 0.35)
+            ..crate::theme::mix(palette.background, palette.cursor, 0.35)
         };
         let show_cursor = content.mode.contains(TermMode::SHOW_CURSOR) && content.cursor.shape != CursorShape::Hidden;
         let cursor_point = content.cursor.point;
@@ -499,10 +516,11 @@ where
             let (mut fg, mut bg) = (self.color(cell.fg), self.color(cell.bg));
             if flags.contains(Flags::BOLD) {
                 // Bold in the normal colours shows the bright ones, as most terminals do.
-                if let AnsiColor::Named(n) = cell.fg {
-                    if (n as usize) < 8 && self.term.term.colors()[n].is_none() {
-                        fg = palette.ansi[n as usize + 8];
-                    }
+                if let AnsiColor::Named(n) = cell.fg
+                    && (n as usize) < 8
+                    && self.term.term.colors()[n].is_none()
+                {
+                    fg = palette.ansi[n as usize + 8];
                 }
             }
             if flags.contains(Flags::DIM) {
@@ -531,17 +549,23 @@ where
             if flags.contains(Flags::STRIKEOUT) {
                 decorations.push((Rectangle::new(Point::new(x, y + ch / 2.0), Size::new(cw * width as f32, 1.0)), fg));
             }
-            let mut c = String::from(cell.c);
-            if let Some(extra) = cell.zerowidth() {
-                c.extend(extra);
-            }
+            // A string of its own only for what needs one (combining marks, the cell under the cursor, a new
+            // run): most cells are spaces or join the run before them.
+            let extra = cell.zerowidth().filter(|z| !z.is_empty());
+            let glyph = || {
+                let mut c = String::from(cell.c);
+                if let Some(z) = extra {
+                    c.extend(z);
+                }
+                c
+            };
             if show_cursor && cell.point == cursor_point {
-                under_cursor = Some((c.clone(), bg, width));
+                under_cursor = Some((glyph(), bg, width));
             }
             if cell.c == ' ' || cell.c == '\t' || flags.contains(Flags::HIDDEN) {
                 continue;
             }
-            let simple = width == 1 && cell.c.is_ascii() && c.len() == 1;
+            let simple = width == 1 && cell.c.is_ascii() && extra.is_none();
             match runs.last_mut() {
                 Some(r) if simple && r.simple && r.row == row && r.col + r.cells == col && r.color == fg => {
                     r.text.push(cell.c);
@@ -558,7 +582,7 @@ where
                 _ => runs.push(Run {
                     row,
                     col,
-                    text: c,
+                    text: glyph(),
                     color: fg,
                     cells: width,
                     simple,
@@ -643,15 +667,176 @@ where
     }
 }
 
-fn mix(a: Color, b: Color, t: f32) -> Color {
-    Color::from_rgb(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t)
-}
-
 impl<'a, Message: 'a, Theme, Renderer> From<TermView<'a, Message>> for Element<'a, Message, Theme, Renderer>
 where
     Renderer: text::Renderer<Font = Font> + 'a,
 {
     fn from(v: TermView<'a, Message>) -> Self {
         Element::new(v)
+    }
+}
+
+/// The terminal with a panel on its right (the assistant). In a plain row both would get every key: the panel
+/// gets them first here, and while one of its fields has the focus the terminal gets none (a question typed
+/// to the assistant must never reach the shell).
+pub fn with_panel<'a, Message: 'a, Theme: 'a, Renderer>(
+    term: impl Into<Element<'a, Message, Theme, Renderer>>,
+    panel: impl Into<Element<'a, Message, Theme, Renderer>>,
+) -> Element<'a, Message, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer + 'a,
+{
+    Element::new(WithPanel {
+        children: [term.into(), panel.into()],
+    })
+}
+
+struct WithPanel<'a, Message, Theme, Renderer> {
+    children: [Element<'a, Message, Theme, Renderer>; 2],
+}
+
+/// Whether a widget it visits has the focus.
+struct AnyFocused(bool);
+
+impl iced::advanced::widget::Operation for AnyFocused {
+    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn iced::advanced::widget::Operation)) {
+        operate(self);
+    }
+
+    fn focusable(
+        &mut self,
+        _id: Option<&iced::advanced::widget::Id>,
+        _bounds: Rectangle,
+        state: &mut dyn iced::advanced::widget::operation::Focusable,
+    ) {
+        self.0 |= state.is_focused();
+    }
+}
+
+impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer> for WithPanel<'_, Message, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer,
+{
+    fn children(&self) -> Vec<Tree> {
+        self.children.iter().map(Tree::new).collect()
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(&self.children);
+    }
+
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) -> layout::Node {
+        layout::flex::resolve(
+            layout::flex::Axis::Horizontal,
+            renderer,
+            limits,
+            Length::Fill,
+            Length::Fill,
+            iced::Padding::ZERO,
+            0.0,
+            iced::Alignment::Start,
+            &mut self.children,
+            &mut tree.children,
+        )
+    }
+
+    fn operate(&mut self, tree: &mut Tree, layout: Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        operation.container(None, layout.bounds());
+        operation.traverse(&mut |operation| {
+            for ((child, state), layout) in self.children.iter_mut().zip(&mut tree.children).zip(layout.children()) {
+                child.as_widget_mut().operate(state, layout, renderer, operation);
+            }
+        });
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let [term, panel] = &mut self.children;
+        let (term_tree, panel_tree) = tree.children.split_at_mut(1);
+        let (term_tree, panel_tree) = (&mut term_tree[0], &mut panel_tree[0]);
+        let mut layouts = layout.children();
+        let (Some(term_layout), Some(panel_layout)) = (layouts.next(), layouts.next()) else {
+            return;
+        };
+        // Keys go to the terminal unless a field of the panel is being typed in; the state of Shift, Ctrl…
+        // always does (else clicks would go on as if Shift were still held).
+        if let Event::Keyboard(e) = event {
+            panel
+                .as_widget_mut()
+                .update(panel_tree, event, panel_layout, cursor, renderer, clipboard, shell, viewport);
+            if let keyboard::Event::ModifiersChanged(_) = e {
+                term.as_widget_mut()
+                    .update(term_tree, event, term_layout, cursor, renderer, clipboard, shell, viewport);
+                return;
+            }
+            let mut typing = AnyFocused(false);
+            panel.as_widget_mut().operate(panel_tree, panel_layout, renderer, &mut typing);
+            if !typing.0 && !shell.is_event_captured() {
+                term.as_widget_mut()
+                    .update(term_tree, event, term_layout, cursor, renderer, clipboard, shell, viewport);
+            }
+            return;
+        }
+        term.as_widget_mut()
+            .update(term_tree, event, term_layout, cursor, renderer, clipboard, shell, viewport);
+        panel
+            .as_widget_mut()
+            .update(panel_tree, event, panel_layout, cursor, renderer, clipboard, shell, viewport);
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.children
+            .iter()
+            .zip(&tree.children)
+            .zip(layout.children())
+            .map(|((child, state), layout)| child.as_widget().mouse_interaction(state, layout, cursor, viewport, renderer))
+            .max()
+            .unwrap_or_default()
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        for ((child, state), layout) in self.children.iter().zip(&tree.children).zip(layout.children()) {
+            child.as_widget().draw(state, renderer, theme, style, layout, cursor, viewport);
+        }
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        iced::advanced::overlay::from_children(&mut self.children, tree, layout, renderer, viewport, translation)
     }
 }

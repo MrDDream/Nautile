@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use iced::widget::markdown;
 use iced::Task;
+use iced::widget::markdown;
 use nautile_core::model::now_ms;
 use nautile_core::{tr, trf};
 use nautile_net::ai::{self, AiFile, AiMessage, Config, ProviderKind};
@@ -194,12 +194,10 @@ pub enum AiMsg {
     // Settings.
     Provider(ProviderKind),
     Key(String),
-    Model(String),
     Url(String),
     Save,
     LoadModels,
     Models(Result<Vec<String>, String>),
-    PickModel(String),
     Test,
     Tested(Result<String, String>),
     ForgetKey,
@@ -328,23 +326,42 @@ impl App {
         if self.assistant.conversations.contains_key(key) {
             return;
         }
-        let turns: Vec<Turn> = std::fs::read_to_string(file_for(&self.ai_dir(), key))
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let path = file_for(&self.ai_dir(), key);
+        let raw = std::fs::read(&path).ok();
+        let turns: Vec<Turn> = match (&raw, crate::sealed::key(crate::sealed::CONVERSATIONS)) {
+            (Some(raw), Some(k)) => crate::sealed::open_file(&k, raw)
+                .and_then(|b| serde_json::from_slice(&b).ok())
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        let plain = raw.is_some_and(|r| !r.starts_with(crate::sealed::FILE_MAGIC));
         self.assistant
             .conversations
             .insert(key.to_owned(), turns.into_iter().map(Shown::new).collect());
+        if plain {
+            // Written before encryption: sealed now.
+            self.ai_store(key);
+        }
     }
 
     fn ai_store(&self, key: &str) {
         let Some(c) = self.assistant.conversations.get(key) else { return };
         let turns: Vec<&Turn> = c.iter().map(|s| &s.turn).collect();
         let dir = self.ai_dir();
-        let _ = std::fs::create_dir_all(&dir);
-        if let Ok(json) = serde_json::to_string(&turns) {
-            let _ = std::fs::write(file_for(&dir, key), json);
+        // The screens and files sent are in it: sealed, for this user only (kept in memory without a key).
+        let Some(k) = crate::sealed::key(crate::sealed::CONVERSATIONS) else {
+            return;
+        };
+        if let (Ok(()), Ok(json)) = (crate::storage::private_dir(&dir), serde_json::to_vec(&turns)) {
+            let _ = crate::storage::write_private(&file_for(&dir, key), &crate::sealed::seal_file(&k, &json));
         }
+    }
+
+    /// Forgets the conversation of a deleted host, on the disk too.
+    pub fn ai_forget_host(&mut self, host: i64) {
+        let key = format!("host:{host}");
+        self.assistant.conversations.remove(&key);
+        let _ = std::fs::remove_file(file_for(&self.ai_dir(), &key));
     }
 
     /// « mrd@docker-01 (10.0.0.20, SSH) » for the request.
@@ -380,7 +397,7 @@ impl App {
                         Some((f.file_name(), f.read().await))
                     },
                     |r| Message::Ai(AiMsg::Attached(r)),
-                )
+                );
             }
             AiMsg::Attached(Some((name, bytes))) => match ai::read_file(&name, &bytes) {
                 Ok(f) => st.files.push(f),
@@ -483,9 +500,13 @@ impl App {
             }
             AiMsg::Insert(cmd) => {
                 // Typed but not run: the user checks it, then presses Enter.
-                let text = cmd.trim_end_matches('\n').replace("\r\n", "\n").replace('\n', "\r");
-                if let Some(id) = self.active_tab {
-                    self.on_term(id, crate::term::widget::Action::Input(text.into_bytes()));
+                let typed = self
+                    .active_tab
+                    .and_then(|id| self.tab(id))
+                    .filter(|t| t.files.is_none() && t.remote.is_none() && t.monitor.is_none())
+                    .map(|t| (t.id, t.term.insert(&cmd)));
+                if let Some((id, bytes)) = typed {
+                    self.on_term(id, crate::term::widget::Action::Input(bytes));
                 }
             }
             AiMsg::Copy(cmd) => {
@@ -611,9 +632,7 @@ impl App {
                 self.save_settings();
             }
             AiMsg::Key(v) => st.key_input = v,
-            AiMsg::Model(v) => st.model_input = v,
             AiMsg::Url(v) => st.url_input = v,
-            AiMsg::PickModel(v) => st.model_input = v,
             AiMsg::Save => {
                 let k = st.edit.unwrap_or(ProviderKind::Claude);
                 let name = format!("{k:?}").to_uppercase();
@@ -727,16 +746,7 @@ impl App {
 }
 
 fn open_url(url: &str) {
-    if !(url.starts_with("http://") || url.starts_with("https://")) {
-        return;
+    if url.starts_with("http://") || url.starts_with("https://") {
+        crate::kit::open_external(url);
     }
-    #[cfg(windows)]
-    let r = std::process::Command::new("rundll32")
-        .args(["url.dll,FileProtocolHandler", url])
-        .spawn();
-    #[cfg(target_os = "macos")]
-    let r = std::process::Command::new("open").arg(url).spawn();
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let r = std::process::Command::new("xdg-open").arg(url).spawn();
-    let _ = r;
 }

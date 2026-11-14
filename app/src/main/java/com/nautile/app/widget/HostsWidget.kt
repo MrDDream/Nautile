@@ -1,7 +1,5 @@
 package com.nautile.app.widget
 
-import com.nautile.i18n.tr
-
 import android.content.Context
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -30,13 +28,14 @@ import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.layout.width
+import androidx.glance.text.FontFamily
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.nautile.app.NautileApp
-import com.nautile.app.MainActivity
 import com.nautile.app.R
+import com.nautile.i18n.tr
 import kotlinx.coroutines.flow.first
 
 /** Home-screen widget: the most recently used hosts, one tap to connect. */
@@ -46,24 +45,26 @@ class HostsWidget : GlanceAppWidget() {
         val hosts = runCatching {
             app.hostRepository.hosts.first().sortedByDescending { it.lastConnectedAt ?: 0 }.take(8)
         }.getOrDefault(emptyList())
+        // The home screen is seen by anyone holding the phone: with the app locked, names only.
+        val showAddresses = runCatching { !app.appLock.enabled }.getOrDefault(false)
         provideContent {
             Column(GlanceModifier.fillMaxSize().background(BG).cornerRadius(20.dp).padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = GlanceModifier.padding(bottom = 6.dp)) {
                     Image(ImageProvider(R.drawable.ic_logo_mark), contentDescription = "Nautile", modifier = GlanceModifier.size(20.dp))
                     Spacer(GlanceModifier.width(8.dp))
-                    Text("nautile", style = TextStyle(color = ColorProvider(TEXT), fontWeight = FontWeight.Medium, fontSize = 15.sp, fontFamily = androidx.glance.text.FontFamily.Monospace))
-                    Text("_", style = TextStyle(color = ColorProvider(Color(0xFFFFB547)), fontWeight = FontWeight.Medium, fontSize = 15.sp, fontFamily = androidx.glance.text.FontFamily.Monospace))
+                    Text("nautile", style = TextStyle(color = ColorProvider(TEXT), fontWeight = FontWeight.Medium, fontSize = 15.sp, fontFamily = FontFamily.Monospace))
+                    Text("_", style = TextStyle(color = ColorProvider(Color(0xFFFFB547)), fontWeight = FontWeight.Medium, fontSize = 15.sp, fontFamily = FontFamily.Monospace))
                 }
                 if (hosts.isEmpty()) Text(tr("Aucun hôte"), style = TextStyle(color = ColorProvider(MUTED), fontSize = 13.sp))
                 LazyColumn {
                     items(hosts, itemId = { it.id }) { h ->
                         Column(
                             GlanceModifier.fillMaxWidth().padding(vertical = 3.dp)
-                                .clickable(actionStartActivity(MainActivity.connectIntent(context, h.id))),
+                                .clickable(actionStartActivity(LaunchAuth.connectIntent(context, h.id))),
                         ) {
                             Column(GlanceModifier.fillMaxWidth().background(SURFACE).cornerRadius(12.dp).padding(horizontal = 12.dp, vertical = 8.dp)) {
                                 Text(h.alias, style = TextStyle(color = ColorProvider(TEXT), fontWeight = FontWeight.Medium, fontSize = 14.sp), maxLines = 1)
-                                Text(h.address, style = TextStyle(color = ColorProvider(MUTED), fontSize = 11.sp), maxLines = 1)
+                                if (showAddresses) Text(h.address, style = TextStyle(color = ColorProvider(MUTED), fontSize = 11.sp), maxLines = 1)
                             }
                         }
                     }

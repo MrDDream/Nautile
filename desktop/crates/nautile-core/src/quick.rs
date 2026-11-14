@@ -93,18 +93,19 @@ pub fn parse(input: &str) -> Option<QuickTarget> {
         }
         text = target?.to_owned();
     }
-    if let Some((scheme, rest)) = text.split_once("://") {
-        if !scheme.is_empty() && scheme.chars().all(|c| c.is_ascii_alphabetic()) {
-            protocol = match scheme.to_lowercase().as_str() {
-                "ssh" => Protocol::Ssh,
-                "mosh" => Protocol::Mosh,
-                "telnet" => Protocol::Telnet,
-                "rdp" => Protocol::Rdp,
-                "vnc" => Protocol::Vnc,
-                _ => return None,
-            };
-            text = rest.trim_end_matches('/').to_owned();
-        }
+    if let Some((scheme, rest)) = text.split_once("://")
+        && !scheme.is_empty()
+        && scheme.chars().all(|c| c.is_ascii_alphabetic())
+    {
+        protocol = match scheme.to_lowercase().as_str() {
+            "ssh" => Protocol::Ssh,
+            "mosh" => Protocol::Mosh,
+            "telnet" => Protocol::Telnet,
+            "rdp" => Protocol::Rdp,
+            "vnc" => Protocol::Vnc,
+            _ => return None,
+        };
+        text = rest.trim_end_matches('/').to_owned();
     }
     let (user, rest) = match text.rfind('@') {
         Some(i) => (text[..i].to_owned(), text[i + 1..].to_owned()),

@@ -204,6 +204,62 @@ class SshConnectorIT {
         }
     }
 
+    /** IT_KEY: a private key file to log in with instead of the password (a local user-mode sshd). */
+    private fun itAuth(): SshAuth = System.getenv("IT_KEY")?.let { SshAuth.PrivateKey(java.io.File(it).readText()) } ?: SshAuth.Password(pass)
+
+    @Test fun sftpWriteFileKeepsTheSameFile() {
+        SshConnector(MemoryStore(), Prompts()).connect(listOf(SshTarget(host, port, user, itAuth()))).use { c ->
+            c.openSftp().use { sftp ->
+                val dir = SftpSession.join(sftp.home(), "coq-write-${System.nanoTime()}")
+                sftp.mkdir(dir)
+                fun p(name: String) = SftpSession.join(dir, name)
+                fun read(name: String) = sftp.openRead(p(name)).use { String(it.readBytes()) }
+                fun parts() = sftp.list(dir).filter { it.name.endsWith(".part") }
+                try {
+                    // New file: through a 0600 temporary file, then the server's default mode.
+                    var tempMode = -1
+                    assertTrue(sftp.writeFile(p("new.txt")) { out -> tempMode = parts().single().permissions; out.write("a".toByteArray()) })
+                    assertEquals("600".toInt(8), tempMode)
+                    assertEquals("a", read("new.txt"))
+                    assertTrue(sftp.stat(p("new.txt")).permissions and "44".toInt(8) != 0)
+
+                    // Private file stays private, even while being written.
+                    sftp.chmod(p("new.txt"), "600".toInt(8))
+                    assertTrue(sftp.writeFile(p("new.txt")) { out -> tempMode = parts().single().permissions; out.write("b".toByteArray()) })
+                    assertEquals("600".toInt(8), tempMode)
+                    assertEquals("600".toInt(8), sftp.stat(p("new.txt")).permissions)
+
+                    // A symlink is followed and stays a link.
+                    c.exec("ln -s new.txt '${p("link.txt")}'")
+                    sftp.replaceContent(p("link.txt"), "c".toByteArray())
+                    assertTrue(sftp.list(dir).single { it.name == "link.txt" }.isLink)
+                    assertEquals("c", read("new.txt"))
+
+                    // Hard links: written in place so both names keep the content.
+                    c.exec("ln '${p("new.txt")}' '${p("hard.txt")}'")
+                    assertTrue(!sftp.replaceContent(p("hard.txt"), "d".toByteArray()))
+                    assertEquals("d", read("new.txt"))
+
+                    // Read-only for its owner: refused instead of silently replaced.
+                    sftp.writeFile(p("ro.txt")) { it.write("ro".toByteArray()) }
+                    sftp.chmod(p("ro.txt"), "444".toInt(8))
+                    assertTrue(runCatching { sftp.replaceContent(p("ro.txt"), "x".toByteArray()) }.isFailure)
+                    assertEquals("ro", read("ro.txt"))
+
+                    // Folder not writable but file writable: in place.
+                    sftp.writeFile(p("plain.txt")) { it.write("p".toByteArray()) }
+                    sftp.chmod(dir, "555".toInt(8))
+                    assertTrue(!sftp.writeFile(p("plain.txt")) { it.write("e".toByteArray()) })
+                    assertEquals("e", read("plain.txt"))
+                    assertTrue(parts().isEmpty())
+                } finally {
+                    runCatching { sftp.chmod(dir, "755".toInt(8)) }
+                    sftp.delete(dir, recursive = true)
+                }
+            }
+        }
+    }
+
     @Test fun moshSessionRunsCommands() {
         val conn = SshConnector(MemoryStore(), Prompts()).connect(listOf(SshTarget(host, port, user, SshAuth.Password(pass))))
         val mosh = conn.use { MoshChannel.start(it, host, 100, 30, "mosh-server new -s -p 60001:60005 -c 256 -l LANG=C.UTF-8") }

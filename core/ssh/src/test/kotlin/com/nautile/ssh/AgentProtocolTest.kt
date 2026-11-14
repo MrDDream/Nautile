@@ -40,4 +40,32 @@ class AgentProtocolTest {
         val req = Buffer.PlainBuffer().putByte(13).putBytes(byteArrayOf(1, 2)).putBytes(byteArrayOf(3)).putUInt32(0).compactData
         assertEquals(5, AgentProtocol.handle(req, listOf(agentKey(KeyAlgorithm.ED25519)))[0].toInt())
     }
+
+    @Test fun signatureNeedsPermission() {
+        val key = agentKey(KeyAlgorithm.ED25519)
+        val req = Buffer.PlainBuffer().putByte(13).putBytes(SshKeys.publicBlob(key.public)).putBytes(byteArrayOf(1)).putUInt32(0).compactData
+        var asked = 0
+        assertEquals(5, AgentProtocol.handle(req, listOf(key)) { asked++; false }[0].toInt())
+        assertEquals(1, asked)
+        assertEquals(14, AgentProtocol.handle(req, listOf(key)) { true }[0].toInt())
+    }
+
+    @Test fun refusalHoldsForTheConnection() {
+        val m = SshKeys.generate(KeyAlgorithm.ED25519, "k")
+        val p = SshKeys.load(m.privateKey, null)
+        val key = AgentKey(p.public, p.private, "k", confirm = true)
+        val req = Buffer.PlainBuffer().putByte(13).putBytes(SshKeys.publicBlob(key.public)).putBytes(byteArrayOf(1)).putUInt32(0).compactData
+        var asked = 0
+        val consent = AgentConsent { asked++; false }
+        repeat(20) { assertEquals(5, AgentProtocol.handle(req, listOf(key), consent::mayUse)[0].toInt()) }
+        assertEquals("a refusal must not prompt again", 1, asked)
+
+        var allowedAsks = 0
+        val allowed = AgentConsent { allowedAsks++; true }
+        repeat(3) { assertEquals(14, AgentProtocol.handle(req, listOf(key), allowed::mayUse)[0].toInt()) }
+        assertEquals(1, allowedAsks)
+
+        val failing = AgentConsent { error("dismissed") }
+        assertEquals(5, AgentProtocol.handle(req, listOf(key), failing::mayUse)[0].toInt())
+    }
 }

@@ -7,7 +7,7 @@ NAME=nautile-vnc
 cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; }
 cleanup
 trap cleanup EXIT
-docker run -d --name "$NAME" -p 127.0.0.1:25900:5900 alpine:3.20 sh -c '
+docker run -d --name "$NAME" -p 127.0.0.1:25900:5900 alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf sh -c '
   apk add --no-cache xvfb x11vnc xterm font-dejavu >/dev/null &&
   (Xvfb :0 -screen 0 800x600x24 &) && sleep 2 &&
   (DISPLAY=:0 xterm -geometry 80x24+20+20 -bg white -fg black -e sh -c "echo Bonjour depuis VNC; exec sh" &) &&

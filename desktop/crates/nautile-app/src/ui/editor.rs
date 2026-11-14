@@ -1,8 +1,7 @@
 //! The forms that create and edit hosts, groups, snippets, keys, identities and tunnels.
 
 use super::*;
-#[allow(unused_imports)]
-use iced::widget::{button, column, container, image, pick_list, row, scrollable, stack, text, text_editor, text_input, Column, Space};
+use iced::widget::{Space, button, column, container, pick_list, row, text, text_editor, text_input};
 
 /// The panel's title, form, save action and delete action (with its « confirm » state).
 pub(super) type Panel<'a> = (String, Element<'a, Message>, Option<Message>, Option<(bool, Message)>);
@@ -80,7 +79,7 @@ pub(super) fn editor<'a>(app: &'a App, e: &'a Editor, max_height: f32) -> Elemen
             .width(Fill);
             if let Some(g) = f.group.and_then(|g| app.groups.iter().find(|x| x.id == g)) {
                 who = who.push(
-                    row![kit::dot(argb(g.color), 8.0), label(g.name.clone())]
+                    row![kit::group_mark(g.icon.as_deref(), argb(g.color), 14.0, 8.0), label(g.name.clone())]
                         .spacing(6)
                         .align_y(Alignment::Center),
                 );
@@ -262,6 +261,7 @@ pub(super) fn editor<'a>(app: &'a App, e: &'a Editor, max_height: f32) -> Elemen
                     input("Homelab", &f.name, Message::GroupName).on_submit(Message::SaveGroup)
                 ),
                 field(tr("Couleur"), color_picker(f.color, Message::GroupColor)),
+                field(tr("Icône"), group_icon_picker(f)),
             ]
             .spacing(14);
             let heading = if f.original.is_some() {
@@ -525,6 +525,55 @@ pub(super) fn editor<'a>(app: &'a App, e: &'a Editor, max_height: f32) -> Elemen
     };
 
     let mut actions = row![].spacing(10).align_y(Alignment::Center);
+    let big = |b: button::Button<'a, Message>| b.padding([13, 22]);
+    // Its record was deleted meanwhile (a synchronisation): saved again only once the user says so.
+    let pending = app.deleted_meanwhile.as_deref().is_some_and(|m| {
+        matches!(
+            (e, m),
+            (Editor::Host(_), Message::SaveHost | Message::SaveHostAndConnect)
+                | (Editor::Group(_), Message::SaveGroup)
+                | (Editor::Snippet(_), Message::SaveSnippet)
+                | (Editor::Identity(_), Message::SaveIdentity)
+                | (Editor::Forward(_), Message::SaveForward)
+        )
+    });
+    if pending {
+        let (title, detail) = match e {
+            Editor::Host(f) => (
+                tr("Hôte supprimé entre-temps"),
+                trf(
+                    "%1$s a été supprimé pendant la modification, sans doute sur un autre appareil. L'enregistrer comme un nouvel hôte ?",
+                    &[&f.original.as_ref().map(|o| o.alias.clone()).unwrap_or_default()],
+                ),
+            ),
+            _ => (
+                tr("Supprimé entre-temps"),
+                tr("Cet élément a été supprimé pendant la modification, sans doute sur un autre appareil. L'enregistrer de nouveau ?"),
+            ),
+        };
+        let ask = column![text(title).size(15).font(BOLD), soft(detail)].spacing(4).width(Fill);
+        let actions = row![
+            ask,
+            big(button(text(tr("Annuler")).size(15))
+                .style(theme::secondary)
+                .on_press(Message::RecreateCancel)),
+            big(button(text(tr("Recréer")).size(15).font(BOLD))
+                .style(theme::primary)
+                .on_press(Message::Recreate)),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center);
+        return kit::dialog(
+            kit::dialog_head(heading, None, None, Message::CloseEditor),
+            body,
+            Some(actions.into()),
+            match e {
+                Editor::Host(_) | Editor::Snippet(_) => 660.0,
+                _ => 560.0,
+            },
+            max_height,
+        );
+    }
     if let Some((confirm, m)) = delete {
         actions = actions.push(
             button(text(if confirm { tr("Confirmer la suppression") } else { tr("Supprimer") }).size(14))
@@ -534,7 +583,6 @@ pub(super) fn editor<'a>(app: &'a App, e: &'a Editor, max_height: f32) -> Elemen
         );
     }
     actions = actions.push(Space::new().width(Fill));
-    let big = |b: button::Button<'a, Message>| b.padding([13, 22]);
     if let Editor::Host(f) = e {
         actions = actions
             .push(big(button(text(tr("Enregistrer")).size(15).font(BOLD))
@@ -672,7 +720,7 @@ pub(super) fn groups_modal<'a>(app: &'a App, editing: Option<&'a Editor>, max_he
             row![
                 button(
                     row![
-                        container(kit::dot(col, 12.0))
+                        container(kit::group_mark(g.icon.as_deref(), col, 20.0, 12.0))
                             .center(Length::Fixed(36.0))
                             .style(theme::soft_tile(col, 10.0)),
                         column![text(g.name.clone()).size(15).font(BOLD), soft(count(g.id))]
@@ -861,4 +909,52 @@ pub(super) fn import_hosts_modal(app: &App, max_height: f32) -> Element<'_, Mess
         ),
         None,
     )
+}
+
+/// A group's icon: the one chosen (or none), a search, and the matching Material Design Icons to click.
+fn group_icon_picker(f: &crate::app::GroupForm) -> Element<'_, Message> {
+    let col = argb(f.color);
+    let current = row![
+        container(kit::group_mark(f.icon.as_deref(), col, 24.0, 12.0))
+            .center(Length::Fixed(40.0))
+            .style(theme::soft_tile(col, 11.0)),
+        column![
+            text(f.icon.as_ref().map(|i| format!("mdi:{i}")).unwrap_or_else(|| tr("Aucune")))
+                .font(MONO)
+                .size(14),
+            soft(tr("Recherche en anglais parmi plus de 6 600 icônes Material Design")).size(12),
+        ]
+        .spacing(2)
+        .width(Fill),
+    ]
+    .spacing(12)
+    .align_y(Alignment::Center);
+    let current = match &f.icon {
+        Some(_) => current.push(secondary(tr("Retirer"), Message::GroupIcon(None))),
+        None => current,
+    };
+    let results = kit::mdi_search(&f.icon_query, 60);
+    let mut grid = row![].spacing(6);
+    for name in results.iter().copied() {
+        let Some(g) = kit::mdi_glyph(name) else { continue };
+        let on = f.icon.as_deref() == Some(name);
+        let cell = button(container(kit::glyph(g, col, 22.0)).center(Length::Fixed(30.0)))
+            .padding(6)
+            .style(theme::count_chip(on, Some(col)))
+            .on_press(Message::GroupIcon(Some(name.to_owned())));
+        let tip = container(text(name).size(12).font(MONO)).padding([4, 8]).style(theme::toast);
+        grid = grid.push(iced::widget::tooltip(cell, tip, iced::widget::tooltip::Position::Top).gap(4));
+    }
+    let note: Element<Message> = if results.is_empty() {
+        soft(tr("Aucune icône ne correspond")).into()
+    } else {
+        grid.wrap().vertical_spacing(6).into()
+    };
+    column![
+        current,
+        input(&tr("server, home, cloud…"), &f.icon_query, Message::GroupIconQuery),
+        note,
+    ]
+    .spacing(10)
+    .into()
 }

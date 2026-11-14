@@ -1,18 +1,10 @@
 package com.nautile.app.ui.connections
 
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.runtime.produceState
-import com.nautile.i18n.tr
-
+import android.graphics.Bitmap
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,16 +22,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.Close
-import com.nautile.app.ui.common.HostAvatar
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.Lan
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Usb
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -48,35 +37,59 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nautile.app.NautileApp
+import com.nautile.app.rdp.RdpSession
+import com.nautile.app.session.ActiveSession
 import com.nautile.app.session.SessionState
+import com.nautile.app.ui.common.ConfirmCloseDialog
+import com.nautile.app.ui.common.ConfirmDialog
+import com.nautile.app.ui.common.HostAvatar
 import com.nautile.app.ui.common.NtCard
+import com.nautile.app.ui.common.NtSearchField
 import com.nautile.app.ui.common.PageHeader
 import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.hosts.QuickTarget
 import com.nautile.app.ui.theme.Nt
 import com.nautile.data.model.ConnectionLog
 import com.nautile.data.model.Protocol
+import com.nautile.i18n.tr
+import com.termux.terminal.TerminalEmulator
+import com.termux.terminal.TextStyle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.text.DateFormat
-import java.util.Calendar
+import java.time.Clock
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Date
 
 /** « Connexions »: what is open now (terminals and desktops) and every past connection, to go back to one. */
@@ -90,11 +103,11 @@ fun ConnectionsScreen(
 ) {
     val app = LocalContext.current.applicationContext as NautileApp
     val dao = app.database.toolsDao()
-    val terminals by app.sessions.sessions.collectAsState()
-    val desktops by app.sessions.rdp.list.collectAsState()
-    val history by remember { dao.observeConnections() }.collectAsState(initial = emptyList())
-    val hosts by remember { app.hostRepository.hosts }.collectAsState(initial = emptyList())
-    val byId = hosts.associateBy { it.id }
+    val terminals by app.sessions.sessions.collectAsStateWithLifecycle()
+    val desktops by app.sessions.rdp.list.collectAsStateWithLifecycle()
+    val history by remember { dao.observeConnections() }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val hosts by remember { app.hostRepository.hosts }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val byId = remember(hosts) { hosts.associateBy { it.id } }
     var query by rememberSaveable { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     var confirmClear by remember { mutableStateOf(false) }
@@ -104,6 +117,15 @@ fun ConnectionsScreen(
         if (app.terminalPrefs.confirmClose.value && state == SessionState.Connected) closing = Triple(name, desktop, close) else close()
     }
     val open = terminals.size + desktops.size
+    val q = query.trim()
+    // Up to 200 entries, each with its day label: computed again only when the history or the search change.
+    val byDay = remember(history, q) {
+        val shown = if (q.isEmpty()) history else history.filter { e ->
+            listOf(e.alias, e.hostname, e.username, "${e.username}@${e.hostname}", e.protocol.name).any { it.contains(q, ignoreCase = true) }
+        }
+        val now = System.currentTimeMillis()
+        shown.groupBy { dayLabel(it.at, now) }
+    }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -117,9 +139,9 @@ fun ConnectionsScreen(
             if (open == 0) Text(tr("Aucune session ouverte. Touchez un hôte ou une ligne de l'historique pour vous connecter."),
                 color = Nt.Muted, fontSize = 13.sp)
             else NtCard {
-                terminals.forEachIndexed { i, s ->
+                terminals.forEachIndexed { i, s -> key(s.id) {
                     if (i > 0) HorizontalDivider(color = Nt.Border)
-                    val state by s.state.collectAsState()
+                    val state by s.state.collectAsStateWithLifecycle()
                     val host = byId[s.hostId]
                     SessionRow(
                         avatar = { Avatar(host?.osId ?: (if (s.protocolLabel == tr("local")) "android" else null), s.alias, host?.color, Icons.Outlined.Terminal) },
@@ -128,17 +150,17 @@ fun ConnectionsScreen(
                         onClose = { ask(s.alias, false, state) { app.sessions.close(s) } },
                         preview = { TerminalPreview(s) },
                     )
-                }
-                desktops.forEachIndexed { i, d ->
+                } }
+                desktops.forEachIndexed { i, d -> key(d.id) {
                     if (i > 0 || terminals.isNotEmpty()) HorizontalDivider(color = Nt.Border)
-                    val state by d.state.collectAsState()
+                    val state by d.state.collectAsStateWithLifecycle()
                     SessionRow(
                         { Avatar(byId[d.hostId]?.osId ?: if (d.protocol == Protocol.RDP) "windows" else null, d.alias, byId[d.hostId]?.color, Icons.Outlined.DesktopWindows) },
                         d.alias, "${d.address} · ${d.protocol.name.lowercase()}", state, onOpen = { onOpenDesktop(d.id) },
                         onClose = { ask(d.alias, true, state) { app.sessions.rdp.close(d) } },
                         preview = { DesktopPreview(d) },
                     )
-                }
+                } }
             }
         }
 
@@ -153,25 +175,9 @@ fun ConnectionsScreen(
                 color = Nt.Muted, fontSize = 13.sp, textAlign = TextAlign.Start)
         }
         if (history.size > 3) item {
-            androidx.compose.material3.OutlinedTextField(
-                value = query, onValueChange = { query = it }, singleLine = true,
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = Nt.Muted) },
-                trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, contentDescription = tr("Effacer la recherche"), tint = Nt.Muted) } },
-                placeholder = { Text(tr("Rechercher dans l'historique"), color = Nt.Placeholder, fontSize = 14.sp, maxLines = 1) },
-                shape = RoundedCornerShape(14.dp),
-                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                    unfocusedContainerColor = Nt.Surface, focusedContainerColor = Nt.Surface,
-                    unfocusedBorderColor = Nt.Border, focusedBorderColor = Nt.Accent, cursorColor = Nt.Accent,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            NtSearchField(query, { query = it }, tr("Rechercher dans l'historique"))
         }
-        val q = query.trim()
-        val shown = if (q.isEmpty()) history else history.filter { e ->
-            listOf(e.alias, e.hostname, e.username, "${e.username}@${e.hostname}", e.protocol.name).any { it.contains(q, ignoreCase = true) }
-        }
-        if (q.isNotEmpty() && shown.isEmpty()) item { Text(tr("Aucune connexion ne correspond à « %1\$s ».", q), color = Nt.Muted, fontSize = 13.sp) }
-        val byDay = shown.groupBy { dayLabel(it.at) }
+        if (q.isNotEmpty() && byDay.isEmpty()) item { Text(tr("Aucune connexion ne correspond à « %1\$s ».", q), color = Nt.Muted, fontSize = 13.sp) }
         byDay.forEach { (day, entries) ->
             item(key = "day-$day") { Text(day, color = Nt.Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp)) }
             item(key = "list-$day") {
@@ -196,20 +202,17 @@ fun ConnectionsScreen(
     }
 
     closing?.let { (name, desktop, close) ->
-        com.nautile.app.ui.common.ConfirmCloseDialog(name, desktop, onDismiss = { closing = null }) { dontAsk ->
+        ConfirmCloseDialog(name, desktop, onDismiss = { closing = null }) { dontAsk ->
             if (dontAsk) app.terminalPrefs.setConfirmClose(false)
             closing = null
             close()
         }
     }
 
-    if (confirmClear) AlertDialog(
-        onDismissRequest = { confirmClear = false }, containerColor = Nt.Surface,
-        title = { Text(tr("Effacer l'historique des connexions ?")) },
-        text = { Text(tr("Les hôtes enregistrés ne sont pas touchés."), color = Nt.TextSoft) },
-        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(tr("Annuler"), color = Nt.TextSoft) } },
-        confirmButton = { TextButton(onClick = { confirmClear = false; scope.launch { dao.clearConnections() } }) { Text(tr("Effacer"), color = Nt.Pink, fontWeight = FontWeight.SemiBold) } },
-    )
+    if (confirmClear) ConfirmDialog(
+        tr("Effacer l'historique des connexions ?"), tr("Les hôtes enregistrés ne sont pas touchés."), tr("Effacer"),
+        onDismiss = { confirmClear = false },
+    ) { confirmClear = false; scope.launch { dao.clearConnections() } }
 }
 
 @Composable
@@ -222,7 +225,7 @@ private fun SessionRow(
         is SessionState.Connecting -> Nt.Accent to tr("connexion…")
         is SessionState.Closed -> Nt.Pink to tr("déconnecté")
     }
-    Column(Modifier.fillMaxWidth().combinedClickableCompat(onOpen).padding(start = 14.dp, top = 10.dp, bottom = 12.dp)) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 14.dp, top = 10.dp, bottom = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             avatar()
             Column(Modifier.weight(1f)) {
@@ -242,9 +245,9 @@ private fun SessionRow(
 // value is assigned inside the refresh loop (the lint check only looks at the top level).
 @android.annotation.SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
-private fun TerminalPreview(session: com.nautile.app.session.ActiveSession) {
-    val theme by (LocalContext.current.applicationContext as NautileApp).terminalPrefs.theme.collectAsState()
-    val lines by produceState(initialValue = emptyList<androidx.compose.ui.text.AnnotatedString>(), session) {
+private fun TerminalPreview(session: ActiveSession) {
+    val theme by (LocalContext.current.applicationContext as NautileApp).terminalPrefs.theme.collectAsStateWithLifecycle()
+    val lines by produceState(initialValue = emptyList<AnnotatedString>(), session) {
         while (true) {
             value = session.terminal.emulator?.let(::previewLines).orEmpty()
             kotlinx.coroutines.delay(1_000)
@@ -262,12 +265,12 @@ private fun TerminalPreview(session: com.nautile.app.session.ActiveSession) {
 }
 
 /** The last [PREVIEW_LINES] non-empty rows around the cursor, each cell in its colours. */
-private fun previewLines(e: com.termux.terminal.TerminalEmulator): List<androidx.compose.ui.text.AnnotatedString> {
+private fun previewLines(e: TerminalEmulator): List<AnnotatedString> {
     val screen = e.screen
     val palette = e.mColors.mCurrentColors
     fun color(index: Int): Color =
         if (index and 0xff000000.toInt() == 0xff000000.toInt()) Color(index)
-        else Color(palette[index.coerceIn(0, com.termux.terminal.TextStyle.NUM_INDEXED_COLORS - 1)])
+        else Color(palette[index.coerceIn(0, TextStyle.NUM_INDEXED_COLORS - 1)])
     val rows = (e.cursorRow - 8..e.cursorRow).filter { it >= -screen.activeTranscriptRows }
     val built = rows.map { r ->
         val line = screen.allocateFullLineIfNecessary(screen.externalToInternalRow(r))
@@ -281,16 +284,16 @@ private fun previewLines(e: com.termux.terminal.TerminalEmulator): List<androidx
                 val from = line.findStartOfColumn(col)
                 val to = if (endCol >= e.mColumns) line.spaceUsed else line.findStartOfColumn(endCol)
                 val text = String(line.mText, from, (to - from).coerceAtLeast(0))
-                val effect = com.termux.terminal.TextStyle.decodeEffect(style)
-                var fg = com.termux.terminal.TextStyle.decodeForeColor(style)
-                var bg = com.termux.terminal.TextStyle.decodeBackColor(style)
-                if (effect and com.termux.terminal.TextStyle.CHARACTER_ATTRIBUTE_INVERSE != 0) { val t = fg; fg = bg; bg = t }
-                val defaultBg = bg == com.termux.terminal.TextStyle.COLOR_INDEX_BACKGROUND
+                val effect = TextStyle.decodeEffect(style)
+                var fg = TextStyle.decodeForeColor(style)
+                var bg = TextStyle.decodeBackColor(style)
+                if (effect and TextStyle.CHARACTER_ATTRIBUTE_INVERSE != 0) { val t = fg; fg = bg; bg = t }
+                val defaultBg = bg == TextStyle.COLOR_INDEX_BACKGROUND
                 withStyle(
-                    androidx.compose.ui.text.SpanStyle(
+                    SpanStyle(
                         color = color(fg),
                         background = if (defaultBg) Color.Unspecified else color(bg),
-                        fontWeight = if (effect and com.termux.terminal.TextStyle.CHARACTER_ATTRIBUTE_BOLD != 0) FontWeight.Bold else null,
+                        fontWeight = if (effect and TextStyle.CHARACTER_ATTRIBUTE_BOLD != 0) FontWeight.Bold else null,
                     ),
                 ) { append(text) }
                 col = endCol
@@ -306,22 +309,22 @@ private fun previewLines(e: com.termux.terminal.TerminalEmulator): List<androidx
 // value is assigned inside the refresh loop (the lint check only looks at the top level).
 @android.annotation.SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
-private fun DesktopPreview(session: com.nautile.app.rdp.RdpSession) {
-    val thumb by produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, session) {
+private fun DesktopPreview(session: RdpSession) {
+    val thumb by produceState<ImageBitmap?>(initialValue = null, session) {
         while (true) {
             session.bitmap?.let { b ->
-                value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                value = kotlinx.coroutines.withContext(Dispatchers.Default) {
                     val w = 480.coerceAtMost(b.width)
-                    android.graphics.Bitmap.createScaledBitmap(b, w, (b.height.toLong() * w / b.width).toInt().coerceAtLeast(1), true).asImageBitmap()
+                    Bitmap.createScaledBitmap(b, w, (b.height.toLong() * w / b.width).toInt().coerceAtLeast(1), true).asImageBitmap()
                 }
             }
             kotlinx.coroutines.delay(2_000)
         }
     }
     thumb?.let { img ->
-        androidx.compose.foundation.Image(
+        Image(
             img, contentDescription = tr("Aperçu du bureau à distance"),
-            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxWidth().heightIn(max = 160.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black),
         )
     }
@@ -386,17 +389,14 @@ private fun protocolIcon(p: Protocol): ImageVector = when (p) {
     else -> Icons.Outlined.Terminal
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-private fun Modifier.combinedClickableCompat(onClick: () -> Unit) = this.then(Modifier.combinedClickable(onClick = onClick))
-
 /** « Aujourd'hui », « Hier » or the date. */
 private fun dayLabel(at: Long, now: Long = System.currentTimeMillis()): String {
-    fun day(t: Long) = Calendar.getInstance().apply { timeInMillis = t }.let { it.get(Calendar.YEAR) * 1000 + it.get(Calendar.DAY_OF_YEAR) }
-    val today = day(now)
-    val d = day(at)
-    return when {
-        d == today -> tr("Aujourd'hui")
-        d == day(now - 24 * 3600_000L) -> tr("Hier")
+    val zone = ZoneId.systemDefault()
+    val today = LocalDate.now(Clock.fixed(Instant.ofEpochMilli(now), zone))
+    val d = Instant.ofEpochMilli(at).atZone(zone).toLocalDate()
+    return when (d) {
+        today -> tr("Aujourd'hui")
+        today.minusDays(1) -> tr("Hier")
         else -> DateFormat.getDateInstance(DateFormat.FULL).format(Date(at)).replaceFirstChar { it.uppercase() }
     }
 }

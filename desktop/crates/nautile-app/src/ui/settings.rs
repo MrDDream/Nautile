@@ -1,8 +1,7 @@
 //! The settings: their home and sub-pages.
 
 use super::*;
-#[allow(unused_imports)]
-use iced::widget::{button, column, container, image, pick_list, row, scrollable, stack, text, text_editor, text_input, Column, Space};
+use iced::widget::{Column, Space, button, column, container, image, pick_list, row, scrollable, text, text_editor, text_input};
 
 /// A settings section: its uppercase label, then its card.
 pub(super) fn settings_card<'a>(name: String, body: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
@@ -317,7 +316,11 @@ pub(super) fn settings_home(app: &App) -> Element<'_, Message> {
             icon: I_LOCK,
             tint: n.green,
             title: tr("Sécurité"),
-            detail: if s.locks() { tr("Verrouillage activé") } else { tr("Verrouillage désactivé") },
+            detail: if s.locks() {
+                tr("Verrouillage activé")
+            } else {
+                tr("Verrouillage désactivé")
+            },
             words: "securite security pin code mot de passe password verrou lock inactivite",
             dot: None,
             page: P::Security,
@@ -392,6 +395,10 @@ pub(super) fn settings_home(app: &App) -> Element<'_, Message> {
                 .spacing(8)
                 .align_y(Alignment::Center),
             soft(trf("Version %1$s · client SSH et RDP libre (GPLv3)", &[&env!("CARGO_PKG_VERSION")])).size(12),
+            button(text(tr("Licences tierces")).size(12))
+                .padding([2, 0])
+                .style(theme::ghost)
+                .on_press(Message::OpenPath(third_party_licenses())),
         ]
         .spacing(4)
         .padding(Padding {
@@ -400,6 +407,28 @@ pub(super) fn settings_home(app: &App) -> Element<'_, Message> {
         }),
     );
     settings_frame(header(tr("Réglages"), None, None, vec![]), body)
+}
+
+/// THIRD-PARTY-LICENSES.txt where the packages install it (next to the executable, in the .app's Resources,
+/// in share/doc/nautile), else the copy on GitHub.
+fn third_party_licenses() -> std::path::PathBuf {
+    use std::path::PathBuf;
+    static PATH: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    PATH.get_or_init(|| {
+        const NAME: &str = "THIRD-PARTY-LICENSES.txt";
+        let mut candidates = Vec::new();
+        if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from)) {
+            candidates.push(dir.join(NAME));
+            candidates.push(dir.join("../Resources").join(NAME));
+            candidates.push(dir.join("../share/doc/nautile").join(NAME));
+        }
+        candidates.push(PathBuf::from("/usr/share/doc/nautile").join(NAME));
+        candidates
+            .into_iter()
+            .find(|p| p.is_file())
+            .unwrap_or_else(|| PathBuf::from("https://github.com/MrDDream/Nautile/blob/main/desktop/packaging/THIRD-PARTY-LICENSES.txt"))
+    })
+    .clone()
 }
 
 pub(super) fn settings(app: &App) -> Element<'_, Message> {
@@ -896,19 +925,37 @@ fn terminal_keyboard(app: &App) -> Column<'_, Message> {
         .collect();
     column![
         column![container(kit::section_label(tr("Raccourcis"))).padding([0, 4]), kit::card(rows)].spacing(10),
-        kit::card(vec![kit::toggle_row(
-            None,
-            tr("Raccourci mot de passe"),
-            tr("Ctrl+Maj+P tape le mot de passe de l'hôte à une invite sudo"),
-            app.settings.password_key(),
-            Message::PasswordKey
-        )]),
+        kit::card(vec![
+            kit::toggle_row(
+                None,
+                tr("Raccourci mot de passe"),
+                tr("Ctrl+Maj+P tape le mot de passe de l'hôte à une invite sudo"),
+                app.settings.password_key(),
+                Message::PasswordKey
+            ),
+            kit::toggle_row(
+                None,
+                tr("Option = Méta"),
+                tr(
+                    "Alt (Option sur Mac) envoie Échap avant la touche, pour Emacs et le shell. Désactivé, Option tape les caractères du clavier (@, |, ~ sur Mac)."
+                ),
+                app.settings.option_meta(),
+                Message::OptionMeta
+            ),
+            kit::toggle_row(
+                None,
+                tr("Presse-papiers pour les programmes"),
+                tr("Un programme du serveur (tmux, vim) peut remplacer le presse-papiers de cet ordinateur (OSC 52)"),
+                app.settings.osc52,
+                Message::Osc52
+            ),
+        ]),
     ]
 }
 
 fn terminal_sessions(app: &App) -> Column<'_, Message> {
     let s = &app.settings;
-    let logs = crate::logs::list(&app.paths.data.join("logs")).len();
+    let logs = app.cache.log_files.len();
     column![
         column![
             container(kit::section_label(tr("Fermeture"))).padding([0, 4]),
@@ -929,7 +976,7 @@ fn terminal_sessions(app: &App) -> Column<'_, Message> {
                     tr("Suggestions depuis l'historique"),
                     trf(
                         "Commandes affichées en écho, par hôte (%1$s enregistrées). Jamais les mots de passe.",
-                        &[&app.db.as_ref().map(|d| d.command_count()).unwrap_or(0)]
+                        &[&app.cache.command_count]
                     ),
                     s.history_suggestions(),
                     Message::HistorySuggestions
@@ -956,30 +1003,31 @@ fn terminal_sessions(app: &App) -> Column<'_, Message> {
             ]),
         ]
         .spacing(10),
-        row![button(
-            text(trf(
-                "Effacer l'historique (%1$s commandes)",
-                &[&app.db.as_ref().map(|d| d.command_count()).unwrap_or(0)]
-            ))
-            .size(14)
-        )
-        .padding([9, 14])
-        .style(theme::danger)
-        .on_press(Message::ClearHistory)],
+        row![
+            button(text(trf("Effacer l'historique (%1$s commandes)", &[&app.cache.command_count])).size(14))
+                .padding([9, 14])
+                .style(theme::danger)
+                .on_press(Message::ClearHistory)
+        ],
     ]
 }
 
-/// The recorded sessions: open one, show the folder, delete.
+/// The recorded sessions (encrypted): export one or all as text, delete.
 pub(super) fn logs_settings(app: &App) -> Column<'_, Message> {
-    let dir = app.paths.data.join("logs");
-    let files = crate::logs::list(&dir);
+    let files = &app.cache.log_files;
     let now = nautile_core::model::now_ms();
-    let mut c = column![row![
-        soft(dir.display().to_string()).font(MONO).width(Fill),
-        secondary(tr("Ouvrir le dossier"), Message::OpenPath(dir.clone())),
-    ]
-    .spacing(10)
-    .align_y(Alignment::Center)];
+    let all: Vec<std::path::PathBuf> = files.iter().map(|f| f.path.clone()).collect();
+    let mut c = column![
+        row![
+            soft(tr("Les journaux sont chiffrés sur cet ordinateur : exportez-les pour les lire.")).width(Fill),
+            button(text(tr("Tout exporter…")).size(14))
+                .padding([9, 16])
+                .style(theme::secondary)
+                .on_press_maybe((!all.is_empty()).then_some(Message::ExportLogs(all))),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center)
+    ];
     if files.is_empty() {
         c = c.push(soft(tr(
             "Aucun journal. Activez « Enregistrer les sessions » dans Terminal › Sessions.",
@@ -987,7 +1035,7 @@ pub(super) fn logs_settings(app: &App) -> Column<'_, Message> {
         return c;
     }
     let rows: Vec<Element<Message>> = files
-        .into_iter()
+        .iter()
         .map(|f| {
             let size = if f.size >= 1024 * 1024 {
                 format!("{:.1} Mo", f.size as f64 / 1048576.0)
@@ -1011,8 +1059,8 @@ pub(super) fn logs_settings(app: &App) -> Column<'_, Message> {
                 .width(Fill)
                 .padding([10, 14])
                 .style(theme::card_pick(false))
-                .on_press(Message::OpenPath(f.path.clone())),
-                icon_button(I_TRASH, Message::DeleteLog(f.path)),
+                .on_press(Message::ExportLogs(vec![f.path.clone()])),
+                icon_button(I_TRASH, Message::DeleteLog(f.path.clone())),
                 Space::new().width(6),
             ]
             .align_y(Alignment::Center)
@@ -1029,6 +1077,11 @@ pub(super) fn lock_settings(app: &App) -> Column<'_, Message> {
         soft(tr(
             "Nautile demande ce code à l'ouverture et après une inactivité. Il ne sert qu'à cet ordinateur."
         )),
+        soft(if app.paths.portable {
+            tr("Le verrou protège l'interface quand vous vous absentez. Les données du dossier data sont protégées par le mot de passe maître (Données).")
+        } else {
+            tr("Le verrou protège l'interface quand vous vous absentez, pas les fichiers : la clé de la base reste accessible à votre session (trousseau du système ou fichier).")
+        }),
         segmented(
             vec![
                 (None, tr("Aucun")),
@@ -1081,17 +1134,67 @@ pub(super) fn lock_settings(app: &App) -> Column<'_, Message> {
                 Message::LockAfter,
             ),
         ));
+        lock_body = lock_body.push(kit::card(vec![kit::toggle_row(
+            None,
+            tr("Verrouiller en cachant la fenêtre"),
+            tr("Dans la zone de notification ou réduite, et après une mise en veille de l'ordinateur."),
+            s.lock_on_hide,
+            Message::LockOnHide,
+        )]));
     }
     lock_body
 }
 
+/// Portable mode: « Changer le mot de passe maître » (the same database key, encrypted again).
+fn master_settings(app: &App) -> Column<'_, Message> {
+    use crate::vault::VaultMsg as V;
+    let f = &app.master_form;
+    let secure = |ph: String, v: &str, on: fn(String) -> V| {
+        kit::float_field(
+            ph,
+            text_input("", v)
+                .on_input(move |s| Message::Vault(on(s)))
+                .on_submit(Message::Vault(V::ChangeSave))
+                .secure(true),
+        )
+    };
+    let mut c = column![
+        soft(tr(
+            "Il chiffre la clé de la base (Argon2id, AES-256-GCM) : sans lui, le dossier data est illisible. Perdu, il ne peut pas être retrouvé.",
+        )),
+        secure(tr("Mot de passe maître actuel"), &f.current, V::ChangeCurrent),
+        row![
+            secure(
+                trf("Nouveau mot de passe (%1$s caractères au moins)", &[&nautile_core::lock::MASTER_MIN]),
+                &f.new,
+                V::ChangeNew
+            ),
+            secure(tr("Confirmer"), &f.confirm, V::ChangeConfirm),
+        ]
+        .spacing(10),
+        row![primary(
+            if f.busy { tr("Vérification…") } else { tr("Changer le mot de passe maître") },
+            (!f.busy).then_some(Message::Vault(V::ChangeSave))
+        )],
+    ]
+    .spacing(14);
+    if let Some(e) = &f.error {
+        c = c.push(text(e.clone()).size(13).style(|t: &iced::Theme| text::Style {
+            color: Some(theme::nt(t).pink),
+        }));
+    }
+    c
+}
+
 pub(super) fn data_settings(app: &App) -> Column<'_, Message> {
     let key_place = match app.settings.key_store.as_deref() {
+        _ if app.paths.portable => {
+            tr("Mode portable : la clé de la base voyage avec le dossier data, chiffrée par le mot de passe maître (db.key.enc)")
+        }
         Some("keyring") => tr("Clé de la base dans le trousseau du système"),
-        _ if app.paths.portable => tr("Mode portable : la clé voyage avec le dossier data"),
         _ => tr("Clé de la base dans un fichier réservé à votre compte (pas de trousseau disponible)"),
     };
-    column![settings_card(
+    let mut c = column![settings_card(
         tr("Données"),
         column![
             soft(tr("Base SQLCipher chiffrée, sans compte ni serveur.")),
@@ -1099,7 +1202,11 @@ pub(super) fn data_settings(app: &App) -> Column<'_, Message> {
             label(app.paths.data.display().to_string()).font(MONO),
         ]
         .spacing(8),
-    )]
+    )];
+    if app.paths.portable {
+        c = c.push(settings_card(tr("Mot de passe maître"), master_settings(app)));
+    }
+    c.spacing(16)
 }
 
 pub(super) fn place_icon(d: &nautile_net::store::Dest) -> char {
@@ -1215,24 +1322,26 @@ pub(super) fn ai_settings(app: &App) -> Column<'_, Message> {
             })
             .into()
     };
-    let mut prompts: Vec<Element<Message>> = vec![button(
-        row![
-            radio(picked.is_none()),
-            column![
-                text(tr("Par défaut")).size(15).font(BOLD),
-                soft(tr("Une commande prête à coller, puis une courte explication"))
+    let mut prompts: Vec<Element<Message>> = vec![
+        button(
+            row![
+                radio(picked.is_none()),
+                column![
+                    text(tr("Par défaut")).size(15).font(BOLD),
+                    soft(tr("Une commande prête à coller, puis une courte explication"))
+                ]
+                .spacing(2)
+                .width(Fill),
             ]
-            .spacing(2)
-            .width(Fill),
-        ]
-        .spacing(12)
-        .align_y(Alignment::Center),
-    )
-    .width(Fill)
-    .padding([12, 14])
-    .style(theme::card_pick(false))
-    .on_press(am(A::PromptPick(None)))
-    .into()];
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .width(Fill)
+        .padding([12, 14])
+        .style(theme::card_pick(false))
+        .on_press(am(A::PromptPick(None)))
+        .into(),
+    ];
     for p in &s.ai_prompts {
         let selected = picked.as_ref() == Some(&p.id);
         let first_line: String = p.text.lines().next().unwrap_or_default().chars().take(90).collect();
@@ -1498,18 +1607,20 @@ pub(super) fn ai_models_modal(app: &App, k: nautile_net::ai::ProviderKind, max_h
     .spacing(14);
     if !q.is_empty() && !st.models.iter().any(|m| m.to_lowercase() == q) {
         let typed = st.model_search.trim().to_owned();
-        body = body.push(kit::card(vec![button(
-            column![
-                text(trf("Utiliser « %1$s »", &[&typed])).size(15).font(BOLD),
-                soft(tr("Nom saisi à la main"))
-            ]
-            .spacing(2),
-        )
-        .width(Fill)
-        .padding([12, 14])
-        .style(theme::card_pick(false))
-        .on_press(am(A::UseModel(typed)))
-        .into()]));
+        body = body.push(kit::card(vec![
+            button(
+                column![
+                    text(trf("Utiliser « %1$s »", &[&typed])).size(15).font(BOLD),
+                    soft(tr("Nom saisi à la main"))
+                ]
+                .spacing(2),
+            )
+            .width(Fill)
+            .padding([12, 14])
+            .style(theme::card_pick(false))
+            .on_press(am(A::UseModel(typed)))
+            .into(),
+        ]));
     }
     if st.models.is_empty() {
         body = body.push(match &st.status {
@@ -1525,16 +1636,18 @@ pub(super) fn ai_models_modal(app: &App, k: nautile_net::ai::ProviderKind, max_h
             .into_iter()
             .map(|m| {
                 let selected = m == current;
-                let mut r = row![column![
-                    text(nautile_net::ai::pretty_model(m))
-                        .size(15)
-                        .font(if selected { BOLD } else { theme::UI }),
-                    text(m.clone()).font(MONO).size(12).style(|t: &iced::Theme| text::Style {
-                        color: Some(theme::nt(t).muted),
-                    }),
+                let mut r = row![
+                    column![
+                        text(nautile_net::ai::pretty_model(m))
+                            .size(15)
+                            .font(if selected { BOLD } else { theme::UI }),
+                        text(m.clone()).font(MONO).size(12).style(|t: &iced::Theme| text::Style {
+                            color: Some(theme::nt(t).muted),
+                        }),
+                    ]
+                    .spacing(2)
+                    .width(Fill)
                 ]
-                .spacing(2)
-                .width(Fill)]
                 .align_y(Alignment::Center);
                 if selected {
                     r = r.push(kit::icon('\u{E5CA}', 22.0).style(|t: &iced::Theme| text::Style {
@@ -1895,8 +2008,10 @@ fn lan_card(app: &App) -> Element<'_, Message> {
         tr("Directement entre vos appareils, sur le même réseau")
     } else if s.lan_peers.is_empty() {
         tr("Aucun appareil associé")
+    } else if s.lan_peers.len() == 1 {
+        tr("1 appareil associé")
     } else {
-        trf("%1$s appareil(s) associé(s)", &[&s.lan_peers.len()])
+        trf("%1$s appareils associés", &[&s.lan_peers.len()])
     };
     let head = switch_head(
         I_DEVICES,
@@ -1916,19 +2031,39 @@ fn lan_card(app: &App) -> Element<'_, Message> {
                 .iter()
                 .map(|p| {
                     let near = st.lan_found.iter().any(|f| f.id == p.id);
-                    let state = if p.last > 0 {
+                    let state = if st.lan_stale.contains(&p.id) {
+                        // Paired with an older version: no secret of its own yet.
+                        tr("À associer à nouveau")
+                    } else if p.last > 0 {
                         trf("Synchro %1$s", &[&kit::relative_time(p.last, now)])
                     } else {
                         tr("jamais synchronisé")
                     };
+                    let platform = p.platform.as_deref();
+                    let tile = match kit::os_brand(platform) {
+                        Some(b) => kit::host_avatar(platform, &p.name, b.color, 40.0),
+                        None => kit::icon_tile(I_DEVICES, theme::nt(&app.theme()).blue),
+                    };
+                    let detail = [platform.map(kit::os_name), near.then(|| tr("à portée")), Some(state)]
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .join(" · ");
+                    let green = theme::nt(&app.theme()).green;
+                    let dot = container(text("")).width(7).height(7).style(move |_| container::Style {
+                        background: Some(green.into()),
+                        border: iced::border::rounded(4),
+                        ..Default::default()
+                    });
+                    let mut line = row![].spacing(6).align_y(Alignment::Center);
+                    if near {
+                        line = line.push(dot);
+                    }
                     row![
-                        kit::icon_tile(I_PHONE, theme::nt(&app.theme()).blue),
-                        column![
-                            text(p.name.clone()).size(15).font(BOLD),
-                            soft(if near { trf("à portée · %1$s", &[&state]) } else { state }),
-                        ]
-                        .spacing(2)
-                        .width(Fill),
+                        tile,
+                        column![text(p.name.clone()).size(15).font(BOLD), line.push(soft(detail))]
+                            .spacing(2)
+                            .width(Fill),
                         icon_button(I_CLOSE, bm(B::LanForget(p.id.clone()))),
                     ]
                     .spacing(12)
@@ -2102,20 +2237,20 @@ fn backup_card(app: &App) -> Element<'_, Message> {
     );
 
     // Copies kept on this computer.
-    let versions = crate::backup::versions(app);
+    let versions = &app.cache.backup_versions;
     if !versions.is_empty() {
         body = body.push(label(tr("Versions précédentes")));
         let rows: Vec<Element<Message>> = versions
-            .into_iter()
+            .iter()
             .map(|(path, at, size)| {
                 row![
                     kit::icon(I_HISTORY, 20.0).style(|t: &iced::Theme| text::Style {
                         color: Some(theme::nt(t).muted),
                     }),
-                    column![text(when(at)).font(MONO).size(13), soft(nautile_net::sftp::human_size(size))]
+                    column![text(when(*at)).font(MONO).size(13), soft(nautile_net::sftp::human_size(*size))]
                         .spacing(2)
                         .width(Fill),
-                    secondary(tr("Restaurer"), bm(B::RestoreVersion(path))),
+                    secondary(tr("Restaurer"), bm(B::RestoreVersion(path.clone()))),
                 ]
                 .spacing(12)
                 .padding([10, 14])
@@ -2184,7 +2319,9 @@ pub(super) fn sync_info_modal<'a>(max_height: f32) -> Element<'a, Message> {
         tr("La synchronisation"),
         vec![
             tr("Hôtes, clés, identités, snippets, tunnels et hôtes connus sont partagés entre vos appareils."),
-            tr("Sur chaque appareil : le même emplacement et le même mot de passe. Un dossier Google Drive, OneDrive ou Syncthing convient aussi."),
+            tr(
+                "Sur chaque appareil : le même emplacement et le même mot de passe. Un dossier Google Drive, OneDrive ou Syncthing convient aussi.",
+            ),
             tr("La modification la plus récente l'emporte, suppressions comprises."),
             tr("Le fichier synchronisé sert aussi de sauvegarde ; une copie par jour reste sur cet ordinateur."),
             tr("Les clés API et les réglages d'affichage restent propres à chaque appareil."),
@@ -2198,8 +2335,12 @@ pub(super) fn lan_info_modal<'a>(max_height: f32) -> Element<'a, Message> {
         tr("Sur le Wi-Fi, sans cloud"),
         vec![
             tr("Vos appareils échangent directement quand ils sont sur le même réseau : rien ne passe par Internet ni par un cloud."),
-            tr("Associez-les une fois avec un code à 6 chiffres ; ensuite ils se retrouvent tout seuls, à l'ouverture de l'app et après chaque modification."),
-            tr("La liaison est chiffrée (X25519, AES-256-GCM) et seuls les appareils associés sont acceptés."),
+            tr(
+                "Associez-les une fois avec un code à 6 chiffres ; ensuite ils se retrouvent tout seuls, à l'ouverture de l'app et après chaque modification.",
+            ),
+            tr(
+                "L'association utilise SPAKE2 : le code ne peut pas être deviné en écoutant le réseau. La liaison est chiffrée (AES-256-GCM) et seuls les appareils associés sont acceptés.",
+            ),
             tr("Elle se combine avec la synchro par fichier : la modification la plus récente l'emporte partout."),
         ],
         max_height,
@@ -2234,7 +2375,14 @@ pub(super) fn lan_pair_modal(app: &App, max_height: f32) -> Element<'_, Message>
             .into(),
         )
     } else if st.lan_join {
-        let paired: Vec<&str> = app.settings.lan_peers.iter().map(|p| p.id.as_str()).collect();
+        // Devices to pair again (older version) are offered too.
+        let paired: Vec<&str> = app
+            .settings
+            .lan_peers
+            .iter()
+            .filter(|p| !st.lan_stale.contains(&p.id))
+            .map(|p| p.id.as_str())
+            .collect();
         let others: Vec<_> = st.lan_found.iter().filter(|f| !paired.contains(&f.id.as_str())).collect();
         let mut c = column![soft(tr("Les appareils à proximité qui affichent un code :")).size(14)].spacing(12);
         if others.is_empty() {
@@ -2248,7 +2396,7 @@ pub(super) fn lan_pair_modal(app: &App, max_height: f32) -> Element<'_, Message>
                 let pairing = st.lan_pairing.as_ref().filter(|(p, _)| p.id == f.id);
                 match pairing {
                     Some((_, code)) => row![
-                        kit::icon_tile(I_PHONE, n.blue),
+                        kit::icon_tile(I_DEVICES, n.blue),
                         text(f.name.clone()).size(15).font(BOLD).width(Fill),
                         container(
                             text_input(&tr("Code à 6 chiffres"), code)
@@ -2291,26 +2439,30 @@ pub(super) fn lan_pair_modal(app: &App, max_height: f32) -> Element<'_, Message>
         }
         (tr("Saisir un code"), Some(bm(B::LanJoin(false))), c.into())
     } else {
+        let mut c = column![].spacing(2);
+        if st.lan_code_expired {
+            // The code shown was dropped after too many wrong tries.
+            c = c.push(
+                container(pink(tr("Trop d'essais, affichez un nouveau code")).size(14)).padding(iced::padding::bottom(10).left(4).right(4)),
+            );
+        }
         (
             tr("Associer un appareil"),
             None,
-            column![
-                kit::kind_row(
-                    I_PHONE,
-                    n.accent,
-                    tr("Afficher un code"),
-                    tr("Cet ordinateur montre un code à taper sur l'autre appareil"),
-                    bm(B::LanShowCode)
-                ),
-                kit::kind_row(
-                    I_KEYBOARD,
-                    n.blue,
-                    tr("Saisir un code"),
-                    tr("L'autre appareil montre le code, vous le tapez ici"),
-                    bm(B::LanJoin(true))
-                ),
-            ]
-            .spacing(2)
+            c.push(kit::kind_row(
+                I_PHONE,
+                n.accent,
+                tr("Afficher un code"),
+                tr("Cet ordinateur montre un code à taper sur l'autre appareil"),
+                bm(B::LanShowCode),
+            ))
+            .push(kit::kind_row(
+                I_KEYBOARD,
+                n.blue,
+                tr("Saisir un code"),
+                tr("L'autre appareil montre le code, vous le tapez ici"),
+                bm(B::LanJoin(true)),
+            ))
             .into(),
         )
     };
@@ -2544,13 +2696,15 @@ pub(super) fn target_modal(app: &App, max_height: f32) -> Element<'_, Message> {
             ));
             if t.frequency.at_time() {
                 let idt = id.clone();
-                let mut r = row![container(kit::float_field(
-                    tr("Heure"),
-                    text_input("03:00", &format!("{:02}:{:02}", t.time / 60, t.time % 60))
-                        .on_input(move |v| bm(B::Time(idt.clone(), v)))
-                        .font(MONO)
-                ))
-                .width(140)]
+                let mut r = row![
+                    container(kit::float_field(
+                        tr("Heure"),
+                        text_input("03:00", &format!("{:02}:{:02}", t.time / 60, t.time % 60))
+                            .on_input(move |v| bm(B::Time(idt.clone(), v)))
+                            .font(MONO)
+                    ))
+                    .width(140)
+                ]
                 .spacing(14)
                 .align_y(Alignment::End);
                 if t.frequency == Frequency::Week {
@@ -2800,9 +2954,13 @@ pub(super) fn restore_modal(app: &App, max_height: f32) -> Element<'_, Message> 
 pub(super) fn system_settings(app: &App) -> Column<'_, Message> {
     let s = &app.settings;
     let tray_note = if app.tray {
-        tr("L'icône de Nautile est dans la zone de notification : un clic rouvre la fenêtre, son menu ouvre un terminal, synchronise, verrouille ou quitte.")
+        tr(
+            "L'icône de Nautile est dans la zone de notification : un clic rouvre la fenêtre, son menu ouvre un terminal, synchronise, verrouille ou quitte.",
+        )
     } else {
-        tr("Ce bureau n'a pas de zone de notification (sous GNOME, l'extension AppIndicator l'ajoute) : la fenêtre est réduite au lieu d'être cachée.")
+        tr(
+            "Ce bureau n'a pas de zone de notification (sous GNOME, l'extension AppIndicator l'ajoute) : la fenêtre est réduite au lieu d'être cachée.",
+        )
     };
     column![
         column![
@@ -2823,7 +2981,7 @@ pub(super) fn system_settings(app: &App) -> Column<'_, Message> {
                 None,
                 tr("Lancer au démarrage de la session"),
                 tr("Nautile démarre réduit dans la zone de notification : la synchronisation et les sauvegardes automatiques tournent."),
-                crate::autostart::is_on(),
+                app.cache.autostart,
                 Message::Autostart
             )]),
         ]
@@ -2925,6 +3083,37 @@ pub(super) fn update_modal(app: &App, max_height: f32) -> Element<'_, Message> {
     )
 }
 
+/// First start: « Vérifier automatiquement les mises à jour ? » (nothing is checked before the answer).
+pub(super) fn update_ask_modal<'a>(max_height: f32) -> Element<'a, Message> {
+    use crate::update::UpdateMsg as U;
+    let foot = row![
+        Space::new().width(Fill),
+        secondary(tr("Non"), Message::Update(U::AutoCheck(false))),
+        primary(tr("Oui"), Some(Message::Update(U::AutoCheck(true)))),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+    kit::overlay(
+        kit::dialog(
+            kit::dialog_head(
+                tr("Vérifier automatiquement les mises à jour ?"),
+                None,
+                None,
+                Message::OpenModal(None),
+            ),
+            column![
+                soft(tr("Nautile contacte GitHub (MrDDream/Nautile) une fois par jour au plus pour savoir si une nouvelle version existe. Rien n'est installé sans votre accord.")),
+                soft(tr("Vous pourrez changer d'avis dans Réglages, Mises à jour.")),
+            ]
+            .spacing(10),
+            Some(foot.into()),
+            520.0,
+            max_height,
+        ),
+        None,
+    )
+}
+
 /// « Mises à jour »: the version here, the check at start, « Vérifier maintenant ».
 fn update_section(app: &App) -> Element<'_, Message> {
     use crate::update::UpdateMsg as U;
@@ -2956,7 +3145,7 @@ fn update_section(app: &App) -> Element<'_, Message> {
             kit::toggle_row(
                 None,
                 tr("Vérifier au démarrage"),
-                tr("Une fois par jour au plus, sur GitHub (MrDDream/Nautile) ; rien n'est installé sans votre accord."),
+                tr("Une fois par jour au plus, sur GitHub (MrDDream/Nautile) ; rien n'est installé sans votre accord. Chaque fichier est vérifié par sa somme de contrôle."),
                 app.settings.update_check(),
                 |v| Message::Update(U::AutoCheck(v))
             ),
@@ -3007,7 +3196,9 @@ pub(super) fn remote_settings(app: &App) -> Column<'_, Message> {
             kit::card(vec![kit::toggle_row(
                 None,
                 tr("Copier ici ce qui est copié là-bas"),
-                tr("VNC : le texte copié sur le bureau distant arrive dans le presse-papier de cet ordinateur. Ctrl+Maj+V envoie le vôtre."),
+                tr(
+                    "VNC : le texte copié sur le bureau distant arrive dans le presse-papier de cet ordinateur. Ctrl+Maj+V envoie le vôtre."
+                ),
                 s.remote_clipboard(),
                 Message::RemoteClipboard
             )]),

@@ -1,23 +1,22 @@
 package com.nautile.data.importer
 
-import com.nautile.i18n.tr
-
 /**
  * Reads OpenSSH `~/.ssh/config` text. Only concrete `Host` aliases are imported;
  * wildcard patterns (`*`, `?`, `!`) are applied as defaults to the hosts they match,
- * first value wins as in OpenSSH.
+ * first value wins as in OpenSSH. `Include` is not followed (see [hasInclude]).
  */
 object SshConfigParser {
 
     private class Block(val patterns: List<String>, val options: MutableMap<String, String> = linkedMapOf())
 
-    fun parse(text: String): List<ImportedHost> {
+    fun parse(input: String): List<ImportedHost> {
+        val text = input.removePrefix(HostImport.BOM)
         val blocks = mutableListOf<Block>()
         var current = Block(listOf("*")) // options before the first Host apply to all
         blocks += current
 
         text.lineSequence().forEach { raw ->
-            val line = raw.substringBefore('#').trim()
+            val line = stripComment(raw).trim()
             if (line.isEmpty()) return@forEach
             val (key, value) = splitKeyValue(line) ?: return@forEach
             when (key) {
@@ -43,12 +42,27 @@ object SshConfigParser {
             ImportedHost(
                 alias = alias,
                 hostname = opts["hostname"]?.replace("%h", alias) ?: alias,
-                port = opts[tr("port")]?.toIntOrNull() ?: 22,
+                port = opts["port"]?.toIntOrNull()?.takeIf { it in 1..65535 } ?: 22,
                 username = opts["user"].orEmpty(),
                 identityFile = opts["identityfile"],
                 proxyJump = opts["proxyjump"]?.split(',')?.first()?.trim()?.takeUnless { it.equals("none", true) },
             )
         }
+    }
+
+    /** Whether [text] has `Include` lines, whose files are not read. */
+    fun hasInclude(text: String): Boolean = text.removePrefix(HostImport.BOM).lineSequence().any { raw ->
+        splitKeyValue(stripComment(raw).trim())?.first == "include"
+    }
+
+    /** The line without its comment: from the first `#` outside double quotes. */
+    private fun stripComment(line: String): String {
+        var inQuotes = false
+        line.forEachIndexed { i, c ->
+            if (c == '"') inQuotes = !inQuotes
+            else if (c == '#' && !inQuotes) return line.substring(0, i)
+        }
+        return line
     }
 
     private fun splitKeyValue(line: String): Pair<String, String>? {

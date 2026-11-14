@@ -1,7 +1,6 @@
 package com.nautile.app.ai
 
-import com.nautile.i18n.tr
-
+import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.core.JsonValue
 import com.anthropic.errors.AnthropicServiceException
@@ -9,6 +8,8 @@ import com.anthropic.errors.RateLimitException
 import com.anthropic.errors.UnauthorizedException
 import com.anthropic.models.beta.messages.BetaOutputConfig
 import com.anthropic.models.beta.messages.MessageCreateParams
+import com.nautile.app.backup.CleartextGuard
+import com.nautile.i18n.tr
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -21,6 +22,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /** The AI services the assistant can use. */
@@ -102,7 +104,7 @@ object AiProviders {
 
 /** Claude through the official Anthropic SDK. */
 private class ClaudeProvider(private val key: String, private val model: String) : AiProvider {
-    private fun <T> call(block: (com.anthropic.client.AnthropicClient) -> T): T {
+    private fun <T> call(block: (AnthropicClient) -> T): T {
         val client = AnthropicOkHttpClient.builder().apiKey(key).build()
         try {
             return block(client)
@@ -136,14 +138,16 @@ private class ClaudeProvider(private val key: String, private val model: String)
     override fun models(): List<String> = call { client -> client.models().list().autoPager().map { it.id() }.toList() }
 }
 
-private val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(180, TimeUnit.SECONDS).build()
+private val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(180, TimeUnit.SECONDS)
+    // An API key or the terminal's screen never goes over plain HTTP outside the local network.
+    .dns(CleartextGuard.dns).addNetworkInterceptor(CleartextGuard).build()
 private val json = Json { ignoreUnknownKeys = true }
 private val JSON_TYPE = "application/json".toMediaType()
 
 private fun send(request: Request, provider: String): JsonObject {
     val response = try {
         http.newCall(request).execute()
-    } catch (e: java.io.IOException) {
+    } catch (e: IOException) {
         throw AiException("$provider injoignable : ${e.message}")
     }
     response.use { r ->

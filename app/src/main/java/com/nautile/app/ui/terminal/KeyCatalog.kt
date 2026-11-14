@@ -1,13 +1,12 @@
 package com.nautile.app.ui.terminal
 
-import com.nautile.i18n.tr
-
 import android.view.KeyEvent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.nautile.i18n.tr
 
 enum class ToolKind { AI, PASSWORD, PASTE }
 

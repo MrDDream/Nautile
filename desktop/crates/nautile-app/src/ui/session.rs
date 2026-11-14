@@ -1,20 +1,21 @@
 //! A session: its tab bar, terminal or remote desktop, files, assistant, and the dialogs over it.
 
 use super::*;
-#[allow(unused_imports)]
-use iced::widget::{button, column, container, image, pick_list, row, scrollable, stack, text, text_editor, text_input, Column, Space};
+use iced::widget::{Column, Space, button, column, container, pick_list, row, scrollable, stack, text, text_editor, text_input};
 
 /// The tabs: the hosts page, then one per session.
 pub(super) fn tab_bar(app: &App) -> Element<'_, Message> {
     let home = app.active_tab.is_none();
-    let mut tabs = row![button(
-        row![icon(I_HOSTS).size(15), text(tr("Hôtes")).size(13)]
-            .spacing(8)
-            .align_y(Alignment::Center)
-    )
-    .padding([7, 12])
-    .style(theme::nav(home))
-    .on_press(Message::SelectTab(None))]
+    let mut tabs = row![
+        button(
+            row![icon(I_HOSTS).size(15), text(tr("Hôtes")).size(13)]
+                .spacing(8)
+                .align_y(Alignment::Center)
+        )
+        .padding([7, 12])
+        .style(theme::nav(home))
+        .on_press(Message::SelectTab(None))
+    ]
     .spacing(4)
     .align_y(Alignment::Center);
     for t in &app.tabs {
@@ -73,10 +74,12 @@ pub(super) fn tab_bar(app: &App) -> Element<'_, Message> {
             .on_press(Message::OpenLocal),
     );
 
-    let mut bar = row![container(scrollable(tabs).direction(scrollable::Direction::Horizontal(
-        scrollable::Scrollbar::new().width(0).scroller_width(0)
-    )))
-    .width(Fill)]
+    let mut bar = row![
+        container(scrollable(tabs).direction(scrollable::Direction::Horizontal(
+            scrollable::Scrollbar::new().width(0).scroller_width(0)
+        )))
+        .width(Fill)
+    ]
     .align_y(Alignment::Center);
     let shows_terminal = app
         .active_tab
@@ -112,6 +115,7 @@ pub(super) fn session<'a>(app: &'a App, t: &'a Tab) -> Element<'a, Message> {
     let focused = app.prompts.is_empty() && app.editor.is_none();
     let term: Element<Message> = term_view::view(
         &t.term,
+        id,
         app.settings.terminal_family().font,
         app.settings.terminal_font(),
         focused,
@@ -132,7 +136,7 @@ pub(super) fn session<'a>(app: &'a App, t: &'a Tab) -> Element<'a, Message> {
     };
     let with_panel = |e: Element<'a, Message>| -> Element<'a, Message> {
         if app.assistant.open {
-            row![e, assistant_panel(app)].into()
+            term_view::with_panel(e, assistant_panel(app))
         } else {
             e
         }
@@ -231,8 +235,12 @@ pub(super) fn prompt_dialog<'a>(app: &'a App, p: &'a Prompt) -> Element<'a, Mess
             ..
         } => {
             let changed = previous.is_some();
+            // The saved key may be of another type than the one presented (ed25519 saved, RSA offered).
+            let other_type = previous.as_ref().filter(|p| p.key_type != info.key_type);
             let mut c = column![
-                text(if changed {
+                text(if other_type.is_some() {
+                    tr("⚠ Une clé d'un autre type est connue pour cet hôte")
+                } else if changed {
                     tr("⚠ La clé de l'hôte a changé")
                 } else {
                     tr("Nouvel hôte")
@@ -242,7 +250,12 @@ pub(super) fn prompt_dialog<'a>(app: &'a App, p: &'a Prompt) -> Element<'a, Mess
                 .style(move |th: &iced::Theme| text::Style {
                     color: Some(if changed { theme::nt(th).pink } else { theme::nt(th).text }),
                 }),
-                soft(if changed {
+                soft(if let Some(p) = other_type {
+                    trf(
+                        "%1$s:%2$s présente une clé %3$s alors qu'une clé %4$s est enregistrée. ",
+                        &[&info.host, &info.port, &info.key_type, &p.key_type],
+                    ) + &tr("Cela peut venir d'une réinstallation du serveur… ou d'une attaque de l'homme du milieu.")
+                } else if changed {
                     trf(
                         "La clé présentée par %1$s:%2$s ne correspond plus à celle enregistrée. ",
                         &[&info.host, &info.port],
@@ -259,7 +272,11 @@ pub(super) fn prompt_dialog<'a>(app: &'a App, p: &'a Prompt) -> Element<'a, Mess
             .spacing(10);
             if let Some(prev) = previous {
                 c = c
-                    .push(label(tr("Ancienne empreinte")))
+                    .push(label(if other_type.is_some() {
+                        trf("Clé enregistrée (%1$s)", &[&prev.key_type])
+                    } else {
+                        tr("Ancienne empreinte")
+                    }))
                     .push(soft(prev.fingerprint.clone()).font(MONO));
             }
             c.push(
@@ -347,12 +364,19 @@ pub(super) fn snippet_dialog<'a>(app: &'a App, id: i64, vars: &'a [(String, Stri
 /// The app is locked: the code, nothing else.
 pub(super) fn lock_screen(app: &App) -> Element<'_, Message> {
     let pin = app.settings.lock_method == Some(nautile_core::lock::LockMethod::Pin);
+    let hint = if app.lock_master {
+        tr("Mot de passe maître")
+    } else if pin {
+        tr("Code PIN")
+    } else {
+        tr("Mot de passe")
+    };
     let mut c = column![
         container(icon(I_LOCK).size(30))
             .padding([10, 14])
             .style(|t: &iced::Theme| theme::tile(theme::nt(t).accent)(t)),
         text(tr("Nautile est verrouillé")).size(20).font(BOLD),
-        text_input(&if pin { tr("Code PIN") } else { tr("Mot de passe") }, &app.lock_input)
+        text_input(&hint, &app.lock_input)
             .id("lock")
             .on_input(Message::LockInput)
             .on_submit(Message::Unlock)
@@ -361,10 +385,22 @@ pub(super) fn lock_screen(app: &App) -> Element<'_, Message> {
             .size(16)
             .width(280)
             .style(theme::input),
-        primary(tr("Déverrouiller"), Some(Message::Unlock)),
+        primary(tr("Déverrouiller"), (!app.lock_busy).then_some(Message::Unlock)),
     ]
     .spacing(16)
     .align_x(Alignment::Center);
+    // Portable mode: a forgotten code is removed with the master password, which opens the data anyway.
+    if app.paths.portable {
+        c = c.push(if app.lock_master {
+            button(soft(tr("Revenir au code")))
+                .style(theme::ghost)
+                .on_press(Message::LockForgot(false))
+        } else {
+            button(soft(tr("Code oublié ? Utiliser le mot de passe maître")))
+                .style(theme::ghost)
+                .on_press(Message::LockForgot(true))
+        });
+    }
     if let Some(e) = &app.lock_error {
         c = c.push(text(e.clone()).size(13).style(|t: &iced::Theme| text::Style {
             color: Some(theme::nt(t).pink),
@@ -391,9 +427,11 @@ pub(super) fn files_view<'a>(app: &'a App, t: &'a Tab, f: &'a crate::files::File
     if let Some(ed) = &f.editor {
         return remote_editor(id, ed);
     }
-    let mut body = column![row![files_pane(app, t, f, false), files_pane(app, t, f, true)]
-        .spacing(12)
-        .height(Fill)]
+    let mut body = column![
+        row![files_pane(app, t, f, false), files_pane(app, t, f, true)]
+            .spacing(12)
+            .height(Fill)
+    ]
     .spacing(10);
     let transfers: Vec<&crate::files::Job> = f.jobs.iter().filter(|j| j.transfer).collect();
     if transfers.is_empty() {
@@ -554,19 +592,18 @@ pub(super) fn files_pane<'a>(app: &'a App, t: &'a Tab, f: &'a crate::files::File
             _ => trf("Connexion à %1$s…", &[&t.name]),
         }));
     }
-    if !remote {
-        if let Some(e) = &f.local_error {
-            list = list.push(text(e.clone()).size(13).style(|th: &iced::Theme| text::Style {
-                color: Some(theme::nt(th).pink),
-            }));
-        }
+    if !remote && let Some(e) = &f.local_error {
+        list = list.push(text(e.clone()).size(13).style(|th: &iced::Theme| text::Style {
+            color: Some(theme::nt(th).pink),
+        }));
     }
     for e in entries {
-        if let Some(Edit::Rename { remote: r, old, new }) = &f.edit {
-            if *r == remote && *old == e.name {
-                list = list.push(edit_row(id, new, e.name.clone(), tr("Renommer")));
-                continue;
-            }
+        if let Some(Edit::Rename { remote: r, old, new }) = &f.edit
+            && *r == remote
+            && *old == e.name
+        {
+            list = list.push(edit_row(id, new, e.name.clone(), tr("Renommer")));
+            continue;
         }
         let selected = f.selected.as_ref().is_some_and(|(r, n)| *r == remote && *n == e.name);
         let size = if e.dir {
@@ -1078,7 +1115,7 @@ fn monitor_view<'a>(app: &'a App, t: &'a Tab, m: &'a crate::sessions::MonitorSta
 fn remote_editor(id: u64, ed: &crate::files::RemoteEditor) -> Element<'_, Message> {
     use crate::files::FilesMsg;
     let fm = move |m: FilesMsg| Message::Files(id, m);
-    let modified = ed.modified();
+    let modified = ed.modified;
     let mut head = row![
         icon(I_EDIT).size(20),
         column![

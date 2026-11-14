@@ -6,16 +6,22 @@ use std::path::PathBuf;
 
 use chrono::{Datelike, Local, TimeZone};
 use iced::Task;
-use nautile_core::model::{now_ms, BackupData, SyncDevice};
+use nautile_core::model::{BackupData, SyncDevice, now_ms};
 use nautile_core::{backup, sync, tr, trf};
 use nautile_net::lan_sync::{Found, Lan, LanEvent};
-use nautile_net::store::{Dest, Remote, StoreError, KEEP};
+use nautile_net::store::{Dest, KEEP, Remote, StoreError};
 use serde::{Deserialize, Serialize};
 
 use crate::app::{App, Message};
 
 pub const PASSWORD: &str = "backup-password";
-const LAN_SECRET: &str = "lan-secret";
+/// The single Wi-Fi secret of protocol v1, dropped at start: each device now has its own.
+const LAN_SECRET_V1: &str = "lan-secret";
+
+/// Where the Wi-Fi secret of a paired device is kept.
+fn lan_key(id: &str) -> String {
+    format!("lan-peer-{id}")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Frequency {
@@ -97,6 +103,9 @@ pub struct Peer {
     pub name: String,
     #[serde(default)]
     pub last: i64,
+    /// Its system (« android », « windows », « ubuntu »…), unknown for older versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
 }
 
 /// When the next automatic backup is due: one period after the last one, at the chosen time (and weekday) for
@@ -117,10 +126,11 @@ pub fn next_run(f: Frequency, minutes: u32, weekday: u32, last: Option<i64>, now
             .and_hms_opt(minutes / 60, minutes % 60, 0)
             .and_then(|t| Local.from_local_datetime(&t).earliest())
             .map(|t| t.timestamp_millis());
-        if let Some(at) = at {
-            if at >= earliest && (f != Frequency::Week || day.weekday().number_from_monday() == weekday) {
-                return at;
-            }
+        if let Some(at) = at
+            && at >= earliest
+            && (f != Frequency::Week || day.weekday().number_from_monday() == weekday)
+        {
+            return at;
         }
         day = day.succ_opt().unwrap_or(day);
     }
@@ -256,10 +266,14 @@ pub struct BackupState {
     pub lan: Option<Lan>,
     pub lan_found: Vec<Found>,
     pub lan_code: Option<String>,
+    /// The code shown was dropped after too many wrong tries (said in the pairing pop-up).
+    pub lan_code_expired: bool,
     pub lan_status: Option<String>,
     /// The device being paired and the code typed.
     pub lan_pairing: Option<(Found, String)>,
     pub lan_busy: bool,
+    /// Paired devices without a secret of their own (paired with an older version): to pair again.
+    pub lan_stale: Vec<String>,
     lan_synced_change: i64,
     lan_last_round: i64,
     /// When each automatic backup runs next (computed once, again after it ran or its settings changed).
@@ -488,7 +502,14 @@ impl App {
         }
         let now = now_ms();
         let last_change = self.db.as_ref().and_then(|db| db.store().last_change().ok()).unwrap_or(0);
-        let paired: Vec<String> = self.settings.lan_peers.iter().map(|p| p.id.clone()).collect();
+        // Devices still to pair again have no secret: not tried.
+        let paired: Vec<String> = self
+            .settings
+            .lan_peers
+            .iter()
+            .filter(|p| !self.backup.lan_stale.contains(&p.id))
+            .map(|p| p.id.clone())
+            .collect();
         let nearby = self.backup.lan_found.iter().any(|f| paired.contains(&f.id));
         if !nearby || (last_change <= self.backup.lan_synced_change && now - self.backup.lan_last_round < 15 * 60_000) {
             return Task::none();
@@ -566,7 +587,10 @@ impl App {
             Err(e) => return self.sync_failed(e),
         };
         let device = self.device_id();
-        let Some(db) = &mut self.db else { return Task::none() };
+        let Some(db) = &mut self.db else {
+            self.backup.syncing = false;
+            return Task::none();
+        };
         let dirty_before = db.store().last_change().unwrap_or(0) > self.settings.synced_change;
         let stats = match &data {
             Some(d) => match sync::merge(db, d) {
@@ -594,15 +618,23 @@ impl App {
         if changed {
             self.reload();
         }
-        let Some(db) = &self.db else { return Task::none() };
+        let Some(db) = &self.db else {
+            self.backup.syncing = false;
+            return Task::none();
+        };
         if data.is_some() && !dirty_before && !changed && now - my_last <= 12 * 3_600_000 {
             return self.backup_update(BackupMsg::Written(Ok(db.store().last_change().unwrap_or(0)), devices));
         }
-        let Ok(snapshot) = sync::snapshot(db, devices.clone()) else {
-            return Task::none();
+        let snapshot = match sync::snapshot(db, devices.clone()) {
+            Ok(s) => s,
+            Err(e) => return self.sync_failed(e.to_string()),
         };
-        let Some(pw) = db.secret(PASSWORD) else { return Task::none() };
+        let Some(pw) = db.secret(PASSWORD) else {
+            return self.sync_failed(tr("Mot de passe de sauvegarde non enregistré"));
+        };
         let Some(t) = self.settings.sync_target.clone().and_then(|id| self.backup_target(&id).cloned()) else {
+            // The place was removed meanwhile: nothing to write to.
+            self.backup.syncing = false;
             return Task::none();
         };
         let secret = db.secret(&format!("target-{}", t.id)).unwrap_or_default();
@@ -642,16 +674,35 @@ impl App {
         if self.backup.lan.is_some() {
             return Task::none();
         }
+        use base64::Engine;
         let id = self.device_id();
-        let secret = self.secret(LAN_SECRET).and_then(|s| {
-            use base64::Engine;
-            base64::engine::general_purpose::STANDARD.decode(s).ok()
-        });
-        match Lan::start(id, device_name(), secret, true) {
+        let mut secrets = std::collections::HashMap::new();
+        self.backup.lan_stale.clear();
+        if let Some(db) = &self.db {
+            // Protocol v1 shared one secret with every device: gone, each pairs again for its own.
+            if db.secret(LAN_SECRET_V1).is_some() {
+                let _ = db.set_secret(LAN_SECRET_V1, None);
+            }
+            for p in &self.settings.lan_peers {
+                let secret = db
+                    .secret(&lan_key(&p.id))
+                    .and_then(|s| base64::engine::general_purpose::STANDARD.decode(s).ok())
+                    .filter(|s| s.len() == 32);
+                match secret {
+                    Some(s) => {
+                        secrets.insert(p.id.clone(), s);
+                    }
+                    None => self.backup.lan_stale.push(p.id.clone()),
+                }
+            }
+            if !self.backup.lan_stale.is_empty() {
+                self.backup.lan_status = Some(tr("Nouvelle version de la synchro Wi-Fi : associez à nouveau vos appareils"));
+            }
+        }
+        match Lan::start(id, device_name(), secrets, true) {
             Ok((lan, rx)) => {
                 self.backup.lan = Some(lan);
-                let stream = iced::futures::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|e| (e, rx)) });
-                Task::run(stream, |e| Message::Backup(BackupMsg::Lan(e)))
+                Task::run(crate::sessions::recv_stream(rx), |e| Message::Backup(BackupMsg::Lan(e)))
             }
             Err(e) => {
                 self.backup.lan_status = Some(e.to_string());
@@ -709,7 +760,7 @@ impl App {
                             .map(|f| f.path().to_path_buf())
                     },
                     |p| Message::Backup(BackupMsg::FolderPicked(p)),
-                )
+                );
             }
             BackupMsg::FolderPicked(p) => {
                 if let (Some(p), Some(f)) = (p, &mut self.backup.place) {
@@ -734,10 +785,10 @@ impl App {
                     Ok(()) => {
                         let Some(dest) = f.dest() else { return Task::none() };
                         let id = hex::encode(rand::random::<[u8; 6]>());
-                        if let Some(db) = &self.db {
-                            if !f.secret.is_empty() {
-                                let _ = db.set_secret(&format!("target-{id}"), Some(&f.secret));
-                            }
+                        if let Some(db) = &self.db
+                            && !f.secret.is_empty()
+                        {
+                            let _ = db.set_secret(&format!("target-{id}"), Some(&f.secret));
                         }
                         self.settings.targets.push(Target {
                             id: id.clone(),
@@ -821,6 +872,11 @@ impl App {
                 return self.backup_tick();
             }
             BackupMsg::Done(id, r) => {
+                if id.is_empty() {
+                    // A background task that panicked (see `run`): whatever it was doing is over.
+                    self.backup.syncing = false;
+                    self.backup.lan_busy = false;
+                }
                 self.backup.running.retain(|x| *x != id);
                 self.backup.scheduled.remove(&id);
                 let ok = r.is_ok();
@@ -872,11 +928,11 @@ impl App {
                     self.settings.last_sync = Some(now);
                     self.settings.sync_error = None;
                     self.settings.devices = devices.into_iter().map(|d| (d.id, d.name, d.last_seen)).collect();
-                    if let Some(id) = self.settings.sync_target.clone() {
-                        if let Some(t) = self.target_mut(&id) {
-                            t.last = Some(now);
-                            t.error = None;
-                        }
+                    if let Some(id) = self.settings.sync_target.clone()
+                        && let Some(t) = self.target_mut(&id)
+                    {
+                        t.last = Some(now);
+                        t.error = None;
                     }
                     self.save_settings();
                 }
@@ -917,9 +973,13 @@ impl App {
                 }
                 self.backup.lan_found.clear();
                 self.backup.lan_code = None;
+                self.backup.lan_code_expired = false;
             }
             BackupMsg::Lan(e) => return self.on_lan(e),
-            BackupMsg::LanShowCode => self.backup.lan_code = self.backup.lan.as_ref().map(|l| l.show_code()),
+            BackupMsg::LanShowCode => {
+                self.backup.lan_code_expired = false;
+                self.backup.lan_code = self.backup.lan.as_ref().map(|l| l.show_code());
+            }
             BackupMsg::LanCancelCode => {
                 if let Some(l) = &self.backup.lan {
                     l.cancel_code();
@@ -938,7 +998,10 @@ impl App {
                 };
                 self.backup.lan_busy = true;
                 return run(
-                    move || lan.pair(&peer, &code).map_err(|_| tr("Code refusé ou appareil injoignable")),
+                    move || {
+                        lan.pair(&peer, &code)
+                            .map_err(|e| nautile_net::lan_sync::describe(&e, tr("Code refusé ou appareil injoignable")))
+                    },
                     BackupMsg::LanPaired,
                 );
             }
@@ -961,14 +1024,14 @@ impl App {
             }
             BackupMsg::LanRound(_) => self.backup.lan_busy = false,
             BackupMsg::LanForget(id) => {
+                // Its secret goes: it is refused from now on, the others keep theirs.
                 self.settings.lan_peers.retain(|p| p.id != id);
-                if self.settings.lan_peers.is_empty() {
-                    if let Some(db) = &self.db {
-                        let _ = db.set_secret(LAN_SECRET, None);
-                    }
-                    if let Some(l) = &self.backup.lan {
-                        l.set_secret(None);
-                    }
+                self.backup.lan_stale.retain(|p| *p != id);
+                if let Some(db) = &self.db {
+                    let _ = db.set_secret(&lan_key(&id), None);
+                }
+                if let Some(l) = &self.backup.lan {
+                    l.forget(&id);
                 }
                 self.save_settings();
             }
@@ -979,13 +1042,34 @@ impl App {
     fn on_lan(&mut self, e: LanEvent) -> Task<Message> {
         match e {
             LanEvent::Found(list) => self.backup.lan_found = list,
-            LanEvent::Paired { id, name, secret } => {
+            LanEvent::Paired {
+                id,
+                name,
+                platform,
+                secret,
+            } => {
                 use base64::Engine;
-                if let Some(db) = &self.db {
-                    let _ = db.set_secret(LAN_SECRET, Some(&base64::engine::general_purpose::STANDARD.encode(&secret)));
+                // Kept for good first: when it cannot be, the device is neither accepted nor listed.
+                let saved = self.db.as_ref().is_some_and(|db| {
+                    db.set_secret(&lan_key(&id), Some(&base64::engine::general_purpose::STANDARD.encode(&secret)))
+                        .is_ok()
+                });
+                if !saved {
+                    if let Some(l) = &self.backup.lan {
+                        l.forget(&id);
+                    }
+                    self.backup.lan_code = None;
+                    self.backup.lan_status = Some(tr("Association impossible"));
+                    return Task::none();
                 }
+                self.backup.lan_stale.retain(|p| *p != id);
                 self.settings.lan_peers.retain(|p| p.id != id);
-                self.settings.lan_peers.push(Peer { id, name, last: 0 });
+                self.settings.lan_peers.push(Peer {
+                    id,
+                    name,
+                    last: 0,
+                    platform,
+                });
                 self.backup.lan_code = None;
                 self.save_settings();
             }
@@ -998,16 +1082,41 @@ impl App {
                     .unwrap_or_default();
                 reply.send(json);
             }
-            LanEvent::Merge { id, name, json } => {
+            LanEvent::Merge {
+                id,
+                name,
+                platform,
+                json,
+                merged,
+            } => {
+                // Only from a device paired here (the server already checked its secret). Returning without an
+                // answer (`merged` dropped) ends the exchange: the initiator gets nothing.
+                if !self.settings.lan_peers.iter().any(|p| p.id == id) {
+                    return Task::none();
+                }
                 let Ok(data) = serde_json::from_str::<BackupData>(&json) else {
                     return Task::none();
                 };
                 let Some(db) = &mut self.db else { return Task::none() };
-                let changed = sync::merge(db, &data).map(|s| s.added + s.updated + s.deleted > 0).unwrap_or(false);
+                // The responder moves a tie past; the initiator merges data that already holds its own.
+                let changed = sync::merge_ties(db, &data, merged.is_some())
+                    .map(|s| s.added + s.updated + s.deleted > 0)
+                    .unwrap_or(false);
+                if let Some(reply) = merged {
+                    // This device's data once merged, for the initiator.
+                    let json = sync::snapshot(db, vec![])
+                        .ok()
+                        .and_then(|d| serde_json::to_string(&d).ok())
+                        .unwrap_or_default();
+                    reply.send(json);
+                }
                 self.backup.lan_synced_change = db.store().last_change().unwrap_or(0);
                 if let Some(p) = self.settings.lan_peers.iter_mut().find(|p| p.id == id) {
                     p.last = now_ms();
                     p.name = name.clone();
+                    if platform.is_some() {
+                        p.platform = platform;
+                    }
                 }
                 self.save_settings();
                 if changed {
@@ -1016,6 +1125,13 @@ impl App {
                 }
             }
             LanEvent::Status(s) => self.backup.lan_status = Some(s),
+            LanEvent::CodeExpired => {
+                // Back to the choice in the pop-up, which says why.
+                if self.backup.lan_code.take().is_some() {
+                    self.backup.lan_code_expired = true;
+                }
+                self.backup.lan_status = Some(tr("Trop d'essais, affichez un nouveau code"));
+            }
         }
         Task::none()
     }

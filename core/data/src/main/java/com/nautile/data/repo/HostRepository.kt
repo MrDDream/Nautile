@@ -23,12 +23,16 @@ class HostRepository(private val db: NautileDatabase) {
     suspend fun markConnected(id: Long) = dao.markConnected(id, System.currentTimeMillis())
     suspend fun setOs(id: Long, osId: String) = dao.setOs(id, osId)
 
-    /** Renames and recolours [group]; false when another group already has that name. */
-    suspend fun updateGroup(group: HostGroup): Boolean {
+    /**
+     * Renames, recolours and changes the icon of [group] as it is now in the database (its place in the list
+     * may have changed since [group] was read); false when another group already has that name.
+     */
+    suspend fun updateGroup(group: HostGroup): Boolean = db.withTransaction {
         val clash = dao.findGroup(group.name)
-        if (clash != null && clash.id != group.id) return false
-        dao.updateGroup(group)
-        return true
+        if (clash != null && clash.id != group.id) return@withTransaction false
+        val current = dao.getGroup(group.id) ?: return@withTransaction false
+        dao.updateGroup(current.copy(name = group.name, color = group.color, icon = group.icon))
+        true
     }
 
     /** Deletes [group]; its hosts become ungrouped. */
@@ -50,41 +54,65 @@ class HostRepository(private val db: NautileDatabase) {
 
     /** Returns the id of the group named [name], creating it if needed (at the end of the list). */
     suspend fun groupId(name: String): Long =
-        dao.findGroup(name)?.id ?: dao.insertGroup(HostGroup(name = name, sortOrder = (dao.allGroups().maxOfOrNull { it.sortOrder } ?: -1) + 1)).let { id ->
+        dao.findGroup(name)?.id ?: dao.insertGroup(HostGroup(name = name, sortOrder = nextSortOrder())).let { id ->
             if (id > 0) id else dao.findGroup(name)!!.id
         }
 
+    /** Adds [group] at the end of the list; false when a group already has that name. */
+    suspend fun createGroup(group: HostGroup): Boolean = db.withTransaction {
+        if (dao.findGroup(group.name) != null) return@withTransaction false
+        dao.insertGroup(group.copy(id = 0, sortOrder = nextSortOrder())) > 0
+    }
+
+    private suspend fun nextSortOrder() = (dao.allGroups().maxOfOrNull { it.sortOrder } ?: -1) + 1
+
+    /** What [import] did: hosts added, and those whose IdentityFile is not in the keychain (they use a password). */
+    data class ImportResult(val added: Int, val missingKeys: Int = 0)
+
     /**
-     * Saves imported hosts. Existing aliases are skipped; jump hosts are linked once all
-     * hosts exist. Returns how many hosts were added.
+     * Saves imported hosts. Existing aliases are skipped (left untouched); jump hosts are linked once all
+     * hosts exist. An IdentityFile is matched by file name with a key of the keychain (the file itself is not
+     * readable from here); without a match the host asks for a password.
      */
-    suspend fun import(items: List<ImportedHost>, defaultGroup: String? = null): Int = db.withTransaction {
+    suspend fun import(items: List<ImportedHost>): ImportResult = db.withTransaction {
         var added = 0
+        var missingKeys = 0
+        val keys = db.keyDao().allKeys()
         val ids = mutableMapOf<String, Long>()
+        val inserted = mutableSetOf<Long>()
         for (item in items) {
             val existing = dao.findByAlias(item.alias)
             if (existing != null) { ids[item.alias] = existing.id; continue }
-            val group = (item.group ?: defaultGroup)?.let { groupId(it) }
-            ids[item.alias] = dao.upsertHost(
+            val group = item.group?.let { groupId(it) }
+            val key = item.identityFile?.let { path ->
+                val file = path.trim('"').substringAfterLast('/').substringAfterLast('\\')
+                keys.firstOrNull { it.name.equals(file, ignoreCase = true) || it.name.equals(file.substringBeforeLast('.'), ignoreCase = true) }
+            }
+            if (item.identityFile != null && key == null) missingKeys++
+            val id = dao.upsertHost(
                 Host(
                     alias = item.alias,
                     hostname = item.hostname,
                     port = item.port,
                     username = item.username,
-                    authMethod = if (item.identityFile != null) AuthMethod.KEY else AuthMethod.PASSWORD,
-                    identity = item.identityFile,
+                    authMethod = if (key != null) AuthMethod.KEY else AuthMethod.PASSWORD,
+                    keyId = key?.id,
                     groupId = group,
                     tags = item.tags.joinToString(","),
                 ),
             )
+            ids[item.alias] = id
+            inserted += id
             added++
         }
         for (item in items) {
             val jump = item.proxyJump?.substringAfter('@')?.substringBefore(':') ?: continue
-            val hostId = ids[item.alias] ?: continue
+            // Only the hosts added now: the existing ones are left as they are.
+            val hostId = ids[item.alias]?.takeIf { it in inserted } ?: continue
             val jumpId = ids[jump] ?: dao.findByAlias(jump)?.id ?: continue
+            if (jumpId == hostId) continue
             dao.getHost(hostId)?.takeIf { it.jumpHostId == null }?.let { dao.upsertHost(it.copy(jumpHostId = jumpId)) }
         }
-        added
+        ImportResult(added, missingKeys)
     }
 }

@@ -12,9 +12,10 @@ use alacritty_terminal::event::{Event as TermEvent, EventListener, WindowSize};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
+use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{Config, Term, TermMode};
-use alacritty_terminal::vte::ansi::{CursorShape, CursorStyle, Processor, Rgb, StdSyncHandler};
+use alacritty_terminal::vte::ansi::{Color as AnsiColor, CursorShape, CursorStyle, NamedColor, Processor, Rgb, StdSyncHandler};
 
 /// What the emulator asks of the app.
 #[derive(Clone, Default)]
@@ -191,21 +192,73 @@ impl Terminal {
         }
     }
 
-    /// What is typed after the prompt on the cursor's line (`mrd@x:~$ docker ps` → `docker ps`), read from
+    /// What inserting [text] (a command the assistant proposed) types: it is never run before the user
+    /// presses Enter. Bracketed when the program asked for it (the shell then keeps the line ends as text);
+    /// otherwise on one line, since each line end would be an Enter.
+    pub fn insert(&self, text: &str) -> Vec<u8> {
+        let clean: String = text
+            .replace("\r\n", "\n")
+            .chars()
+            .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+            .collect();
+        let clean = clean.trim_end();
+        if self.mode().contains(TermMode::BRACKETED_PASTE) {
+            self.paste(clean)
+        } else {
+            one_line(clean).into_bytes()
+        }
+    }
+
+    /// The cursor's line after the prompt (`mrd@x:~$ docker ps` → `docker ps`), cut at the cursor, read from
     /// the screen as the shell echoes it (so passwords, never echoed, never show); `None` in full-screen
-    /// programs (vim, htop) or without a recognisable prompt.
-    pub fn typed_command(&self) -> Option<String> {
+    /// programs (vim, htop) or without a recognisable prompt. Gives what is before the cursor, everything
+    /// after it, and the part after it that was typed (up to the suggestion fish, zsh-autosuggestions or
+    /// PSReadLine show in grey).
+    fn prompt_line(&self) -> Option<(String, String, String)> {
         if self.mode().contains(TermMode::ALT_SCREEN) {
             return None;
         }
         let cursor = self.term.grid().cursor.point;
         let row = &self.term.grid()[cursor.line];
-        let line: String = (0..cursor.column.0.min(self.term.columns())).map(|c| row[Column(c)].c).collect();
+        let cols = self.term.columns();
+        let at_cursor = cursor.column.0.min(cols);
+        let shown = |c: &usize| !row[Column(*c)].flags.contains(Flags::WIDE_CHAR_SPACER);
+        let text = |cells: std::ops::Range<usize>| -> String { cells.filter(shown).map(|c| row[Column(c)].c).collect() };
+        let line = text(0..at_cursor);
         let at = ["$ ", "# ", "> ", "% ", "❯ ", "➜ "]
             .iter()
             .filter_map(|p| line.rfind(p).map(|i| i + p.len()))
             .max()?;
-        Some(line[at..].trim_end().to_owned())
+        // The colours of what was typed before the cursor.
+        let cells: Vec<usize> = (0..at_cursor).filter(shown).collect();
+        let typed: Vec<_> = cells[line[..at].chars().count().min(cells.len())..]
+            .iter()
+            .map(|c| &row[Column(*c)])
+            .filter(|cell| cell.c != ' ')
+            .map(|cell| cell.fg)
+            .collect();
+        let suggested = |c: usize| {
+            let cell = &row[Column(c)];
+            cell.flags.contains(Flags::DIM) || (!typed.contains(&cell.fg) && grey(cell.fg))
+        };
+        let typed_end = (at_cursor..cols).find(|c| suggested(*c)).unwrap_or(cols);
+        // What follows the cursor, up to a wide gap (zsh's right prompt).
+        let cut = |s: String| s.split("   ").next().unwrap_or_default().trim_end().to_owned();
+        Some((line[at..].to_owned(), cut(text(at_cursor..cols)), cut(text(at_cursor..typed_end))))
+    }
+
+    /// What is typed before the cursor, when nothing is shown after it (else → moves the cursor or takes the
+    /// shell's own suggestion, it does not complete).
+    pub fn typed_command(&self) -> Option<String> {
+        let (before, after, _) = self.prompt_line()?;
+        after.is_empty().then_some(before)
+    }
+
+    /// The whole command on the cursor's line, wherever the cursor is in it (for the history), without the
+    /// shell's grey suggestion.
+    pub fn command_line(&self) -> Option<String> {
+        let (before, _, after) = self.prompt_line()?;
+        Some(format!("{before}{after}").trim().to_owned())
     }
 
     /// The whole text shown (for tests and the « copy all » action).
@@ -222,6 +275,38 @@ impl Terminal {
         }
         out.truncate(out.trim_end().len());
         out
+    }
+}
+
+/// Lines of a shell command joined into one: `\\` continuations and lines ending in `|`, `&&`, `do`, `then`…
+/// go on, the others are separated by `;`.
+fn one_line(text: &str) -> String {
+    let mut out = String::new();
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        if out.ends_with('\\') {
+            out.pop();
+            out.truncate(out.trim_end().len());
+            out.push(' ');
+        } else if !out.is_empty() {
+            let last = out.rsplit(' ').next().unwrap_or_default();
+            let goes_on = out.ends_with(['|', '&', ';', '{', '(']) || matches!(last, "then" | "do" | "else" | "in");
+            out.push_str(if goes_on { " " } else { "; " });
+        }
+        out.push_str(line);
+    }
+    out.replace('\t', " ")
+}
+
+/// The greys shells show their suggestions in (fish's `brblack`, zsh-autosuggestions' `fg=8`, PSReadLine's
+/// 256-colour greys).
+fn grey(c: AnsiColor) -> bool {
+    match c {
+        AnsiColor::Named(n) => matches!(n, NamedColor::BrightBlack | NamedColor::DimForeground | NamedColor::DimWhite),
+        AnsiColor::Indexed(i) => i == 8 || (232..=248).contains(&i),
+        AnsiColor::Spec(Rgb { r, g, b }) => {
+            let (hi, lo) = (r.max(g).max(b), r.min(g).min(b));
+            hi - lo <= 16 && (0x40..=0xa0).contains(&hi)
+        }
     }
 }
 
@@ -245,6 +330,59 @@ mod tests {
         assert_eq!(t.paste("a\nb"), b"a\rb");
         t.feed(b"\x1b[?2004h");
         assert_eq!(t.paste("x"), b"\x1b[200~x\x1b[201~");
+    }
+
+    #[test]
+    fn inserted_commands_never_run() {
+        let t = Terminal::new(40, 10, themes::by_id("nautile"), CursorShape::Block);
+        let one = |s: &str| String::from_utf8(t.insert(s)).unwrap();
+        assert_eq!(one("ls -la\n"), "ls -la");
+        assert_eq!(one("apt update\r\napt upgrade -y\n"), "apt update; apt upgrade -y");
+        assert_eq!(one("docker run \\\n  -it alpine"), "docker run -it alpine");
+        assert_eq!(one("for f in *; do\n  echo $f\ndone"), "for f in *; do echo $f; done");
+        assert_eq!(one("ps aux |\n grep ssh &&\n echo ok"), "ps aux | grep ssh && echo ok");
+        assert_eq!(one("echo a\x1b[201~\rrm -rf x\x07\tb"), "echo a[201~rm -rf x b");
+        for s in ["a\nb", "x\r\ny\n", "a\rb"] {
+            assert!(!t.insert(s).iter().any(|b| matches!(b, b'\r' | b'\n')), "{s:?}");
+        }
+        let mut t = t;
+        t.feed(b"\x1b[?2004h");
+        assert_eq!(t.insert("a\nb\n"), b"\x1b[200~a\nb\x1b[201~");
+    }
+
+    #[test]
+    fn suggestions_only_at_the_end_of_the_line() {
+        let mut t = Terminal::new(40, 10, themes::by_id("nautile"), CursorShape::Block);
+        t.feed(b"mrd@x:~$ git commit -m x");
+        assert_eq!(t.typed_command().as_deref(), Some("git commit -m x"));
+        // The cursor brought back after `gi`.
+        t.feed(b"\x1b[13D");
+        assert_eq!(t.typed_command(), None);
+        assert_eq!(t.command_line().as_deref(), Some("git commit -m x"));
+        // zsh's right prompt is not part of the command.
+        let mut t = Terminal::new(60, 10, themes::by_id("nautile"), CursorShape::Block);
+        t.feed(b"% ls\x1b[s\x1b[50G~/src\x1b[u");
+        assert_eq!(t.typed_command().as_deref(), Some("ls"));
+        assert_eq!(t.command_line().as_deref(), Some("ls"));
+    }
+
+    #[test]
+    fn the_shells_grey_suggestion_is_not_part_of_the_command() {
+        // fish (brblack), zsh-autosuggestions (fg=8), PSReadLine (dim, or a 256-colour grey).
+        for grey in ["\x1b[90m", "\x1b[38;5;8m", "\x1b[2m", "\x1b[38;5;238m"] {
+            let mut t = Terminal::new(60, 10, themes::by_id("nautile"), CursorShape::Block);
+            t.feed(format!("mrd@x:~$ rm{grey} -rf build/\x1b[0m\x1b[11D").as_bytes());
+            assert_eq!(t.command_line().as_deref(), Some("rm"), "{grey:?}");
+            assert_eq!(t.typed_command(), None, "→ takes the shell's own suggestion");
+        }
+        // Coloured by fish's highlighting, the cursor brought back: all of it was typed.
+        let mut t = Terminal::new(60, 10, themes::by_id("nautile"), CursorShape::Block);
+        t.feed(b"mrd@x:~$ \x1b[34mrm\x1b[36m -rf build/\x1b[0m\x1b[11D");
+        assert_eq!(t.command_line().as_deref(), Some("rm -rf build/"));
+        // Typed in grey and in another colour after the cursor.
+        let mut t = Terminal::new(60, 10, themes::by_id("nautile"), CursorShape::Block);
+        t.feed(b"mrd@x:~$ \x1b[90mls\x1b[0m -la\x1b[4D");
+        assert_eq!(t.command_line().as_deref(), Some("ls -la"));
     }
 
     #[test]

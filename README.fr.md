@@ -110,17 +110,19 @@ com.nautile
 À partir de la version 0.4.0, chaque [version](https://github.com/MrDDream/Nautile/releases/latest) contient aussi l'app pour ordinateur, un programme natif en Rust (environ 35 Mo de RAM) qui lit les sauvegardes du téléphone et se synchronise avec lui (fichier partagé ou directement en Wi-Fi) :
 
 - `Nautile-X.Y.Z-setup.exe` : installeur Windows, sans droits administrateur ;
-- `Nautile-X.Y.Z-portable.zip` : Windows, tout (données chiffrées comprises) reste dans le dossier, par exemple sur une clé USB ;
+- `Nautile-X.Y.Z-portable.zip` : Windows, tout (données chiffrées comprises) reste dans le dossier, par exemple sur une clé USB ; la clé de la base y est chiffrée par un mot de passe maître demandé à chaque démarrage (mot de passe perdu = données perdues) ;
 - `nautile_X.Y.Z-1_amd64.deb` (Debian, Ubuntu), `nautile-X.Y.Z-1.x86_64.rpm` (Fedora, openSUSE), `nautile-X.Y.Z-linux-x86_64.tar.gz` (les autres) ;
-- `Nautile-X.Y.Z-macos-arm64.dmg` : macOS (puces Apple), pas encore notarisé : clic droit › Ouvrir la première fois.
+- `Nautile-X.Y.Z-macos-arm64.dmg` : macOS (puces Apple), pas encore notarisé : ouvre-le une fois, puis Réglages Système › Confidentialité et sécurité › « Ouvrir quand même » (avant macOS 15 : clic droit › Ouvrir).
 
 Elle reprend l'interface du téléphone (mêmes réglages, mêmes thèmes) et y ajoute ce qui sert sur un PC : icône dans la zone de notification (fermer la fenêtre la garde ouverte), lancement au démarrage, recherche universelle Ctrl+K, clic droit sur les hôtes, glisser-déposer, moniteur de serveur, éditeur de fichiers SFTP, import de `~/.ssh/config`, synchro qui attend le VPN et mises à jour depuis l'appli.
+
+Qui protège quoi : le verrou par code PIN ou mot de passe cache l'interface pendant ton absence (son empreinte et les essais ratés sont dans la base chiffrée) ; il ne chiffre rien à lui seul. Installée, la clé de la base est dans le trousseau du système de ta session ; en mode portable, seul le mot de passe maître (Argon2id, AES-256-GCM) l'ouvre. Code du verrou oublié ? Installée, lance une fois `nautile --reset-lock` (le verrou est retiré, rien d'autre) ; en mode portable, « Code oublié ? » sur l'écran de verrouillage le retire avec le mot de passe maître.
 
 Les fichiers Windows ne sont pas encore signés : SmartScreen affiche « Windows a protégé votre ordinateur » → *Informations complémentaires* → *Exécuter quand même*. Les sommes de contrôle sont dans `SHA256SUMS-desktop.txt`.
 
 ## 🛠️ Compiler depuis les sources
 
-Il faut le JDK 17 et le SDK Android (plateforme 34).
+Il faut le JDK 17 et le SDK Android (plateforme 37).
 
 ```bash
 ./gradlew testDebugUnitTest assembleDebug
@@ -134,13 +136,13 @@ scripts/build-freerdp.sh
 
 Les tests d'intégration SSH tournent contre `sshd`, `mosh-server` et des proxys dans Docker : `scripts/ssh-it.sh` ; ceux du VNC contre x11vnc : `scripts/vnc-it.sh` ; le S3 contre RustFS : `scripts/s3-it.sh`.
 
-L'app pour ordinateur est dans `desktop/` (Rust 1.89+, iced, IronRDP, russh) : `cd desktop && cargo run --release -p nautile-app`. Ses tests d'intégration : `scripts/ssh-it.sh --desktop`, `scripts/vnc-it.sh --desktop`, `scripts/rdp-it.sh`, `scripts/store-it.sh`.
+L'app pour ordinateur est dans `desktop/` (Rust 1.94+, iced, IronRDP, russh) : `cd desktop && cargo run --release -p nautile-app`. Ses tests d'intégration : `scripts/ssh-it.sh --desktop`, `scripts/vnc-it.sh --desktop`, `scripts/rdp-it.sh`, `scripts/store-it.sh`.
 
 Modules : `app` (interface Compose), `core:data` (Room + SQLCipher, import, sauvegarde, synchro), `core:security` (Keystore, verrou), `core:ssh` (sshj, Mosh, Telnet ; JVM pur), `core:rdp` (FreeRDP via JNI), `core:vnc` (client VNC ; JVM pur), `core:i18n`, et les `terminal-emulator` / `terminal-view` de Termux dans `third_party/`.
 
 ## 🔒 Vie privée
 
-Nautile n'a pas de serveur et ne collecte rien. Tes hôtes, clés et mots de passe restent dans une base chiffrée sur le téléphone. Les données ne sortent que si tu le demandes : une connexion à tes propres serveurs, un fichier de sauvegarde ou de synchro vers la destination choisie (chiffré avant), ou une question au fournisseur d'IA que tu as configuré (seulement ta demande, l'adresse et le protocole de l'hôte, l'écran du terminal si tu le coches et les fichiers que tu joins). Après un plantage, Nautile montre un rapport anonymisé que tu peux publier toi-même dans un ticket GitHub.
+Nautile n'a pas de serveur et ne collecte rien. Tes hôtes, clés et mots de passe restent dans une base chiffrée sur le téléphone. Aucune donnée ne part sans ton accord ; la vérification des mises à jour, si tu l'acceptes au premier lancement, contacte GitHub une fois par jour. Sinon, les données ne sortent que si tu le demandes : une connexion à tes propres serveurs, un fichier de sauvegarde ou de synchro vers la destination choisie (chiffré avant), ou une question au fournisseur d'IA que tu as configuré (seulement ta demande, l'adresse et le protocole de l'hôte, l'écran du terminal si tu le coches et les fichiers que tu joins). Après un plantage, Nautile montre un rapport anonymisé que tu peux publier toi-même dans un ticket GitHub.
 
 ## 🤝 Contribuer
 
@@ -148,4 +150,4 @@ Les bugs et idées sont les bienvenus dans les [issues](https://github.com/MrDDr
 
 ## 📄 Licence
 
-Nautile est un logiciel libre sous [GNU GPL v3](LICENSE). Il s'appuie sur terminal-emulator de [Termux](https://github.com/termux/termux-app) (Apache 2.0), [sshj](https://github.com/hierynomus/sshj), [FreeRDP](https://www.freerdp.com) (Apache 2.0 / MPL 2.0), OpenSSL, BouncyCastle, SQLCipher et les [Nerd Fonts](https://www.nerdfonts.com). Voir [third_party/NOTICE.md](third_party/NOTICE.md).
+Nautile est un logiciel libre sous [GNU GPL v3](LICENSE). Il s'appuie sur terminal-emulator de [Termux](https://github.com/termux/termux-app) (Apache 2.0), [sshj](https://github.com/hierynomus/sshj), [FreeRDP](https://www.freerdp.com) (Apache 2.0 / MPL 2.0), OpenSSL, BouncyCastle, SQLCipher et les [Nerd Fonts](https://www.nerdfonts.com). Voir [third_party/NOTICE.md](third_party/NOTICE.md) ; la liste complète des bibliothèques et de leurs licences est dans l'appli (Réglages › À propos › Licences tierces) et dans chaque paquet pour ordinateur (`THIRD-PARTY-LICENSES.txt`).

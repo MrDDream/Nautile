@@ -1,12 +1,16 @@
 package com.nautile.app.backup
 
 import android.content.Context
+import com.nautile.data.backup.SyncDevice
 import com.nautile.security.SecretStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
 
 /** Where backups go. */
 sealed interface BackupDestination {
@@ -91,10 +95,10 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
 
     private val _devices = MutableStateFlow(loadDevices())
     /** Devices seen in the synchronisation file (this one included). */
-    val devices: StateFlow<List<com.nautile.data.backup.SyncDevice>> = _devices.asStateFlow()
+    val devices: StateFlow<List<SyncDevice>> = _devices.asStateFlow()
 
     /** This installation, as named in the synchronisation file. */
-    val deviceId: String = prefs.getString(KEY_DEVICE, null) ?: java.util.UUID.randomUUID().toString().also { prefs.edit().putString(KEY_DEVICE, it).apply() }
+    val deviceId: String = prefs.getString(KEY_DEVICE, null) ?: UUID.randomUUID().toString().also { prefs.edit().putString(KEY_DEVICE, it).apply() }
 
     /** Latest local change already in the remote file. */
     var syncedChange: Long
@@ -119,7 +123,7 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
 
     /** Adds a place; [secret] is its WebDAV password or S3 secret key. */
     fun addTarget(dest: BackupDestination, secret: String? = null): BackupTarget {
-        val t = BackupTarget(java.util.UUID.randomUUID().toString(), dest)
+        val t = BackupTarget(UUID.randomUUID().toString(), dest)
         if (!secret.isNullOrEmpty()) secrets.put(secretKey(t.id), secret)
         _targets.value = _targets.value + t
         storeTargets()
@@ -157,12 +161,12 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
         prefs.edit().putLong(KEY_LAST, at).apply()
     }
 
-    fun markSynced(devices: List<com.nautile.data.backup.SyncDevice>, at: Long = System.currentTimeMillis()) {
+    fun markSynced(devices: List<SyncDevice>, at: Long = System.currentTimeMillis()) {
         _lastSync.value = at; _syncError.value = null; _devices.value = devices
         _lastExport.value = at
         syncTarget?.let { updateTarget(it.copy(last = at, error = null)) }
-        val json = kotlinx.serialization.json.Json.encodeToString(
-            kotlinx.serialization.builtins.ListSerializer(com.nautile.data.backup.SyncDevice.serializer()), devices,
+        val json = Json.encodeToString(
+            ListSerializer(SyncDevice.serializer()), devices,
         )
         prefs.edit().putLong(KEY_LAST_SYNC, at).putLong(KEY_LAST, at).remove(KEY_SYNC_ERROR).putString(KEY_DEVICES, json).apply()
     }
@@ -179,9 +183,9 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
         if (p.isNullOrEmpty()) _targets.value.filter { it.auto }.forEach { updateTarget(it.copy(auto = false)) }
     }
 
-    private fun loadDevices(): List<com.nautile.data.backup.SyncDevice> = runCatching {
-        kotlinx.serialization.json.Json.decodeFromString(
-            kotlinx.serialization.builtins.ListSerializer(com.nautile.data.backup.SyncDevice.serializer()),
+    private fun loadDevices(): List<SyncDevice> = runCatching {
+        Json.decodeFromString(
+            ListSerializer(SyncDevice.serializer()),
             prefs.getString(KEY_DEVICES, null) ?: return@runCatching emptyList(),
         )
     }.getOrDefault(emptyList())

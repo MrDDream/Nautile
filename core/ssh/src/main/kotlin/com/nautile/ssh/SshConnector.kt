@@ -1,7 +1,6 @@
 package com.nautile.ssh
 
 import com.nautile.i18n.tr
-
 import net.schmizz.sshj.DefaultConfig
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.connection.channel.direct.PTYMode
@@ -13,6 +12,7 @@ import net.schmizz.sshj.userauth.method.AuthPublickey
 import net.schmizz.sshj.userauth.method.PasswordResponseProvider
 import net.schmizz.sshj.userauth.password.PasswordFinder
 import net.schmizz.sshj.userauth.password.Resource
+import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.InputStream
 import java.io.OutputStream
@@ -37,7 +37,7 @@ class SshConnector(
         val clients = mutableListOf<SSHClient>()
         try {
             chain.forEachIndexed { i, target ->
-                onStep(if (i == chain.lastIndex) tr("Connexion à %1\$s…", target.label) else "Rebond via ${target.label}…")
+                onStep(if (i == chain.lastIndex) tr("Connexion à %1\$s…", target.label) else tr("Rebond via %1\$s…", target.label))
                 val client = SSHClient(DefaultConfig()).apply {
                     connectTimeout = connectTimeoutMs
                     timeout = 0
@@ -51,7 +51,7 @@ class SshConnector(
                 client.connection.keepAlive.keepAliveInterval = keepAliveSeconds
                 authenticate(client, target)
             }
-            if (agentKeys != null) clients.last().connection.attach(AgentForwarder(clients.last().connection, agentKeys))
+            if (agentKeys != null) clients.last().connection.attach(AgentForwarder(clients.last().connection, agentKeys, prompts::confirmAgentUse))
             return SshConnection(clients, agentForwarding = agentKeys != null)
         } catch (e: Exception) {
             clients.asReversed().forEach { runCatching { it.disconnect() } }
@@ -85,7 +85,8 @@ class SshConnector(
                         (auth.passphrase ?: prompts.passphrase(target) ?: throw SshCancelledException(tr("Connexion annulée"))).toCharArray()
                     override fun shouldRetry(resource: Resource<*>?) = false
                 }
-                val keys = client.loadKeys(auth.privateKey, null, finder)
+                // Same path as the import: cost bounds, then PKCS#8 decrypted with BouncyCastle.
+                val keys = SshKeys.load(auth.privateKey, finder)
                 client.auth(target.username, AuthPublickey(keys))
             }
         }
@@ -115,17 +116,31 @@ class SshConnection internal constructor(
         return ShellChannel(session, session.startShell())
     }
 
-    /** Runs a command without a PTY and returns its stdout (used by the server monitor later). */
-    fun exec(command: String): String = newSession().use { s ->
-        s.exec(command).let { cmd ->
-            val out = cmd.inputStream.readBytes().decodeToString()
-            cmd.join()
-            out
+    /**
+     * Runs a command without a PTY and returns its stdout, cut at [maxBytes] (the command is then
+     * abandoned: closing the channel stops a server that keeps writing).
+     */
+    fun exec(command: String, maxBytes: Int = EXEC_LIMIT): String = newSession().use { s ->
+        val cmd = s.exec(command)
+        val out = ByteArrayOutputStream()
+        val buf = ByteArray(8192)
+        val input = cmd.inputStream
+        while (out.size() < maxBytes) {
+            val n = input.read(buf, 0, minOf(buf.size, maxBytes - out.size()))
+            if (n < 0) break
+            out.write(buf, 0, n)
         }
+        if (out.size() < maxBytes) cmd.join() else runCatching { cmd.close() }
+        out.toByteArray().decodeToString()
     }
 
     override fun close() {
         clients.asReversed().forEach { runCatching { it.disconnect() } }
+    }
+
+    companion object {
+        /** Output kept from [exec]: far more than the monitor or mosh-server print. */
+        const val EXEC_LIMIT = 1 shl 20
     }
 }
 

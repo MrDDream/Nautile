@@ -1,15 +1,16 @@
 package com.nautile.app.ui.hosts
 
-import com.nautile.i18n.tr
-
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,8 +25,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.outlined.AddHome
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -37,9 +42,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -60,19 +68,29 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.nautile.app.NautileApp
+import com.nautile.app.rdp.RdpManager
+import com.nautile.app.ui.common.ConfirmDialog
+import com.nautile.app.ui.common.GroupMark
+import com.nautile.app.ui.common.HostAvatar
 import com.nautile.app.ui.common.NtCard
+import com.nautile.app.ui.common.NtChip
 import com.nautile.app.ui.common.NtTextField
 import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.common.Segmented
+import com.nautile.app.ui.keys.KeyPicker
 import com.nautile.app.ui.theme.Nt
+import com.nautile.app.widget.HostShortcuts
+import com.nautile.rdp.RdpSecurity
 import com.nautile.data.model.AuthMethod
-import kotlinx.coroutines.launch
-import com.nautile.data.model.Protocol
-import com.nautile.data.model.defaultPort
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.outlined.ExpandLess
-import androidx.compose.material.icons.outlined.ExpandMore
 import com.nautile.data.model.HOST_COLORS
+import com.nautile.data.model.HostGroup
+import com.nautile.data.model.Identity
+import com.nautile.data.model.Protocol
+import com.nautile.data.model.ProxyKind
+import com.nautile.data.model.defaultPort
+import com.nautile.i18n.tr
+import kotlinx.coroutines.launch
 
 @Composable
 fun HostEditScreen(onDone: () -> Unit, onConnect: (Long) -> Unit, vm: HostEditViewModel = viewModel(factory = HostEditViewModel.Factory)) {
@@ -85,6 +103,8 @@ fun HostEditScreen(onDone: () -> Unit, onConnect: (Long) -> Unit, vm: HostEditVi
     var advanced by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val message by vm.message.collectAsStateWithLifecycle()
+    val saving by vm.saving.collectAsStateWithLifecycle()
+    val deletedElsewhere by vm.deletedElsewhere.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val isNew = vm.hostId == 0L
 
@@ -104,14 +124,14 @@ fun HostEditScreen(onDone: () -> Unit, onConnect: (Long) -> Unit, vm: HostEditVi
                     style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f), maxLines = 1,
                 )
                 if (!isNew) {
-                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    val ctx = LocalContext.current
                     val scope = androidx.compose.runtime.rememberCoroutineScope()
                     IconButton(onClick = {
                         scope.launch {
-                            val h = (ctx.applicationContext as com.nautile.app.NautileApp).hostRepository.get(vm.hostId) ?: return@launch
-                            if (!com.nautile.app.widget.HostShortcuts.pin(ctx, h)) snackbar.showSnackbar(tr("Le lanceur ne permet pas d'épingler de raccourci"))
+                            val h = (ctx.applicationContext as NautileApp).hostRepository.get(vm.hostId) ?: return@launch
+                            if (!HostShortcuts.pin(ctx, h)) snackbar.showSnackbar(tr("Le lanceur ne permet pas d'épingler de raccourci"))
                         }
-                    }) { Icon(androidx.compose.material.icons.Icons.Outlined.AddHome, contentDescription = tr("Raccourci sur l'écran d'accueil"), tint = Nt.TextSoft) }
+                    }) { Icon(Icons.Outlined.AddHome, contentDescription = tr("Raccourci sur l'écran d'accueil"), tint = Nt.TextSoft) }
                     IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, contentDescription = tr("Supprimer l'hôte"), tint = Nt.Pink) }
                 }
             }
@@ -204,8 +224,8 @@ fun HostEditScreen(onDone: () -> Unit, onConnect: (Long) -> Unit, vm: HostEditVi
                         AuthMethod.KEY -> {
                             NtCard {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(Modifier.weight(1f)) { com.nautile.app.ui.keys.KeyPicker(keys, form.keyId, { id -> vm.update { it.copy(keyId = id) } }) }
-                                    androidx.compose.material3.TextButton(onClick = { keyPicker.launch(arrayOf("*/*")) }) { Text(tr("Importer…"), color = Nt.Accent) }
+                                    Box(Modifier.weight(1f)) { KeyPicker(keys, form.keyId, { id -> vm.update { it.copy(keyId = id) } }) }
+                                    TextButton(onClick = { keyPicker.launch(arrayOf("*/*")) }) { Text(tr("Importer…"), color = Nt.Accent) }
                                 }
                             }
                             if (keys.isEmpty()) Text(tr("Trousseau vide : générez une clé dans le Trousseau (icône clé des Hôtes) ou importez un fichier."), color = Nt.Muted, fontSize = 12.sp)
@@ -222,7 +242,7 @@ fun HostEditScreen(onDone: () -> Unit, onConnect: (Long) -> Unit, vm: HostEditVi
 
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     SectionLabel(tr("Organisation"))
-                    GroupChips(form.group, groups.map { it.name to it.color }) { g -> vm.update { it.copy(group = g) } }
+                    GroupChips(form.group, groups) { g -> vm.update { it.copy(group = g) } }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(tr("Couleur"), color = Nt.TextSoft, fontSize = 13.sp, modifier = Modifier.weight(1f))
                         HOST_COLORS.forEach { c ->
@@ -240,7 +260,7 @@ fun HostEditScreen(onDone: () -> Unit, onConnect: (Long) -> Unit, vm: HostEditVi
 
                 if (form.kind == Protocol.SSH || form.kind == Protocol.TELNET) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     val summary = listOfNotNull(
-                        tr("Mosh").takeIf { form.mosh },
+                        "Mosh".takeIf { form.mosh },
                         jumpHosts.firstOrNull { it.id == form.jumpHostId }?.let { tr("rebond via %1\$s", it.alias) },
                         form.proxyType?.let { tr("proxy %1\$s", it.name) },
                         tr("transfert d'agent").takeIf { form.agentForwarding },
@@ -264,13 +284,12 @@ fun HostEditScreen(onDone: () -> Unit, onConnect: (Long) -> Unit, vm: HostEditVi
                             Column(Modifier.fillMaxWidth().clickable { proxyDialog = true }.padding(horizontal = 14.dp, vertical = 12.dp)) {
                                 Text(tr("Proxy"), style = MaterialTheme.typography.titleMedium, fontSize = 14.sp)
                                 Text(
-                                    form.proxyType?.let { "${it.name} ${form.proxyHost}" + (form.proxyPort.takeIf { p -> p.isNotEmpty() }?.let { p -> ":$p" } ?: "") }
-                                        ?: tr("Aucun — connexion directe"),
+                                    form.proxySummary ?: tr("Aucun — connexion directe"),
                                     fontSize = 12.sp, color = Nt.Muted,
                                 )
                             }
                             HorizontalDivider(color = Nt.Border)
-                            SwitchRow(tr("Mosh"), tr("Session résistante aux coupures réseau (mosh-server requis sur le serveur)"), form.mosh) { v -> vm.update { it.copy(mosh = v) } }
+                            SwitchRow("Mosh", tr("Session résistante aux coupures réseau (mosh-server requis sur le serveur)"), form.mosh) { v -> vm.update { it.copy(mosh = v) } }
                             HorizontalDivider(color = Nt.Border)
                             SwitchRow(tr("Transfert d'agent"), tr("Le serveur peut utiliser vos clés pour rebondir (ssh -A)"), form.agentForwarding) { v -> vm.update { it.copy(agentForwarding = v) } }
                             HorizontalDivider(color = Nt.Border)
@@ -291,16 +310,16 @@ fun HostEditScreen(onDone: () -> Unit, onConnect: (Long) -> Unit, vm: HostEditVi
             ) {
                 OutlinedButton(
                     onClick = { vm.save { onDone() } },
-                    enabled = form.isValid,
+                    enabled = form.isValid && !saving,
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.weight(1f).height(52.dp),
                 ) { Text(tr("Enregistrer"), fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = Nt.Text) }
                 Button(
                     onClick = { vm.save(onConnect) },
-                    enabled = form.isValid,
+                    enabled = form.isValid && !saving,
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Nt.PrimaryContainer, contentColor = Nt.OnPrimaryContainer),
-                    border = Nt.PrimaryBorder?.let { androidx.compose.foundation.BorderStroke(2.dp, it) },
+                    border = Nt.PrimaryBorder?.let { BorderStroke(2.dp, it) },
                     modifier = Modifier.weight(1f).height(52.dp),
                 ) { Text(tr("Connecter"), fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
             }
@@ -308,12 +327,13 @@ fun HostEditScreen(onDone: () -> Unit, onConnect: (Long) -> Unit, vm: HostEditVi
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
     }
     if (proxyDialog) ProxyDialog(form, onDismiss = { proxyDialog = false }) { updated -> vm.update { updated }; proxyDialog = false }
-    if (confirmDelete) androidx.compose.material3.AlertDialog(
-        onDismissRequest = { confirmDelete = false }, containerColor = Nt.Surface,
-        title = { Text(tr("Supprimer %1\$s ?", form.alias.ifBlank { form.hostname })) },
-        text = { Text(tr("L'hôte et ses tunnels sont supprimés. Les clés du trousseau sont gardées."), color = Nt.TextSoft) },
-        dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmDelete = false }) { Text(tr("Annuler"), color = Nt.TextSoft) } },
-        confirmButton = { androidx.compose.material3.TextButton(onClick = { confirmDelete = false; vm.delete(onDone) }) { Text(tr("Supprimer"), color = Nt.Pink, fontWeight = FontWeight.SemiBold) } },
+    if (confirmDelete) DeleteHostDialog(form.alias.ifBlank { form.hostname }, onDismiss = { confirmDelete = false }) { confirmDelete = false; vm.delete(onDone) }
+    if (deletedElsewhere) ConfirmDialog(
+        tr("Hôte supprimé entre-temps"),
+        tr("%1\$s a été supprimé pendant la modification, sans doute sur un autre appareil. L'enregistrer comme un nouvel hôte ?", form.alias.ifBlank { form.hostname }),
+        tr("Recréer"),
+        onDismiss = vm::cancelRecreate,
+        onConfirm = vm::confirmRecreate,
     )
 }
 
@@ -341,7 +361,7 @@ private fun PreviewCard(form: HostForm, groupColor: Long?, onKind: (Protocol) ->
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Nt.Surface).border(1.dp, Nt.Border, RoundedCornerShape(16.dp)).padding(14.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        com.nautile.app.ui.common.HostAvatar(if (form.kind == Protocol.RDP) "windows" else null, title.take(1).uppercase(), Color(form.color))
+        HostAvatar(if (form.kind == Protocol.RDP) "windows" else null, title.take(1).uppercase(), Color(form.color))
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
             Text(address, fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.Muted, maxLines = 1)
@@ -351,7 +371,7 @@ private fun PreviewCard(form: HostForm, groupColor: Long?, onKind: (Protocol) ->
             }
         }
         Box {
-            androidx.compose.material3.Surface(
+            Surface(
                 onClick = { menu = true }, shape = RoundedCornerShape(10.dp), color = Nt.KeyBg,
                 modifier = Modifier.semantics { contentDescription = tr("Type d'hôte : %1\$s", kindLabel(form.kind)) },
             ) {
@@ -361,46 +381,37 @@ private fun PreviewCard(form: HostForm, groupColor: Long?, onKind: (Protocol) ->
                 }
             }
             DropdownMenu(menu, onDismissRequest = { menu = false }) {
-                listOf(Protocol.SSH to "SSH", Protocol.RDP to tr("Bureau à distance (RDP)"), Protocol.VNC to tr("Bureau à distance (VNC)"), Protocol.TELNET to "Telnet", Protocol.SERIAL to tr("Série USB"), Protocol.LOCAL to tr("Terminal local"))
-                    .forEach { (k, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { menu = false; onKind(k) }) }
+                listOf(
+                    Protocol.SSH to "SSH", Protocol.RDP to tr("Bureau à distance (RDP)"), Protocol.VNC to tr("Bureau à distance (VNC)"),
+                    Protocol.TELNET to "Telnet", Protocol.SERIAL to tr("Série USB"), Protocol.LOCAL to tr("Terminal local"),
+                ).forEach { (k, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { menu = false; onKind(k) }) }
             }
         }
     }
 }
 
 /** Existing groups as chips, « Sans groupe », and a field for a new one. */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun GroupChips(value: String, groups: List<Pair<String, Long>>, onChange: (String) -> Unit) {
-    var creating by remember { mutableStateOf(value.isNotBlank() && groups.none { it.first == value }) }
-    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        GroupChip(tr("Sans groupe"), null, value.isBlank() && !creating) { creating = false; onChange("") }
-        groups.forEach { (name, color) -> GroupChip(name, color, value == name && !creating) { creating = false; onChange(name) } }
-        GroupChip(tr("+ Nouveau"), null, creating) { creating = true; onChange("") }
+private fun GroupChips(value: String, groups: List<HostGroup>, onChange: (String) -> Unit) {
+    var creating by remember { mutableStateOf(value.isNotBlank() && groups.none { it.name == value }) }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        NtChip(tr("Sans groupe"), value.isBlank() && !creating) { creating = false; onChange("") }
+        groups.forEach { g ->
+            NtChip(g.name, value == g.name && !creating, leading = { GroupMark(g.icon, Color(g.color), iconSize = 15.dp, dotSize = 8.dp) }) {
+                creating = false; onChange(g.name)
+            }
+        }
+        NtChip(tr("+ Nouveau"), creating) { creating = true; onChange("") }
     }
     if (creating) NtTextField(value, onChange, tr("Nom du nouveau groupe"), placeholder = tr("Homelab"))
-}
-
-@Composable
-private fun GroupChip(label: String, color: Long?, selected: Boolean, onClick: () -> Unit) {
-    androidx.compose.material3.Surface(
-        onClick = onClick, shape = RoundedCornerShape(18.dp),
-        color = if (selected) Nt.Accent.copy(alpha = 0.12f) else Nt.Surface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) Nt.Accent else Nt.Border),
-        modifier = Modifier.height(36.dp).semantics { this.selected = selected },
-    ) {
-        Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            color?.let { Box(Modifier.size(8.dp).clip(CircleShape).background(Color(it))) }
-            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (selected) Nt.Accent else Nt.TextSoft)
-        }
-    }
 }
 
 /** Windows logon and display options of an RDP host. */
 @Composable
 private fun RdpSection(
     form: HostForm,
-    identities: List<com.nautile.data.model.Identity>,
+    identities: List<Identity>,
     jumpHosts: List<Pair<Long, String>>,
     update: ((HostForm) -> HostForm) -> Unit,
     onProxy: () -> Unit,
@@ -437,7 +448,9 @@ private fun RdpSection(
             listOf<Pair<String?, String>>(null to tr("Auto"), "NLA" to "NLA", "TLS" to "TLS", "RDP" to "RDP"),
             form.rdpSecurity, { v -> update { it.copy(rdpSecurity = v) } },
         )
-        Text(tr("Auto négocie avec le serveur ; NLA vérifie le mot de passe avant d'ouvrir la session."), color = Nt.Muted, fontSize = 12.sp)
+        Text(tr("Auto n'accepte que TLS ou NLA ; NLA vérifie le mot de passe avant d'ouvrir la session."), color = Nt.Muted, fontSize = 12.sp)
+        RdpManager.securityWarning(form.rdpSecurity?.let { runCatching { RdpSecurity.valueOf(it) }.getOrNull() } ?: RdpSecurity.AUTO)
+            ?.let { Text(it, color = Nt.Pink, fontSize = 12.sp) }
 
         NtCard {
             JumpHostRow(form.jumpHostId, jumpHosts, tunnel = true) { id -> update { it.copy(jumpHostId = id) } }
@@ -447,8 +460,7 @@ private fun RdpSection(
                 Text(
                     when {
                         form.jumpHostId != null -> tr("Sans objet avec un tunnel SSH")
-                        else -> form.proxyType?.let { "${it.name} ${form.proxyHost}" + (form.proxyPort.takeIf { p -> p.isNotEmpty() }?.let { p -> ":$p" } ?: "") }
-                            ?: tr("Aucun — connexion directe")
+                        else -> form.proxySummary ?: tr("Aucun — connexion directe")
                     },
                     fontSize = 12.sp, color = Nt.Muted,
                 )
@@ -493,7 +505,7 @@ private fun ChoiceField(label: String, value: String, choices: List<Pair<String,
     Box(modifier) {
         NtTextField(value, onChange, label, mono = true, isError = isError, placeholder = choices.firstOrNull { it.first.isEmpty() }?.second)
         IconButton(onClick = { open = true }, modifier = Modifier.align(Alignment.CenterEnd).padding(top = 6.dp)) {
-            Icon(androidx.compose.material.icons.Icons.Filled.ArrowDropDown, contentDescription = tr("Choisir : %1\$s", label), tint = Nt.Muted)
+            Icon(Icons.Filled.ArrowDropDown, contentDescription = tr("Choisir : %1\$s", label), tint = Nt.Muted)
         }
         DropdownMenu(open, onDismissRequest = { open = false }) {
             choices.forEach { (v, text) -> DropdownMenuItem(text = { Text(text) }, onClick = { onChange(v); open = false }) }
@@ -502,7 +514,7 @@ private fun ChoiceField(label: String, value: String, choices: List<Pair<String,
 }
 
 @Composable
-private fun IdentityPicker(identities: List<com.nautile.data.model.Identity>, selectedId: Long?, onSelect: (Long?) -> Unit) {
+private fun IdentityPicker(identities: List<Identity>, selectedId: Long?, onSelect: (Long?) -> Unit) {
     var open by remember { mutableStateOf(false) }
     val sel = identities.firstOrNull { it.id == selectedId }
     Box {
@@ -520,21 +532,21 @@ private fun IdentityPicker(identities: List<com.nautile.data.model.Identity>, se
 @Composable
 private fun ProxyDialog(form: HostForm, onDismiss: () -> Unit, onSave: (HostForm) -> Unit) {
     var f by remember { mutableStateOf(form) }
-    androidx.compose.material3.AlertDialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Nt.Surface,
         title = { Text(tr("Proxy")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Segmented(
-                    listOf<Pair<com.nautile.data.model.ProxyKind?, String>>(null to tr("Aucun"), com.nautile.data.model.ProxyKind.SOCKS5 to "SOCKS5", com.nautile.data.model.ProxyKind.HTTP to "HTTP"),
+                    listOf<Pair<ProxyKind?, String>>(null to tr("Aucun"), ProxyKind.SOCKS5 to "SOCKS5", ProxyKind.HTTP to "HTTP"),
                     f.proxyType, { f = f.copy(proxyType = it) },
                 )
                 if (f.proxyType != null) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         NtTextField(f.proxyHost, { f = f.copy(proxyHost = it) }, tr("Adresse"), Modifier.weight(3f), mono = true)
                         NtTextField(f.proxyPort, { v -> f = f.copy(proxyPort = v.filter(Char::isDigit).take(5)) }, tr("Port"), Modifier.weight(1.4f), mono = true,
-                            placeholder = if (f.proxyType == com.nautile.data.model.ProxyKind.HTTP) "8080" else "1080",
+                            placeholder = if (f.proxyType == ProxyKind.HTTP) "8080" else "1080",
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                     }
                     NtTextField(f.proxyUsername, { f = f.copy(proxyUsername = it) }, tr("Utilisateur (optionnel)"))
@@ -543,9 +555,9 @@ private fun ProxyDialog(form: HostForm, onDismiss: () -> Unit, onSave: (HostForm
                 }
             }
         },
-        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text(tr("Annuler"), color = Nt.TextSoft) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Annuler"), color = Nt.TextSoft) } },
         confirmButton = {
-            androidx.compose.material3.TextButton(onClick = { onSave(f) }, enabled = f.proxyType == null || f.proxyHost.isNotBlank()) {
+            TextButton(onClick = { onSave(f) }, enabled = f.proxyType == null || f.proxyHost.isNotBlank()) {
                 Text(tr("Valider"), color = Nt.Accent, fontWeight = FontWeight.SemiBold)
             }
         },

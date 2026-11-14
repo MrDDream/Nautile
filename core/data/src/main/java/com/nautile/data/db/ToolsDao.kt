@@ -2,11 +2,11 @@ package com.nautile.data.db
 
 import androidx.room.Dao
 import androidx.room.Delete
+import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Upsert
 import com.nautile.data.model.CommandHistory
 import com.nautile.data.model.ConnectionLog
-import androidx.room.Insert
 import com.nautile.data.model.PortForward
 import com.nautile.data.model.Snippet
 import kotlinx.coroutines.flow.Flow
@@ -46,9 +46,6 @@ interface ToolsDao {
 
     @Query("SELECT * FROM port_forward WHERE hostId = :hostId AND autoStart = 1")
     suspend fun autoForwards(hostId: Long): List<PortForward>
-
-    @Query("SELECT * FROM port_forward WHERE id = :id")
-    suspend fun forward(id: Long): PortForward?
 
     @Upsert
     suspend fun upsertForward(forward: PortForward): Long

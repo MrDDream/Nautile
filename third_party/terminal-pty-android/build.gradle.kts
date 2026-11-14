@@ -3,12 +3,14 @@ plugins { alias(libs.plugins.android.library) }
 
 android {
     namespace = "com.termux.terminal.pty"
-    compileSdk = 34
-    ndkVersion = "26.3.11579264"
+    compileSdk = 37
+    ndkVersion = "30.0.16248370"
+    // Java only: no Kotlin compilation or standard library added by AGP's built-in Kotlin.
+    enableKotlin = false
     defaultConfig {
         minSdk = 26
         externalNativeBuild {
-            ndkBuild { cFlags += listOf("-std=c11", "-Wall", "-Wextra", "-Werror", "-Os", "-fno-stack-protector", "-Wl,--gc-sections") }
+            ndkBuild { cFlags += listOf("-std=c11", "-Wall", "-Wextra", "-Werror", "-Os", "-fstack-protector-strong", "-Wl,--gc-sections") }
         }
         ndk { abiFilters += listOf("x86", "x86_64", "armeabi-v7a", "arm64-v8a") }
     }

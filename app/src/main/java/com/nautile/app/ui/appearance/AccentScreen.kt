@@ -1,7 +1,5 @@
 package com.nautile.app.ui.appearance
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,7 +28,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,19 +41,21 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nautile.app.NautileApp
 import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.common.Segmented
 import com.nautile.app.ui.theme.AccentColor
 import com.nautile.app.ui.theme.ButtonStyle
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 
 /** « Couleur des boutons » from the design: 8 colours and 3 button styles, with a live preview. */
 @Composable
 fun AccentScreen(onBack: () -> Unit) {
     val prefs = (LocalContext.current.applicationContext as NautileApp).appearance
-    val accent by prefs.accent.collectAsState()
-    val style by prefs.style.collectAsState()
+    val accent by prefs.accent.collectAsStateWithLifecycle()
+    val style by prefs.style.collectAsStateWithLifecycle()
     val light = Nt.palette.isLight
 
     Column(Modifier.fillMaxSize().background(Nt.Bg)) {

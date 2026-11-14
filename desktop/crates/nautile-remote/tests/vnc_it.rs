@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use nautile_remote::{vnc, RemoteEvent, RemoteInput};
+use nautile_remote::{RemoteEvent, RemoteInput, vnc};
 
 #[test]
 fn a_real_vnc_server() {

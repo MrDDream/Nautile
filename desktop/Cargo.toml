@@ -1,27 +1,27 @@
 # Nautile Desktop (Windows, Linux, later macOS): a separate app that speaks the Android app's formats.
 [workspace]
-resolver = "2"
+resolver = "3"
 members = ["crates/nautile-core", "crates/nautile-net", "crates/nautile-remote", "crates/nautile-app"]
 
 [workspace.package]
-version = "0.4.0"
-edition = "2021"
+version = "0.5.0"
+edition = "2024"
 license = "GPL-3.0-or-later"
-rust-version = "1.89"
+rust-version = "1.94"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-argon2 = "0.5"
-aes-gcm = "0.10"
-base64 = "0.22"
-rand = "0.8"
+argon2 = "0.6"
+aes-gcm = "0.11"
+base64 = "0.23"
+rand = "0.10"
 hex = "0.4"
-x25519-dalek = { version = "2", features = ["static_secrets"] }
-hmac = "0.12"
-sha2 = "0.10"
-pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+x25519-dalek = { version = "3", features = ["static_secrets"] }
+hmac = "0.13"
+sha2 = "0.11"
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
 # SQLCipher with OpenSSL built from source: same encrypted database on Windows and Linux.
 rusqlite = { version = "0.42", features = ["bundled-sqlcipher-vendored-openssl"] }
 
@@ -36,3 +36,10 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+
+# The master password's Argon2id (64 MiB) takes seconds unoptimised: tests and debug builds too.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

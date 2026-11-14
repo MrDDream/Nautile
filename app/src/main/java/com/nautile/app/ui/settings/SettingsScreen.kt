@@ -1,19 +1,14 @@
 package com.nautile.app.ui.settings
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -24,31 +19,25 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.DesktopWindows
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Backup
-import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.CloudSync
-import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.DesktopWindows
+import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,20 +45,29 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nautile.app.BuildConfig
 import com.nautile.app.NautileApp
 import com.nautile.app.backup.BackupPrefs
 import com.nautile.app.rdp.RdpTouchMode
 import com.nautile.app.session.SessionLogs
 import com.nautile.app.session.TerminalFonts
+import com.nautile.app.ui.common.NautileWordmark
 import com.nautile.app.ui.common.NtCard
+import com.nautile.app.ui.common.NtSearchField
+import com.nautile.app.ui.common.PageHeader
 import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.hosts.relativeTime
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 import com.nautile.rdp.RdpQuality
+import kotlinx.coroutines.Dispatchers
 import java.text.Normalizer
 
 /** One searchable entry of the settings hub. */
@@ -86,7 +84,8 @@ private class Entry(
     fun matches(q: String) = q.isEmpty() || fold("$title $detail $keywords").contains(q)
 }
 
-private fun fold(s: String) = Normalizer.normalize(s, Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase()
+private val MARKS = Regex("\\p{M}+")
+private fun fold(s: String) = Normalizer.normalize(s, Normalizer.Form.NFD).replace(MARKS, "").lowercase()
 
 /** Settings tab: a search field, a protection summary and one row per topic, each showing its current value. */
 @Composable
@@ -96,25 +95,28 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
     val teal = if (light) Color(0xFF0F766E) else Color(0xFF3DD6C6)
     val lavender = if (light) Color(0xFF5B3FC4) else Color(0xFFB39DFF)
 
-    val appTheme by app.appearance.theme.collectAsState()
-    val accent by app.appearance.accent.collectAsState()
-    val termTheme by app.terminalPrefs.theme.collectAsState()
-    val font by app.terminalPrefs.font.collectAsState()
-    val fontPx by app.terminalPrefs.fontSize.collectAsState()
+    val appTheme by app.appearance.theme.collectAsStateWithLifecycle()
+    val accent by app.appearance.accent.collectAsStateWithLifecycle()
+    val termTheme by app.terminalPrefs.theme.collectAsStateWithLifecycle()
+    val font by app.terminalPrefs.font.collectAsStateWithLifecycle()
+    val fontPx by app.terminalPrefs.fontSize.collectAsStateWithLifecycle()
     val rdp = app.sessions.rdp.prefs
-    val touch by rdp.touchMode.collectAsState()
-    val quality by rdp.quality.collectAsState()
-    val lastBackup by app.backupPrefs.lastExport.collectAsState()
-    val backupTargets by app.backupPrefs.targets.collectAsState()
+    val touch by rdp.touchMode.collectAsStateWithLifecycle()
+    val quality by rdp.quality.collectAsStateWithLifecycle()
+    val lastBackup by app.backupPrefs.lastExport.collectAsStateWithLifecycle()
+    val backupTargets by app.backupPrefs.targets.collectAsStateWithLifecycle()
     val autoBackup = backupTargets.any { it.auto }
-    val syncOn by app.backupPrefs.syncEnabled.collectAsState()
-    val lastSync by app.backupPrefs.lastSync.collectAsState()
+    val syncOn by app.backupPrefs.syncEnabled.collectAsStateWithLifecycle()
+    val lastSync by app.backupPrefs.lastSync.collectAsStateWithLifecycle()
     val density = LocalDensity.current
     val fontSp = (fontPx / density.fontScale / density.density).toInt()
     val lockOn = app.appLock.enabled
     val aiFirst = remember { app.ai.readyProviders().firstOrNull() }
     val aiReady = aiFirst != null
-    val logCount = remember { SessionLogs.list(app).size }
+    // Lists files: off the main thread.
+    val logCount by androidx.compose.runtime.produceState(0) {
+        value = kotlinx.coroutines.withContext(Dispatchers.IO) { SessionLogs.list(app).size }
+    }
     var query by rememberSaveable { mutableStateOf("") }
     val q = fold(query.trim())
 
@@ -132,7 +134,7 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
     )
     val services = listOf(
         Entry(Icons.Outlined.AutoAwesome, lavender, tr("Assistant IA"),
-            if (aiReady) "${aiFirst?.label} · ${com.nautile.app.ai.prettyModel(app.ai.config(aiFirst ?: app.ai.provider).model)}" else tr("À configurer"),
+            if (aiReady) "${aiFirst.label} · ${com.nautile.app.ai.prettyModel(app.ai.config(aiFirst).model)}" else tr("À configurer"),
             "ia ai intelligence claude anthropic openai gemini mistral deepseek grok ollama cle key api modele model", SettingsRoutes.AI,
             dot = if (aiReady) Nt.Green else Nt.Accent),
         Entry(Icons.Outlined.CloudSync, Nt.Blue, tr("Sauvegarde et synchro"),
@@ -148,7 +150,7 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
             if (logCount == 0) tr("Aucun journal") else tr("%1\$s fichier(s)", logCount),
             "logs journaux sorties output enregistrement", SettingsRoutes.LOGS),
         Entry(Icons.Outlined.Info, Nt.Blue, tr("À propos"),
-            tr("Version %1\$s · mises à jour", com.nautile.app.BuildConfig.VERSION_NAME),
+            tr("Version %1\$s · mises à jour", BuildConfig.VERSION_NAME),
             "a propos about version mise a jour update github", SettingsRoutes.ABOUT),
     )
     val visiblePersonal = personal.filter { it.matches(q) }
@@ -158,22 +160,8 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        com.nautile.app.ui.common.PageHeader(tr("Réglages"), Modifier.padding(top = 0.dp))
-        OutlinedTextField(
-            value = query, onValueChange = { query = it },
-            placeholder = { Text(tr("Rechercher"), color = Nt.Placeholder, fontSize = 14.sp, maxLines = 1) },
-            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = Nt.Muted) },
-            trailingIcon = {
-                if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, contentDescription = tr("Effacer la recherche"), tint = Nt.Muted) }
-            },
-            singleLine = true, shape = RoundedCornerShape(14.dp),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Nt.Accent, unfocusedBorderColor = Nt.Border,
-                focusedContainerColor = Nt.Surface, unfocusedContainerColor = Nt.Surface,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        PageHeader(tr("Réglages"), Modifier.padding(top = 0.dp))
+        NtSearchField(query, { query = it }, tr("Rechercher"), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
 
         if (q.isEmpty()) ProtectionCard(lockOn, if (syncOn) lastSync ?: lastBackup else lastBackup, syncOn)
 
@@ -187,12 +175,12 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
         }
         if (visiblePersonal.isEmpty() && visibleServices.isEmpty()) {
             Text(tr("Aucun réglage pour « %1\$s »", query.trim()), color = Nt.Muted, fontSize = 14.sp,
-                modifier = Modifier.fillMaxWidth().padding(top = 24.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                modifier = Modifier.fillMaxWidth().padding(top = 24.dp), textAlign = TextAlign.Center)
         }
 
         Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            com.nautile.app.ui.common.NautileWordmark(fontSize = 20.sp)
-            Text(tr("Version %1\$s · client SSH et RDP libre (GPLv3)", com.nautile.app.BuildConfig.VERSION_NAME), color = Nt.Muted, fontSize = 12.sp)
+            NautileWordmark(fontSize = 20.sp)
+            Text(tr("Version %1\$s · client SSH et RDP libre (GPLv3)", BuildConfig.VERSION_NAME), color = Nt.Muted, fontSize = 12.sp)
         }
     }
 }
@@ -224,10 +212,10 @@ private fun ProtectionCard(lockOn: Boolean, lastBackup: Long?, syncOn: Boolean) 
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Outlined.VerifiedUser, contentDescription = null, tint = if (todo > 0) Nt.Warn else Nt.Green, modifier = Modifier.size(18.dp))
-            Text(tr("Vos données restent sur l'appareil"), fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                color = Nt.Text, modifier = Modifier.weight(1f), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(tr("Vos données restent sur l'appareil"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                color = Nt.Text, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (todo > 0) Text(if (todo == 1) tr("1 à faire") else tr("%1\$s à faire", todo), fontSize = 12.sp, color = Nt.Warn,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                fontWeight = FontWeight.SemiBold)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Status(Icons.Outlined.Lock, tr("Base"), tr("Chiffrée"), State.OK, Modifier.weight(1f))
@@ -253,15 +241,15 @@ private enum class State { OK, TODO, OFF }
 
 /** One status: its icon, what it is, how it stands, coloured accordingly. */
 @Composable
-private fun Status(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, value: String, state: State, modifier: Modifier) {
+private fun Status(icon: ImageVector, title: String, value: String, state: State, modifier: Modifier) {
     val c = when (state) { State.OK -> Nt.Green; State.TODO -> Nt.Warn; State.OFF -> Nt.Muted }
     Column(
         modifier.clip(RoundedCornerShape(10.dp)).background(c.copy(alpha = 0.10f)).padding(horizontal = 4.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Icon(icon, contentDescription = null, tint = c, modifier = Modifier.size(18.dp))
-        Text(title, fontSize = 10.5.sp, color = Nt.Muted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-        Text(value, fontSize = 12.sp, color = if (state == State.OFF) Nt.TextSoft else c, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        Text(title, fontSize = 10.5.sp, color = Nt.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, fontSize = 12.sp, color = if (state == State.OFF) Nt.TextSoft else c, fontWeight = FontWeight.SemiBold,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

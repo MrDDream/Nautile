@@ -1,49 +1,38 @@
 package com.nautile.app.rdp
 
-import com.nautile.i18n.tr
-
 import android.app.Activity
 import android.content.ClipboardManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.displayCutout
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material.icons.outlined.ExpandLess
-import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.unit.IntOffset
-import kotlinx.coroutines.delay
-import kotlin.math.roundToInt
-import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,49 +41,58 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nautile.app.NautileApp
 import com.nautile.app.session.SessionState
+import com.nautile.app.ui.common.ConfirmCloseDialog
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 import com.nautile.rdp.RdpInput
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** Full-screen remote desktop with a floating toolbar and a key bar above the keyboard. */
 @Composable
 fun RdpScreen(sessionId: Long, onBack: () -> Unit, onReplaced: (Long) -> Unit) {
     val app = LocalContext.current.applicationContext as NautileApp
     val manager = app.sessions.rdp
-    val sessions by manager.list.collectAsState()
+    val sessions by manager.list.collectAsStateWithLifecycle()
     val session = sessions.firstOrNull { it.id == sessionId }
     LaunchedEffect(session == null) { if (session == null) onBack() }
     if (session == null) return
-    val state by session.state.collectAsState()
+    val state by session.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var view by remember { mutableStateOf<RdpView?>(null) }
     var keys by remember { mutableStateOf(false) }
@@ -104,13 +102,13 @@ fun RdpScreen(sessionId: Long, onBack: () -> Unit, onReplaced: (Long) -> Unit) {
         if (app.terminalPrefs.confirmClose.value && state == SessionState.Connected) confirmClose = true
         else { manager.close(session); onBack() }
     }
-    var barHeight by remember { mutableStateOf(0) }
+    var barHeight by remember { mutableIntStateOf(0) }
     val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
     val prefs = manager.prefs
-    val touchMode by prefs.touchMode.collectAsState()
-    val showPointer by prefs.pointer.collectAsState()
-    val immersive by prefs.immersive.collectAsState()
-    val keyBarPref by prefs.keyBar.collectAsState()
+    val touchMode by prefs.touchMode.collectAsStateWithLifecycle()
+    val showPointer by prefs.pointer.collectAsStateWithLifecycle()
+    val immersive by prefs.immersive.collectAsStateWithLifecycle()
+    val keyBarPref by prefs.keyBar.collectAsStateWithLifecycle()
 
     if (immersive) Immersive()
     BackHandler { requestClose() }
@@ -166,7 +164,7 @@ fun RdpScreen(sessionId: Long, onBack: () -> Unit, onReplaced: (Long) -> Unit) {
         }
     }
 
-    if (confirmClose) com.nautile.app.ui.common.ConfirmCloseDialog(session.alias, desktop = true, onDismiss = { confirmClose = false }) { dontAsk ->
+    if (confirmClose) ConfirmCloseDialog(session.alias, desktop = true, onDismiss = { confirmClose = false }) { dontAsk ->
         if (dontAsk) app.terminalPrefs.setConfirmClose(false)
         confirmClose = false
         manager.close(session)
@@ -256,7 +254,7 @@ private fun FloatingToolbar(alias: String, keyboard: Boolean, onKeyboard: () -> 
 
 @Composable
 private fun KeyBar(view: RdpView, modifier: Modifier) {
-    val mods by view.modifiers.collectAsState()
+    val mods by view.modifiers.collectAsStateWithLifecycle()
     Row(
         modifier.fillMaxWidth().background(Nt.Bar).horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),

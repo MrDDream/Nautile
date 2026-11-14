@@ -6,13 +6,13 @@ use iced::advanced::clipboard::Kind;
 use iced::advanced::image::{self, Image};
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer::{self, Quad};
-use iced::advanced::widget::{tree, Tree, Widget};
+use iced::advanced::widget::{Tree, Widget, tree};
 use iced::advanced::{Clipboard, Shell};
-use iced::keyboard::{self, key::Named, Key};
+use iced::keyboard::{self, Key, key::Named};
 use iced::mouse::{self, ScrollDelta};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Size};
-use nautile_remote::keysyms as ks;
 use nautile_remote::RemoteInput;
+use nautile_remote::keysyms as ks;
 
 /// What the user did on the remote desktop.
 #[derive(Debug, Clone)]
@@ -192,11 +192,11 @@ where
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
                 let p = self.remote_point(bounds, *position);
                 st.inside = p.is_some();
-                if let Some((x, y)) = p {
-                    if (x, y) != st.last {
-                        st.last = (x, y);
-                        send(shell, RemoteInput::Pointer { buttons: st.buttons, x, y });
-                    }
+                if let Some((x, y)) = p
+                    && (x, y) != st.last
+                {
+                    st.last = (x, y);
+                    send(shell, RemoteInput::Pointer { buttons: st.buttons, x, y });
                 }
             }
             Event::Mouse(mouse::Event::ButtonPressed(b) | mouse::Event::ButtonReleased(b)) => {
@@ -273,8 +273,16 @@ where
                 }
                 let keysym = match key {
                     Key::Named(n) => named(*n, *location),
-                    // With Ctrl or Alt held, the key itself (Ctrl+C sends c); else the character typed.
-                    Key::Character(c) if ctrl || modifiers.alt() => c.chars().next().map(|c| ks::of(c.to_ascii_lowercase())),
+                    // With Ctrl or Alt held, the key itself (Ctrl+C sends c); with Ctrl alone, the Latin letter of
+                    // the physical key on another alphabet. Ctrl+Alt is AltGr on Windows: AltGr+E stays €.
+                    Key::Character(c) if ctrl || modifiers.alt() => c.chars().next().map(|c| {
+                        let c = c.to_ascii_lowercase();
+                        ks::of(if c.is_ascii() || modifiers.alt() {
+                            c
+                        } else {
+                            crate::term::keys::latin(physical_key).unwrap_or(c)
+                        })
+                    }),
                     Key::Character(c) => text
                         .as_deref()
                         .and_then(|t| t.chars().next())
@@ -346,14 +354,15 @@ where
         let (d, scale) = self.dest(bounds);
         renderer.draw_image(Image::new(handle.clone()).filter_method(image::FilterMethod::Linear), d, bounds);
         let st = tree.state.downcast_ref::<State>();
-        if let (Some((h, w, hh, hx, hy)), Some(p)) = (self.cursor, cursor.position()) {
-            if st.inside && d.contains(p) {
-                let r = Rectangle::new(
-                    Point::new(p.x - *hx as f32 * scale, p.y - *hy as f32 * scale),
-                    Size::new(*w as f32 * scale, *hh as f32 * scale),
-                );
-                renderer.draw_image(Image::new(h.clone()), r, bounds);
-            }
+        if let (Some((h, w, hh, hx, hy)), Some(p)) = (self.cursor, cursor.position())
+            && st.inside
+            && d.contains(p)
+        {
+            let r = Rectangle::new(
+                Point::new(p.x - *hx as f32 * scale, p.y - *hy as f32 * scale),
+                Size::new(*w as f32 * scale, *hh as f32 * scale),
+            );
+            renderer.draw_image(Image::new(h.clone()), r, bounds);
         }
     }
 }

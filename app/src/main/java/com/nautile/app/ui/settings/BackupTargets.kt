@@ -1,7 +1,5 @@
 package com.nautile.app.ui.settings
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,7 +33,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -60,6 +57,10 @@ import com.nautile.app.backup.BackupFrequency
 import com.nautile.app.backup.BackupTarget
 import com.nautile.app.ui.hosts.relativeTime
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.I18n
+import com.nautile.i18n.tr
+import java.time.DayOfWeek
+import java.util.Locale
 
 internal fun destinationIcon(d: BackupDestination?): ImageVector = when (d) {
     is BackupDestination.Folder -> Icons.Outlined.Folder
@@ -87,9 +88,9 @@ private fun kindLabel(d: BackupDestination): String = when (d) {
 internal fun scheduleSummary(t: BackupTarget): String {
     val f = frequencyLabel(t.frequency).replaceFirstChar { it.uppercase() }
     if (!t.frequency.atTime) return f
-    val clock = "%02d:%02d".format(java.util.Locale.ROOT, t.time / 60, t.time % 60)
+    val clock = "%02d:%02d".format(Locale.ROOT, t.time / 60, t.time % 60)
     return if (t.frequency == BackupFrequency.WEEK) {
-        val day = java.time.DayOfWeek.of(t.weekday).getDisplayName(java.time.format.TextStyle.FULL, if (com.nautile.i18n.I18n.english) java.util.Locale.ENGLISH else java.util.Locale.FRENCH)
+        val day = DayOfWeek.of(t.weekday).getDisplayName(java.time.format.TextStyle.FULL, if (I18n.english) Locale.ENGLISH else Locale.FRENCH)
         tr("%1\$s · %2\$s %3\$s", f, day, clock)
     } else tr("%1\$s · %2\$s", f, clock)
 }

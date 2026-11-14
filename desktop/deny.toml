@@ -1,0 +1,44 @@
+# cargo deny check (CI: .github/workflows/desktop.yml): RustSec advisories, licences, sources.
+
+[advisories]
+# Vulnerabilities fail the check whatever the depth; « unmaintained » only for our direct dependencies
+# (the transitive ones are reported upstream). An exception goes here with its reason.
+unmaintained = "workspace"
+ignore = [
+    # rsa (through russh, ssh-key, picky): Marvin timing side channel on RSA PKCS#1 v1.5 decryption. Fixed in
+    # rsa 0.10.0, but russh 0.65 and picky 7.0.0-rc (IronRDP) pin rsa =0.10.0-rc.18. Nautile signs and verifies
+    # with RSA keys and never answers RSA decryptions for a peer.
+    { id = "RUSTSEC-2023-0071", reason = "fixed in rsa 0.10.0, still held back by russh and picky; no RSA decryption oracle in Nautile" },
+]
+
+[licenses]
+# Licences compatible with the GPL-3.0-or-later of Nautile Desktop.
+allow = [
+    "GPL-3.0-or-later",
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-1-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "BSL-1.0",
+    "Unlicense",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+    "blessing",
+    "WTFPL",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "allow"
+# Path dependencies between our own crates have no version.
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

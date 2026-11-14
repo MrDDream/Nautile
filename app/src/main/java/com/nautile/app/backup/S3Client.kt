@@ -6,6 +6,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.net.UnknownHostException
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -26,7 +27,7 @@ class S3Client(
     private val bucket: String,
     private val accessKey: String,
     private val secretKey: String,
-    private val http: OkHttpClient = OkHttpClient.Builder().callTimeout(2, TimeUnit.MINUTES).build(),
+    private val http: OkHttpClient = OkHttpClient.Builder().callTimeout(2, TimeUnit.MINUTES).addNetworkInterceptor(CleartextGuard).dns(CleartextGuard.dns).build(),
 ) {
     class Object(val bytes: ByteArray, val etag: String?)
     class PreconditionFailed : IOException("precondition failed")
@@ -92,7 +93,7 @@ class S3Client(
             .build()
         return try {
             http.newCall(req).execute().use(handle)
-        } catch (e: java.net.UnknownHostException) {
+        } catch (e: UnknownHostException) {
             throw IOException(tr("S3 : serveur introuvable (%1\$s)", host))
         }
     }

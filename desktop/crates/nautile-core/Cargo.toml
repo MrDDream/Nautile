@@ -15,6 +15,8 @@ aes-gcm.workspace = true
 base64.workspace = true
 rand.workspace = true
 x25519-dalek.workspace = true
+# Wi-Fi pairing: SPAKE2 over P-256 (RFC 9382).
+p256 = { version = "0.14", default-features = false, features = ["arithmetic"] }
 hmac.workspace = true
 sha2.workspace = true
 pbkdf2.workspace = true

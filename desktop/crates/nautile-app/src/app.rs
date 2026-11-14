@@ -1,10 +1,10 @@
 //! The application: state, messages and their handling. The screens are drawn in `ui`.
 
-use iced::widget::text_editor;
 use iced::Task;
+use iced::widget::text_editor;
 use nautile_core::db::Db;
 use nautile_core::model::{
-    AuthMethod, BackupData, ForwardKind, Host, HostGroup, Identity, KnownHost, PortForward, Protocol, Snippet, SshKey, DEFAULT_COLOR,
+    AuthMethod, BackupData, DEFAULT_COLOR, ForwardKind, Host, HostGroup, Identity, KnownHost, PortForward, Protocol, Snippet, SshKey,
 };
 use nautile_core::{backup, i18n, sync, tr, trf};
 
@@ -71,6 +71,8 @@ pub enum Modal {
     Export,
     /// A new version, its notes and « Télécharger et installer ».
     Update,
+    /// First start: « Vérifier automatiquement les mises à jour ? ».
+    UpdateAsk,
     /// The hosts read from a ~/.ssh/config or a CSV, before they are saved.
     ImportHosts,
 }
@@ -244,8 +246,9 @@ impl HostForm {
                 .is_ok_and(|p| p > 0 || self.protocol == Protocol::Local)
     }
 
-    fn host(&self) -> Host {
-        let mut h = self.original.clone().unwrap_or_else(|| Host::new("", ""));
+    /// The form over [base]: the host as stored now (see [save_base]), or a new one.
+    fn host_over(&self, base: Option<Host>) -> Host {
+        let mut h = base.unwrap_or_else(|| Host::new("", ""));
         // The display name is optional, as on Android: the address otherwise.
         h.alias = Some(self.alias.trim())
             .filter(|a| !a.is_empty())
@@ -260,7 +263,7 @@ impl HostForm {
         h.key_id = self.key.filter(|_| self.auth == AuthMethod::Key);
         h.identity_id = self.identity.filter(|_| self.auth == AuthMethod::Identity);
         h.group_id = self.group;
-        h.jump_host_id = self.jump.filter(|j| Some(*j) != self.original.as_ref().map(|o| o.id));
+        h.jump_host_id = self.jump.filter(|j| *j != h.id && Some(*j) != self.original.as_ref().map(|o| o.id));
         h.color = self.color;
         h.tags = self
             .tags
@@ -284,6 +287,10 @@ pub struct GroupForm {
     pub original: Option<HostGroup>,
     pub name: String,
     pub color: i64,
+    /// A Material Design Icons name, shown instead of the colour dot.
+    pub icon: Option<String>,
+    /// The search in the icons.
+    pub icon_query: String,
     pub confirm_delete: bool,
 }
 
@@ -322,6 +329,75 @@ pub struct ForwardForm {
 
 fn port(s: &str) -> Option<i32> {
     s.trim().parse::<u16>().ok().filter(|p| *p > 0).map(i32::from)
+}
+
+/// Why an editor cannot save over its record.
+#[derive(Debug, PartialEq, Eq)]
+pub enum BaseError {
+    /// Deleted while the editor was open (a synchronisation, the host's menu).
+    DeletedMeanwhile,
+    /// The database could not be read: never taken for a deletion.
+    Db(String),
+}
+
+/// [r] to be saved anew: no id, no synchronisation identity (a new one is given), local state left out.
+pub fn as_new<R: nautile_core::db::Record>(r: &R) -> R {
+    let Ok(serde_json::Value::Object(mut o)) = serde_json::to_value(r) else {
+        return r.clone();
+    };
+    o.insert("id".into(), 0.into());
+    o.insert("syncId".into(), "".into());
+    o.insert("updatedAt".into(), 0.into());
+    for local in ["lastConnectedAt", "osId"] {
+        if o.contains_key(local) {
+            o.insert(local.into(), serde_json::Value::Null);
+        }
+    }
+    serde_json::from_value(serde_json::Value::Object(o)).unwrap_or_else(|_| r.clone())
+}
+
+/// What an editor saves over, as Android's `HostEditViewModel`: the row as stored now (a synchronisation may
+/// have changed it since the editor opened), None for a new record. A record deleted meanwhile is an error
+/// until the user agreed to recreate it ([recreate]), then the original as a new record ([as_new]); the same
+/// record stored again under another id (its synchronisation identity) is saved over instead.
+pub fn save_base<R: nautile_core::db::Record>(db: &Db, original: Option<&R>, recreate: bool) -> Result<Option<R>, BaseError> {
+    let Some(o) = original else { return Ok(None) };
+    if let Some(current) = db.store().get::<R>(o.id()).map_err(|e| BaseError::Db(e.to_string()))? {
+        return Ok(Some(current));
+    }
+    let sync_id = serde_json::to_value(o)
+        .ok()
+        .and_then(|v| v.get("syncId").and_then(|s| s.as_str()).map(str::to_owned))
+        .filter(|s| !s.is_empty());
+    if let Some(sync_id) = sync_id
+        && let Some(current) = db.store().by_sync_id::<R>(&sync_id).map_err(|e| BaseError::Db(e.to_string()))?
+    {
+        return Ok(Some(current));
+    }
+    if recreate {
+        Ok(Some(as_new(o)))
+    } else {
+        Err(BaseError::DeletedMeanwhile)
+    }
+}
+
+/// The key, identity, jump host or group picked may have been deleted since (here or by a synchronisation).
+pub fn without_missing_links(db: &Db, h: &mut Host) {
+    let s = db.store();
+    if h.key_id.is_some_and(|k| !matches!(s.get::<SshKey>(k), Ok(Some(_)))) {
+        h.key_id = None;
+    }
+    if h.identity_id.is_some_and(|i| !matches!(s.get::<Identity>(i), Ok(Some(_)))) {
+        h.identity_id = None;
+    }
+    if h.jump_host_id
+        .is_some_and(|j| j == h.id || !matches!(s.get::<Host>(j), Ok(Some(_))))
+    {
+        h.jump_host_id = None;
+    }
+    if h.group_id.is_some_and(|g| !matches!(s.get::<HostGroup>(g), Ok(Some(_)))) {
+        h.group_id = None;
+    }
 }
 
 impl ForwardForm {
@@ -432,6 +508,9 @@ pub enum Message {
     ConfirmClose(bool),
     SessionLogs(bool),
     PasswordKey(bool),
+    OptionMeta(bool),
+    /// Programs may write to the clipboard (OSC 52).
+    Osc52(bool),
     /// « Fermer » (true) or « Annuler » for the session in [App::closing].
     CloseAnswer(bool),
     /// Ctrl+Shift+P: types the host's password in the active session.
@@ -439,6 +518,9 @@ pub enum Message {
     /// Opens a file or folder with the system.
     OpenPath(std::path::PathBuf),
     DeleteLog(std::path::PathBuf),
+    /// Decrypted copies of these session logs, in a folder the user picks.
+    ExportLogs(Vec<std::path::PathBuf>),
+    LogsExported(Option<Result<std::path::PathBuf, String>>),
     Tray(crate::tray::TrayEvent),
     Update(crate::update::UpdateMsg),
     /// Connects to what is typed in the search bar, with this protocol.
@@ -512,10 +594,15 @@ pub enum Message {
     SaveHost,
     SaveHostAndConnect,
     DeleteHost,
+    /// « Recréer »: saves again the record deleted while its editor was open.
+    Recreate,
+    RecreateCancel,
     NewGroup,
     EditGroup(i64),
     GroupName(String),
     GroupColor(i64),
+    GroupIcon(Option<String>),
+    GroupIconQuery(String),
     SaveGroup,
     DeleteGroup,
     NewSnippet,
@@ -536,7 +623,8 @@ pub enum Message {
     KeyPassphrase(String),
     KeyRemember(bool),
     KeyPickFile,
-    KeyFileLoaded(Option<(String, String)>),
+    /// The file picked: its name and text, or why it was not read.
+    KeyFileLoaded(Option<Result<(String, String), String>>),
     SaveKey,
     KeyReady(Result<nautile_net::keys::KeyMaterial, String>),
     CopyPublicKey(i64),
@@ -582,12 +670,20 @@ pub enum Message {
     LockInput(String),
     Unlock,
     LockNow,
+    /// Portable mode, the code forgotten: the master password removes the lock instead.
+    LockForgot(bool),
+    LockMasterChecked(Result<(), String>),
     LockPick(Option<nautile_core::lock::LockMethod>),
     LockCurrent(String),
     LockNew(String),
     LockConfirm(String),
     LockSave,
     LockAfter(u32),
+    LockOnHide(bool),
+    /// After the window lost the focus: whether it is minimised (`None`: the system does not say).
+    WindowMinimized(Option<bool>),
+    /// Portable mode: the master password.
+    Vault(crate::vault::VaultMsg),
     Tick,
     BackupTick,
     Backup(crate::backup::BackupMsg),
@@ -598,6 +694,10 @@ pub enum Message {
     Files(u64, crate::files::FilesMsg),
     Sftp(u64, nautile_net::sftp::Update),
     Remote(u64, nautile_remote::RemoteEvent),
+    /// Copies the remote picture announced by `Remote(_, Frame)`.
+    RemoteFrame(u64),
+    /// The ports of a remote desktop's host were knocked.
+    Knocked(u64, Result<(), String>),
     RemoteAction(u64, crate::remote_view::RemoteAction),
     FileDropped(std::path::PathBuf),
     OpenLocal,
@@ -656,8 +756,22 @@ pub struct App {
     pub locked: bool,
     pub lock_input: String,
     pub lock_error: Option<String>,
+    /// The lock screen asks for the master password instead of the code (portable mode, code forgotten).
+    pub lock_master: bool,
+    /// The master password is being checked.
+    pub lock_busy: bool,
     pub lock_form: LockForm,
+    /// No unlock try before this (monotonic clock), after too many wrong codes.
+    pub lock_until: Option<std::time::Instant>,
+    /// The last activity, on the monotonic clock and on the wall clock: the first stops while the computer
+    /// sleeps, the second does not.
     pub last_activity: std::time::Instant,
+    pub last_activity_wall: std::time::SystemTime,
+    /// The last idle check, on both clocks (a gap between them: the computer slept).
+    pub last_tick: (std::time::Instant, std::time::SystemTime),
+    /// Portable mode: the master password, before the database is opened.
+    pub vault: Option<crate::vault::VaultForm>,
+    pub master_form: crate::vault::MasterForm,
     pub backup: crate::backup::BackupState,
     pub assistant: crate::assistant::AssistantState,
     /// The group whose hosts are shown (`None`: all).
@@ -697,10 +811,26 @@ pub struct App {
     /// The menu shows the groups (« Déplacer vers »), or asks to confirm the removal.
     pub menu_move: bool,
     pub menu_confirm: bool,
+    /// The save of the editor open, waiting for « Recréer »: its record was deleted meanwhile.
+    pub deleted_meanwhile: Option<Box<Message>>,
+    /// Set while that save runs again, once the user agreed.
+    pub recreating: bool,
     pub drag: Option<Drag>,
     pub drop: Option<Drop>,
     /// « Ctrl+K ».
     pub palette: Option<crate::palette::PaletteState>,
+    /// What the pages show from the disk and the database, read in `update`, never in `view`.
+    pub cache: ViewCache,
+}
+
+/// Read again after the user's own messages (not after each block of terminal output), for the page shown.
+#[derive(Debug, Default)]
+pub struct ViewCache {
+    pub connection_log: Vec<nautile_core::db::ConnectionLog>,
+    pub log_files: Vec<crate::logs::LogFile>,
+    pub command_count: i64,
+    pub backup_versions: Vec<(std::path::PathBuf, i64, u64)>,
+    pub autostart: bool,
 }
 
 impl App {
@@ -709,20 +839,46 @@ impl App {
         let paths = Paths::detect();
         let mut settings = Settings::load(&paths);
         i18n::set_english(settings.english());
-        let opened = crate::storage::database_key(&paths, &mut settings)
-            .map_err(|e| e.to_string())
-            .and_then(|key| Db::open(&paths.db(), &key).map_err(|e| e.to_string()));
+        // Process-wide: set here, not in `with` (tests build several apps at once).
+        crate::term::keys::set_option_meta(settings.option_meta());
+        // Portable mode: nothing is opened before the master password (the key is not on the stick in clear).
+        let vault = paths.portable.then(|| crate::storage::vault_state(&paths));
+        let opened = match &vault {
+            Some(Ok(_)) => Ok(None),
+            Some(Err(e)) => Err(e.clone()),
+            None => crate::storage::database_key(&paths, &mut settings)
+                .map_err(|e| nautile_core::tr(&e.to_string()))
+                .and_then(|key| {
+                    // Session logs and AI conversations are sealed with keys derived from it.
+                    crate::sealed::set_database_key(&key);
+                    Db::open(&paths.db(), &key).map(Some).map_err(|e| e.to_string())
+                }),
+        };
         let (db, fatal) = match opened {
-            Ok(db) => (Some(db), None),
+            Ok(db) => (db, None),
             Err(e) => (None, Some(e)),
         };
+        if db.is_some() {
+            crate::sealed::seal_old_files(&paths.data);
+        }
         let mut app = App::with(paths, settings, db, fatal);
-        let focus = if app.locked {
-            iced::widget::operation::focus("lock")
+        // Installed mode, the code forgotten: `nautile --reset-lock` removes it (the lock guards the window; the
+        // database key is this user's anyway). The portable mode asks for the master password instead.
+        let reset = !app.paths.portable && app.db.is_some() && std::env::args().any(|a| a == "--reset-lock");
+        let reset = if reset {
+            app.reset_lock();
+            app.say(tr("Verrouillage retiré : choisissez un nouveau code dans les réglages"))
         } else {
             Task::none()
         };
-        let backups = app.backup_boot();
+        let (focus, backups) = if let Some(Ok(v)) = vault {
+            app.vault = Some(crate::vault::VaultForm::new(v));
+            (iced::widget::operation::focus("vault"), Task::none())
+        } else if app.locked {
+            (iced::widget::operation::focus("lock"), app.backup_boot())
+        } else {
+            (Task::none(), app.backup_boot())
+        };
         let os_theme = iced::system::theme().map(Message::SystemTheme);
         let font = app.settings.terminal_family().id;
         let font = app.load_font(font);
@@ -740,7 +896,7 @@ impl App {
         let imported = crate::term::import::load_fonts(&app.paths.data.join("fonts"));
         crate::term::fonts::set_custom(imported.iter().map(|(f, _)| *f).collect());
         let fonts = Task::batch(imported.into_iter().map(|(_, b)| iced::font::load(b).map(|_| Message::FontLoaded)));
-        (app, Task::batch([focus, backups, os_theme, font, show, updates, fonts]))
+        (app, Task::batch([focus, backups, os_theme, font, show, updates, fonts, reset]))
     }
 
     pub fn with(paths: Paths, settings: Settings, db: Option<Db>, fatal: Option<String>) -> App {
@@ -775,8 +931,15 @@ impl App {
             locked: false,
             lock_input: String::new(),
             lock_error: None,
+            lock_master: false,
+            lock_busy: false,
             lock_form: LockForm::default(),
+            lock_until: None,
             last_activity: std::time::Instant::now(),
+            last_activity_wall: std::time::SystemTime::now(),
+            last_tick: (std::time::Instant::now(), std::time::SystemTime::now()),
+            vault: None,
+            master_form: Default::default(),
             backup: Default::default(),
             assistant: Default::default(),
             group_filter: None,
@@ -800,15 +963,18 @@ impl App {
             menu: None,
             menu_move: false,
             menu_confirm: false,
+            deleted_meanwhile: None,
+            recreating: false,
             drag: None,
             drop: None,
             palette: None,
+            cache: ViewCache::default(),
         };
         // Before several providers could be on, the chosen one was the only one.
-        if app.settings.ai_enabled.is_empty() {
-            if let Some(k) = app.settings.ai_provider {
-                app.settings.ai_enabled.push(k);
-            }
+        if app.settings.ai_enabled.is_empty()
+            && let Some(k) = app.settings.ai_provider
+        {
+            app.settings.ai_enabled.push(k);
         }
         app.page = match app.settings.last_page.as_deref() {
             Some("snippets") => Page::Snippets,
@@ -819,13 +985,54 @@ impl App {
             _ => Page::Hosts,
         };
         crate::term::themes::set_custom(crate::term::import::load_themes(&app.paths.data.join("themes")));
-        app.locked = app.settings.locks();
-        app.lock_form.method = app.settings.lock_method;
+        app.lock_boot(true);
         app.reload();
         app
     }
 
+    /// The lock from the database (an older version's, still in settings.json, is moved there first). Without a
+    /// database (portable mode before the master password) nothing is known yet: called again once it opens.
+    pub fn lock_boot(&mut self, start_locked: bool) {
+        use nautile_core::lock;
+        let Some(db) = &self.db else {
+            self.locked = false;
+            return;
+        };
+        if let Some(hash) = self.settings.lock_hash.clone() {
+            if lock::stored(db).is_none() {
+                let method = self.settings.lock_method.unwrap_or(lock::LockMethod::Password);
+                let moved = lock::store(db, Some((method, &hash))).and_then(|()| lock::set_failures(db, self.settings.lock_failures));
+                if moved.is_err() {
+                    // Kept in settings.json for the next start; locked anyway.
+                    self.settings.lock_method = Some(method);
+                    self.locked = start_locked;
+                    self.lock_form.method = Some(method);
+                    return;
+                }
+            }
+            self.settings.lock_hash = None;
+            self.settings.lock_failures = 0;
+            self.save_settings();
+        }
+        let stored = lock::stored(db);
+        let method = stored.as_ref().map(|(m, _)| *m);
+        if self.settings.lock_method != method {
+            self.settings.lock_method = method;
+            self.save_settings();
+        }
+        let wait = lock::lockout_ms(lock::failures(db));
+        // A restart does not skip the wait: it starts again.
+        self.lock_until = (wait > 0).then(|| std::time::Instant::now() + std::time::Duration::from_millis(wait));
+        self.locked = start_locked && stored.is_some();
+        self.lock_form.method = method;
+        self.last_tick = (std::time::Instant::now(), std::time::SystemTime::now());
+    }
+
     pub fn title(&self) -> String {
+        // Locked: neither the remote title nor the tab's name.
+        if self.locked || self.vault.is_some() {
+            return "Nautile".into();
+        }
         match self.active_tab.and_then(|id| self.tab(id)) {
             Some(t) => format!("{} — Nautile", t.remote_title.as_deref().unwrap_or(&t.name)),
             None => "Nautile".into(),
@@ -854,8 +1061,8 @@ impl App {
         if self.settings.appearance == Appearance::System {
             subs.push(iced::system::theme_changes().map(Message::SystemTheme));
         }
-        if self.settings.locks() && !self.locked && self.settings.lock_after() > 0 {
-            subs.push(iced::time::every(std::time::Duration::from_secs(20)).map(|_| Message::Tick));
+        if self.settings.locks() && !self.locked && (self.settings.lock_after() > 0 || self.settings.lock_on_hide) {
+            subs.push(iced::time::every(LOCK_TICK).map(|_| Message::Tick));
         }
         iced::Subscription::batch(subs)
     }
@@ -907,12 +1114,63 @@ impl App {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        // Not after what comes by itself, often (output, frames, timers); a session that opens or ends
+        // writes the connection history and the logs.
+        let refresh = matches!(
+            message,
+            Message::Session(_, nautile_net::Event::Connected | nautile_net::Event::Closed(_))
+        ) || !matches!(
+            message,
+            Message::Session(..)
+                | Message::Tunnel(..)
+                | Message::Sftp(..)
+                | Message::Remote(..)
+                | Message::RemoteFrame(_)
+                | Message::Knocked(..)
+                | Message::Term(..)
+                | Message::Tick
+                | Message::ToastClear
+                | Message::BackupTick
+                | Message::WindowMoved(_)
+                | Message::WindowFocused(_)
+                | Message::WindowResized(_)
+                | Message::FontLoaded
+        );
+        let task = self.handle(message);
+        if refresh {
+            self.refresh_view_cache();
+        }
+        task
+    }
+
+    /// What the page shown reads from the disk and the database.
+    pub fn refresh_view_cache(&mut self) {
+        if self.active_tab.is_some() {
+            return;
+        }
+        match self.page {
+            Page::Connections => {
+                self.cache.connection_log = self.db.as_ref().map(|db| db.connection_log(300)).unwrap_or_default();
+            }
+            Page::Settings => {
+                self.cache.log_files = crate::logs::list(&self.paths.data.join("logs"));
+                self.cache.command_count = self.db.as_ref().map(|d| d.command_count()).unwrap_or(0);
+                self.cache.backup_versions = crate::backup::versions(self);
+                self.cache.autostart = crate::autostart::is_on();
+            }
+            _ => {}
+        }
+    }
+
+    fn handle(&mut self, message: Message) -> Task<Message> {
         if !matches!(
             message,
             Message::Session(..)
                 | Message::Tunnel(..)
                 | Message::Sftp(..)
                 | Message::Remote(..)
+                | Message::RemoteFrame(_)
+                | Message::Knocked(..)
                 | Message::Tick
                 | Message::ToastClear
                 | Message::BackupTick
@@ -930,6 +1188,35 @@ impl App {
                 )
         ) {
             self.last_activity = std::time::Instant::now();
+            self.last_activity_wall = std::time::SystemTime::now();
+        }
+        // Portable mode before the master password: nothing is open, only the password goes through.
+        if self.vault.is_some()
+            && !matches!(
+                message,
+                Message::Vault(
+                    crate::vault::VaultMsg::Password(_)
+                        | crate::vault::VaultMsg::Confirm(_)
+                        | crate::vault::VaultMsg::Submit
+                        | crate::vault::VaultMsg::Opened(_)
+                ) | Message::Tray(crate::tray::TrayEvent::Open | crate::tray::TrayEvent::Quit)
+                    | Message::Update(
+                        crate::update::UpdateMsg::Checked(..)
+                            | crate::update::UpdateMsg::Progress(..)
+                            | crate::update::UpdateMsg::Downloaded(_)
+                    )
+                    | Message::CloseRequested(_)
+                    | Message::ShowWindow
+                    | Message::Quit
+                    | Message::WindowMoved(_)
+                    | Message::WindowFocused(_)
+                    | Message::WindowResized(_)
+                    | Message::SystemTheme(_)
+                    | Message::FontLoaded
+                    | Message::ToastClear
+            )
+        {
+            return Task::none();
         }
         // Locked: only the code goes through (connections keep running behind).
         if self.locked
@@ -937,6 +1224,9 @@ impl App {
                 message,
                 Message::LockInput(_)
                     | Message::Unlock
+                    | Message::LockForgot(_)
+                    | Message::LockMasterChecked(_)
+                    | Message::WindowMinimized(_)
                     | Message::Tray(_)
                     | Message::Update(
                         crate::update::UpdateMsg::Checked(..)
@@ -955,10 +1245,13 @@ impl App {
                     | Message::Tunnel(..)
                     | Message::Sftp(..)
                     | Message::Remote(..)
+                    | Message::RemoteFrame(_)
+                    | Message::Knocked(..)
                     | Message::ToastClear
                     | Message::Tick
                     | Message::BackupTick
                     | Message::Ai(crate::assistant::AiMsg::Answer(..))
+                    | Message::Vault(crate::vault::VaultMsg::Changed(_))
                     | Message::Backup(
                         crate::backup::BackupMsg::Lan(_)
                             | crate::backup::BackupMsg::Fetched(_)
@@ -990,7 +1283,19 @@ impl App {
             Message::Search(s) => self.search = s,
             Message::GroupFilter(g) => self.group_filter = g,
             Message::SnippetFilter(t) => self.snippet_tag = t,
-            Message::CloseEditor => self.editor = None,
+            Message::CloseEditor => {
+                self.editor = None;
+                self.deleted_meanwhile = None;
+            }
+            Message::Recreate => {
+                if let Some(save) = self.deleted_meanwhile.take() {
+                    self.recreating = true;
+                    let t = self.update(*save);
+                    self.recreating = false;
+                    return t;
+                }
+            }
+            Message::RecreateCancel => self.deleted_meanwhile = None,
             Message::ToastClear => self.toast = None,
 
             // --- Hosts ---
@@ -1016,10 +1321,11 @@ impl App {
                     self.backup.place = None;
                     self.backup.open = None;
                     self.backup.lan_join = false;
-                    if self.backup.lan_code.take().is_some() {
-                        if let Some(l) = &self.backup.lan {
-                            l.cancel_code();
-                        }
+                    self.backup.lan_code_expired = false;
+                    if self.backup.lan_code.take().is_some()
+                        && let Some(l) = &self.backup.lan
+                    {
+                        l.cancel_code();
                     }
                 }
             }
@@ -1048,13 +1354,13 @@ impl App {
             Message::TermTab(t) => self.term_tab = t,
             Message::TermFamily(id) => {
                 self.settings.terminal_family = Some(id.clone());
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
                 return self.load_font(&id);
             }
             Message::TermCursor(id) => {
                 let shape = crate::term::cursor_shape(&id);
                 self.settings.terminal_cursor = Some(id);
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
                 for t in &mut self.tabs {
                     t.term.set_cursor(shape);
                 }
@@ -1062,21 +1368,30 @@ impl App {
             Message::FontLoaded => {}
             Message::ConfirmClose(v) => {
                 self.settings.confirm_close = Some(v);
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::SessionLogs(v) => {
                 self.settings.session_logs = v;
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::PasswordKey(v) => {
                 self.settings.password_key = Some(v);
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
+            }
+            Message::OptionMeta(v) => {
+                self.settings.option_meta = Some(v);
+                crate::term::keys::set_option_meta(v);
+                self.save_settings();
+            }
+            Message::Osc52(v) => {
+                self.settings.osc52 = v;
+                self.save_settings();
             }
             Message::CloseAnswer(yes) => {
-                if let Some(id) = self.closing.take() {
-                    if yes {
-                        self.close_tab(id);
-                    }
+                if let Some(id) = self.closing.take()
+                    && yes
+                {
+                    self.close_tab(id);
                 }
             }
             Message::TypePassword => {
@@ -1084,9 +1399,7 @@ impl App {
                     self.type_password();
                 }
             }
-            Message::OpenPath(p) => {
-                let _ = opener::open(&p);
-            }
+            Message::OpenPath(p) => crate::kit::open_external(&p),
             Message::Update(m) => return self.update_msg(m),
             Message::QuickConnect(p) => {
                 if let Some(t) = nautile_core::quick::parse(&self.search) {
@@ -1094,11 +1407,7 @@ impl App {
                 }
             }
             Message::Reconnect2(log) => {
-                let Some(e) = self
-                    .db
-                    .as_ref()
-                    .and_then(|db| db.connection_log(500).into_iter().find(|e| e.id == log))
-                else {
+                let Some(e) = self.logged_connection(log) else {
                     return Task::none();
                 };
                 if let Some(h) = e.host_id.filter(|h| self.hosts.iter().any(|x| x.id == *h)) {
@@ -1107,11 +1416,7 @@ impl App {
                 return self.quick_connect(logged_host(&e));
             }
             Message::SaveLogged(log) => {
-                if let Some(e) = self
-                    .db
-                    .as_ref()
-                    .and_then(|db| db.connection_log(500).into_iter().find(|e| e.id == log))
-                {
+                if let Some(e) = self.logged_connection(log) {
                     let mut f = HostForm::from(Some(logged_host(&e)));
                     f.original = None;
                     self.editor = Some(Editor::Host(Box::new(f)));
@@ -1138,7 +1443,7 @@ impl App {
                 let Some((name, text)) = f else { return Task::none() };
                 let dir = self.paths.data.join("themes");
                 return match crate::term::import::parse_theme(&text, &name)
-                    .and_then(|t| crate::term::import::save_theme(&dir, &t).map(|_| t).map_err(|e| e.to_string()))
+                    .and_then(|t| crate::term::import::save_theme(&dir, &t).map_err(|e| e.to_string()))
                 {
                     Ok(t) => {
                         crate::term::themes::set_custom(crate::term::import::load_themes(&dir));
@@ -1184,12 +1489,13 @@ impl App {
                 if let Err(e) = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(&safe), &bytes)) {
                     return self.say(e.to_string());
                 }
-                let loaded = crate::term::import::load_fonts(&dir);
-                let id = format!("file:{safe}");
-                crate::term::fonts::set_custom(loaded.iter().map(|(f, _)| *f).collect());
+                let Some(font) = crate::term::import::imported_font(&safe, &bytes) else {
+                    return Task::none();
+                };
+                crate::term::fonts::add_custom(font);
                 let load = iced::font::load(bytes).map(|_| Message::FontLoaded);
-                self.settings.terminal_family = Some(id);
-                let _ = self.settings.save(&self.paths);
+                self.settings.terminal_family = Some(font.id.to_owned());
+                self.save_settings();
                 let said = self.say(warning.unwrap_or_else(|| trf("Police « %1$s » ajoutée", &[&family])));
                 return Task::batch([load, said]);
             }
@@ -1197,28 +1503,28 @@ impl App {
                 if let Some(file) = id.strip_prefix("file:") {
                     let dir = self.paths.data.join("fonts");
                     let _ = std::fs::remove_file(dir.join(file));
-                    crate::term::fonts::set_custom(crate::term::import::load_fonts(&dir).into_iter().map(|(f, _)| f).collect());
+                    crate::term::fonts::remove_custom(&id);
                     if self.settings.terminal_family.as_deref() == Some(&id) {
                         self.settings.terminal_family = None;
-                        let _ = self.settings.save(&self.paths);
+                        self.save_settings();
                     }
                 }
             }
             Message::RemoteNoUpscale(v) => {
                 self.settings.remote_no_upscale = v;
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::RdpWindowSize(v) => {
                 self.settings.rdp_window_size = Some(v);
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::RemoteClipboard(v) => {
                 self.settings.remote_clipboard = Some(v);
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::RemoteFullscreen(v) => {
                 self.settings.remote_fullscreen = v;
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::ToggleFullscreen => {
                 return iced::window::latest().and_then(|w| {
@@ -1258,9 +1564,12 @@ impl App {
             }
             Message::MoveHost(id, group) => {
                 self.menu = None;
-                if let (Some(h), Some(db)) = (self.hosts.iter_mut().find(|h| h.id == id), &self.db) {
+                // From the row as stored: the list may predate a merged change.
+                if let Some(db) = &self.db
+                    && let Ok(Some(mut h)) = db.store().get::<Host>(id)
+                {
                     h.group_id = group;
-                    let _ = db.store().update(&*h);
+                    let _ = db.store().update(&h);
                 }
                 self.reload();
             }
@@ -1272,6 +1581,7 @@ impl App {
                 self.menu = None;
                 if let (Some(h), Some(db)) = (self.hosts.iter().find(|h| h.id == id).cloned(), &self.db) {
                     let _ = db.store().delete::<Host>(h.id);
+                    self.ai_forget_host(h.id);
                     self.reload();
                     return self.say(trf("« %1$s » supprimé", &[&h.alias]));
                 }
@@ -1351,7 +1661,7 @@ impl App {
             }
             Message::HistorySuggestions(v) => {
                 self.settings.history_suggestions = Some(v);
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::ClearHistory => {
                 if let Some(db) = &self.db {
@@ -1424,8 +1734,10 @@ impl App {
             }
             Message::CloseRequested(id) => {
                 self.remember_window();
-                if self.settings.close_to_tray() {
+                // Locked, the window only hides: quitting would close the sessions of whoever left it.
+                if self.settings.close_to_tray() || self.locked {
                     self.hidden = true;
+                    self.lock_on_hide();
                     return if self.tray {
                         iced::window::set_mode(id, iced::window::Mode::Hidden)
                     } else {
@@ -1440,6 +1752,16 @@ impl App {
                 self.focused = f;
                 if f {
                     self.hidden = false;
+                } else if self.settings.lock_on_hide && self.settings.locks() && !self.locked {
+                    // Minimised (the window events do not say it): asked to the window.
+                    return iced::window::latest()
+                        .and_then(iced::window::is_minimized)
+                        .map(Message::WindowMinimized);
+                }
+            }
+            Message::WindowMinimized(m) => {
+                if m == Some(true) {
+                    self.lock_on_hide();
                 }
             }
             Message::ShowWindow => {
@@ -1453,12 +1775,16 @@ impl App {
                 });
             }
             Message::Quit => {
+                if self.locked {
+                    self.lock_error = Some(tr("Déverrouillez Nautile pour le quitter"));
+                    return self.update(Message::ShowWindow);
+                }
                 self.remember_window();
                 return iced::exit();
             }
             Message::CloseToTray(v) => {
                 self.settings.close_to_tray = Some(v);
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::Autostart(v) => {
                 return match crate::autostart::set(v) {
@@ -1468,7 +1794,7 @@ impl App {
             }
             Message::Notifications(v) => {
                 self.settings.notifications = Some(v);
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::DeleteLog(p) => {
                 // Only the recorded sessions, never anything else.
@@ -1476,6 +1802,37 @@ impl App {
                     let _ = std::fs::remove_file(&p);
                 }
             }
+            Message::ExportLogs(files) => {
+                let logs = self.paths.data.join("logs");
+                let files: Vec<_> = files.into_iter().filter(|p| p.parent() == Some(logs.as_path())).collect();
+                if files.is_empty() {
+                    return Task::none();
+                }
+                return Task::perform(
+                    async move {
+                        let dir = rfd::AsyncFileDialog::new()
+                            .set_title(tr("Exporter les journaux (texte déchiffré)"))
+                            .pick_folder()
+                            .await?;
+                        let dir = dir.path().to_path_buf();
+                        Some(match crate::logs::export(&files, &dir) {
+                            // One log: opened at once; several: their folder.
+                            Ok(done) if done.len() == 1 => Ok(done[0].clone()),
+                            Ok(_) => Ok(dir),
+                            Err(e) => Err(e.to_string()),
+                        })
+                    },
+                    Message::LogsExported,
+                );
+            }
+            Message::LogsExported(r) => match r {
+                Some(Ok(p)) => {
+                    crate::kit::open_external(&p);
+                    return self.say(trf("Exporté : %1$s", &[&p.display()]));
+                }
+                Some(Err(e)) => return self.fail(e),
+                None => {}
+            },
             Message::SystemTheme(mode) => match mode {
                 iced::theme::Mode::Dark => self.os_dark = true,
                 iced::theme::Mode::Light => self.os_dark = false,
@@ -1483,11 +1840,11 @@ impl App {
             },
             Message::Accent(a) => {
                 self.settings.accent = a;
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::ButtonStyle(b) => {
                 self.settings.button_style = b;
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::SidebarGrab => self.sidebar_drag = true,
             Message::SidebarMove(x) => {
@@ -1503,12 +1860,12 @@ impl App {
             Message::SidebarRelease => {
                 if self.sidebar_drag {
                     self.sidebar_drag = false;
-                    let _ = self.settings.save(&self.paths);
+                    self.save_settings();
                 }
             }
             Message::SidebarToggle => {
                 self.settings.sidebar_compact = !self.settings.sidebar_compact;
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::MoveGroup(id, up) => {
                 let Some(db) = &self.db else { return Task::none() };
@@ -1523,10 +1880,13 @@ impl App {
                 if let Some(j) = j {
                     let mut list = self.groups.clone();
                     list.swap(i, j);
-                    for (n, g) in list.iter_mut().enumerate() {
+                    for (n, g) in list.iter().enumerate() {
                         if g.sort_order != n as i32 {
-                            g.sort_order = n as i32;
-                            let _ = db.store().upsert(&*g);
+                            // From the row as stored: the list may predate a merged change.
+                            if let Ok(Some(mut fresh)) = db.store().get::<HostGroup>(g.id) {
+                                fresh.sort_order = n as i32;
+                                let _ = db.store().update(&fresh);
+                            }
                         }
                     }
                     self.reload();
@@ -1545,17 +1905,19 @@ impl App {
                         HostField::Hostname(v) => {
                             // « user@address:port » pasted in the address fills the three fields.
                             let mut rest = v.trim().to_owned();
-                            if let Some((user, host)) = rest.clone().split_once('@') {
-                                if !user.is_empty() && !host.is_empty() {
-                                    f.username = user.to_owned();
-                                    rest = host.to_owned();
-                                }
+                            if let Some((user, host)) = rest.clone().split_once('@')
+                                && !user.is_empty()
+                                && !host.is_empty()
+                            {
+                                f.username = user.to_owned();
+                                rest = host.to_owned();
                             }
-                            if let Some((host, port)) = rest.clone().rsplit_once(':') {
-                                if !host.contains(':') && port.parse::<u16>().is_ok() {
-                                    f.port = port.to_owned();
-                                    rest = host.to_owned();
-                                }
+                            if let Some((host, port)) = rest.clone().rsplit_once(':')
+                                && !host.contains(':')
+                                && port.parse::<u16>().is_ok()
+                            {
+                                f.port = port.to_owned();
+                                rest = host.to_owned();
                             }
                             f.hostname = if rest == v.trim() { v } else { rest };
                         }
@@ -1583,40 +1945,39 @@ impl App {
                     }
                 }
             }
-            Message::SaveHost => {
+            Message::SaveHost | Message::SaveHostAndConnect => {
+                let connect = matches!(message, Message::SaveHostAndConnect);
                 let (Some(Editor::Host(f)), Some(db)) = (&self.editor, &self.db) else {
                     return Task::none();
                 };
                 if !f.valid() {
                     return Task::none();
                 }
-                let host = f.host();
-                let new = f.original.is_none();
-                return match db.store().upsert(&host) {
-                    Ok(_) => {
-                        self.editor = None;
-                        self.reload();
-                        self.say(if new {
-                            trf("« %1$s » ajouté", &[&host.alias])
-                        } else {
-                            tr("Modifications enregistrées")
-                        })
+                let base = match save_base(db, f.original.as_ref(), self.recreating) {
+                    Ok(base) => base,
+                    Err(BaseError::DeletedMeanwhile) => {
+                        self.deleted_meanwhile = Some(Box::new(message));
+                        return Task::none();
                     }
-                    Err(e) => self.fail(e),
+                    Err(BaseError::Db(e)) => return self.fail(e),
                 };
-            }
-            Message::SaveHostAndConnect => {
-                let (Some(Editor::Host(f)), Some(db)) = (&self.editor, &self.db) else {
-                    return Task::none();
-                };
-                if !f.valid() {
-                    return Task::none();
-                }
-                return match db.store().upsert(&f.host()) {
+                let mut host = f.host_over(base);
+                without_missing_links(db, &mut host);
+                let new = host.id == 0;
+                return match db.store().upsert(&host) {
                     Ok(id) => {
                         self.editor = None;
+                        self.deleted_meanwhile = None;
                         self.reload();
-                        self.connect(id)
+                        if connect {
+                            self.connect(id)
+                        } else {
+                            self.say(if new {
+                                trf("« %1$s » ajouté", &[&host.alias])
+                            } else {
+                                tr("Modifications enregistrées")
+                            })
+                        }
                     }
                     Err(e) => self.fail(e),
                 };
@@ -1631,6 +1992,7 @@ impl App {
                     return Task::none();
                 }
                 let _ = db.store().delete::<Host>(h.id);
+                self.ai_forget_host(h.id);
                 self.editor = None;
                 self.reload();
                 return self.say(trf("« %1$s » supprimé", &[&h.alias]));
@@ -1642,6 +2004,8 @@ impl App {
                     original: None,
                     name: String::new(),
                     color: DEFAULT_COLOR,
+                    icon: None,
+                    icon_query: String::new(),
                     confirm_delete: false,
                 }))
             }
@@ -1651,6 +2015,8 @@ impl App {
                         original: Some(g.clone()),
                         name: g.name.clone(),
                         color: g.color,
+                        icon: g.icon.clone(),
+                        icon_query: String::new(),
                         confirm_delete: false,
                     }));
                 }
@@ -1664,6 +2030,16 @@ impl App {
             Message::GroupColor(c) => {
                 if let Some(Editor::Group(f)) = &mut self.editor {
                     f.color = c;
+                }
+            }
+            Message::GroupIcon(i) => {
+                if let Some(Editor::Group(f)) = &mut self.editor {
+                    f.icon = i;
+                }
+            }
+            Message::GroupIconQuery(q) => {
+                if let Some(Editor::Group(f)) = &mut self.editor {
+                    f.icon_query = q;
                 }
             }
             Message::SaveGroup => {
@@ -1681,14 +2057,24 @@ impl App {
                 {
                     return self.say(tr("Un groupe porte déjà ce nom"));
                 }
-                let mut g: HostGroup = f.original.clone().unwrap_or_else(|| {
+                let base = match save_base(db, f.original.as_ref(), self.recreating) {
+                    Ok(base) => base,
+                    Err(BaseError::DeletedMeanwhile) => {
+                        self.deleted_meanwhile = Some(Box::new(message));
+                        return Task::none();
+                    }
+                    Err(BaseError::Db(e)) => return self.fail(e),
+                };
+                let mut g: HostGroup = base.unwrap_or_else(|| {
                     serde_json::from_value(serde_json::json!({ "name": "", "sortOrder": self.groups.len() })).expect("defaults")
                 });
                 g.name = name;
                 g.color = f.color;
+                g.icon = f.icon.clone();
                 return match db.store().upsert(&g) {
                     Ok(_) => {
                         self.editor = None;
+                        self.deleted_meanwhile = None;
                         self.reload();
                         Task::none()
                     }
@@ -1760,16 +2146,23 @@ impl App {
                 if f.name.trim().is_empty() || command.trim().is_empty() {
                     return Task::none();
                 }
-                let mut s: Snippet = f
-                    .original
-                    .clone()
-                    .unwrap_or_else(|| serde_json::from_value(serde_json::json!({ "name": "", "command": "" })).expect("defaults"));
+                let base = match save_base(db, f.original.as_ref(), self.recreating) {
+                    Ok(base) => base,
+                    Err(BaseError::DeletedMeanwhile) => {
+                        self.deleted_meanwhile = Some(Box::new(message));
+                        return Task::none();
+                    }
+                    Err(BaseError::Db(e)) => return self.fail(e),
+                };
+                let mut s: Snippet =
+                    base.unwrap_or_else(|| serde_json::from_value(serde_json::json!({ "name": "", "command": "" })).expect("defaults"));
                 s.name = f.name.trim().to_owned();
                 s.command = command;
                 s.tag = f.tag.trim().to_owned();
                 return match db.store().upsert(&s) {
                     Ok(_) => {
                         self.editor = None;
+                        self.deleted_meanwhile = None;
                         self.reload();
                         Task::none()
                     }
@@ -1831,12 +2224,13 @@ impl App {
                         Message::KeyText(a) => f.text.perform(a),
                         Message::KeyPassphrase(v) => f.passphrase = v,
                         Message::KeyRemember(v) => f.remember = v,
-                        Message::KeyFileLoaded(Some((name, text))) => {
+                        Message::KeyFileLoaded(Some(Ok((name, text)))) => {
                             f.text = text_editor::Content::with_text(text.trim());
                             if f.name.is_empty() {
                                 f.name = name.trim_end_matches(".pem").trim_end_matches(".ppk").to_owned();
                             }
                         }
+                        Message::KeyFileLoaded(Some(Err(e))) => f.error = Some(e),
                         _ => {}
                     }
                 }
@@ -1845,11 +2239,23 @@ impl App {
                 return Task::perform(
                     async {
                         let file = rfd::AsyncFileDialog::new().set_title(tr("Importer une clé")).pick_file().await?;
-                        let text = String::from_utf8(file.read().await).ok()?;
-                        Some((file.file_name(), text))
+                        // A key is a few kilobytes: anything much larger is not one (and is not read whole).
+                        let too_big = std::fs::metadata(file.path()).is_ok_and(|m| m.len() > nautile_net::keys::MAX_FILE);
+                        if too_big {
+                            return Some(Err(tr("Fichier trop volumineux pour une clé (1 Mio au plus)")));
+                        }
+                        let bytes = file.read().await;
+                        if bytes.len() as u64 > nautile_net::keys::MAX_FILE {
+                            return Some(Err(tr("Fichier trop volumineux pour une clé (1 Mio au plus)")));
+                        }
+                        Some(
+                            String::from_utf8(bytes)
+                                .map(|t| (file.file_name(), t))
+                                .map_err(|_| tr("Ce fichier n'est pas une clé privée")),
+                        )
                     },
                     Message::KeyFileLoaded,
-                )
+                );
             }
             Message::SaveKey => {
                 let Some(Editor::Key(f)) = &mut self.editor else {
@@ -1979,17 +2385,25 @@ impl App {
                 if f.name.trim().is_empty() || f.username.trim().is_empty() {
                     return Task::none();
                 }
-                let mut i: Identity = f
-                    .original
-                    .clone()
-                    .unwrap_or_else(|| serde_json::from_value(serde_json::json!({ "name": "", "username": "" })).expect("defaults"));
+                let base = match save_base(db, f.original.as_ref(), self.recreating) {
+                    Ok(base) => base,
+                    Err(BaseError::DeletedMeanwhile) => {
+                        self.deleted_meanwhile = Some(Box::new(message));
+                        return Task::none();
+                    }
+                    Err(BaseError::Db(e)) => return self.fail(e),
+                };
+                let mut i: Identity =
+                    base.unwrap_or_else(|| serde_json::from_value(serde_json::json!({ "name": "", "username": "" })).expect("defaults"));
                 i.name = f.name.trim().to_owned();
                 i.username = f.username.trim().to_owned();
                 i.password = Some(f.password.clone()).filter(|p| !p.is_empty());
-                i.key_id = f.key;
+                // The key picked may have been deleted since.
+                i.key_id = f.key.filter(|k| matches!(db.store().get::<SshKey>(*k), Ok(Some(_))));
                 return match db.store().upsert(&i) {
                     Ok(_) => {
                         self.editor = None;
+                        self.deleted_meanwhile = None;
                         self.reload();
                         Task::none()
                     }
@@ -2076,7 +2490,19 @@ impl App {
                 if !f.valid() {
                     return Task::none();
                 }
-                let mut x: PortForward = f.original.clone().unwrap_or_else(|| {
+                let base = match save_base(db, f.original.as_ref(), self.recreating) {
+                    Ok(base) => base,
+                    Err(BaseError::DeletedMeanwhile) => {
+                        self.deleted_meanwhile = Some(Box::new(message));
+                        return Task::none();
+                    }
+                    Err(BaseError::Db(e)) => return self.fail(e),
+                };
+                // The host picked may have been deleted since (here or by a synchronisation).
+                if !f.host.is_some_and(|h| matches!(db.store().get::<Host>(h), Ok(Some(_)))) {
+                    return self.say(tr("L'hôte de ce tunnel n'existe plus : choisissez-en un autre"));
+                }
+                let mut x: PortForward = base.unwrap_or_else(|| {
                     serde_json::from_value(serde_json::json!({ "name": "", "hostId": 0, "kind": "LOCAL", "bindPort": 0 }))
                         .expect("defaults")
                 });
@@ -2094,6 +2520,7 @@ impl App {
                 return match db.store().upsert(&x) {
                     Ok(_) => {
                         self.editor = None;
+                        self.deleted_meanwhile = None;
                         self.reload();
                         Task::none()
                     }
@@ -2126,7 +2553,7 @@ impl App {
                         Some((file.file_name(), text))
                     },
                     Message::ImportPicked,
-                )
+                );
             }
             Message::ImportPicked(f) => {
                 if let Some((name, text)) = f {
@@ -2223,15 +2650,15 @@ impl App {
             Message::Language(l) => {
                 self.settings.language = l;
                 i18n::set_english(self.settings.english());
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::Appearance(a) => {
                 self.settings.appearance = a;
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
             Message::TermTheme(id) => {
                 self.settings.terminal_theme = Some(id);
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
                 let theme = self.term_theme();
                 for t in &mut self.tabs {
                     t.term.palette = theme.clone();
@@ -2239,7 +2666,7 @@ impl App {
             }
             Message::TermFont(size) => {
                 self.settings.terminal_font = Some(size.clamp(9.0, 28.0));
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
 
             // --- Lock ---
@@ -2247,20 +2674,43 @@ impl App {
                 self.lock_input = v;
                 self.lock_error = None;
             }
+            Message::Unlock if self.lock_master => return self.unlock_with_master(),
             Message::Unlock => return self.unlock(),
-            Message::LockNow => {
-                if self.settings.locks() {
-                    self.locked = true;
+            Message::LockNow => return self.lock_now(),
+            Message::LockForgot(on) => {
+                if self.paths.portable && !self.lock_busy {
+                    self.lock_master = on;
                     self.lock_input.clear();
+                    self.lock_error = None;
                     return iced::widget::operation::focus("lock");
                 }
             }
+            Message::LockMasterChecked(r) => {
+                self.lock_busy = false;
+                match r {
+                    Ok(()) if self.locked => {
+                        self.lock_master = false;
+                        self.reset_lock();
+                        return Task::batch([
+                            self.say(tr("Verrouillage retiré : choisissez un nouveau code dans les réglages")),
+                            self.install_pending(),
+                        ]);
+                    }
+                    Ok(()) => {}
+                    Err(e) => {
+                        self.lock_error = Some(e);
+                        return iced::widget::operation::focus("lock");
+                    }
+                }
+            }
             Message::Tick => {
-                let after = self.settings.lock_after() as u64 * 60;
-                if self.settings.locks() && after > 0 && self.last_activity.elapsed().as_secs() >= after {
-                    self.locked = true;
-                    self.lock_input.clear();
-                    return iced::widget::operation::focus("lock");
+                let now = (std::time::Instant::now(), std::time::SystemTime::now());
+                let slept = slept(self.last_tick, now);
+                self.last_tick = now;
+                let after = std::time::Duration::from_secs(self.settings.lock_after() as u64 * 60);
+                let idle = idle_for(self.last_activity, self.last_activity_wall, now);
+                if !after.is_zero() && idle >= after || slept && self.settings.lock_on_hide {
+                    return self.lock_now();
                 }
             }
             Message::LockPick(m) => {
@@ -2273,13 +2723,25 @@ impl App {
             Message::LockNew(v) => self.lock_form.new = v,
             Message::LockConfirm(v) => self.lock_form.confirm = v,
             Message::LockSave => return self.save_lock(),
-            Message::BackupTick => return self.backup_tick(),
+            Message::BackupTick => {
+                for t in &mut self.tabs {
+                    if let Some(log) = &mut t.log {
+                        log.flush();
+                    }
+                }
+                return self.backup_tick();
+            }
             Message::Backup(m) => return self.backup_update(m),
             Message::Ai(m) => return self.ai_update(m),
             Message::LockAfter(m) => {
                 self.settings.lock_after = Some(m);
-                let _ = self.settings.save(&self.paths);
+                self.save_settings();
             }
+            Message::LockOnHide(v) => {
+                self.settings.lock_on_hide = v;
+                self.save_settings();
+            }
+            Message::Vault(m) => return self.vault_msg(m),
 
             // --- Sessions ---
             Message::Connect(id) => return self.connect(id),
@@ -2287,6 +2749,8 @@ impl App {
             Message::Files(id, m) => self.on_files(id, m),
             Message::Sftp(id, u) => return self.on_sftp(id, u),
             Message::Remote(id, e) => return self.on_remote(id, e),
+            Message::RemoteFrame(id) => self.remote_frame(id),
+            Message::Knocked(id, r) => return self.knocked(id, r),
             Message::RemoteAction(id, a) => self.on_remote_action(id, a),
             Message::FileDropped(p) => return self.dropped(p),
             Message::OpenLocal => return self.open_local(),
@@ -2311,10 +2775,10 @@ impl App {
             Message::PromptAnswer(ok) => self.answer(ok),
             Message::RunSnippet(id) => return self.run_snippet(id),
             Message::SnippetVar(i, v) => {
-                if let Some((_, vars)) = &mut self.snippet_run {
-                    if let Some(x) = vars.get_mut(i) {
-                        x.1 = v;
-                    }
+                if let Some((_, vars)) = &mut self.snippet_run
+                    && let Some(x) = vars.get_mut(i)
+                {
+                    x.1 = v;
                 }
             }
             Message::SnippetRunGo => self.run_filled_snippet(),
@@ -2373,7 +2837,7 @@ fn logged_host(e: &nautile_core::db::ConnectionLog) -> Host {
 }
 
 fn shortcut(e: iced::keyboard::Event) -> Option<Message> {
-    use iced::keyboard::{key::Named, Event, Key};
+    use iced::keyboard::{Event, Key, key::Named};
     let Event::KeyPressed { key, modifiers: m, .. } = e else {
         return None;
     };
@@ -2401,6 +2865,14 @@ fn shortcut(e: iced::keyboard::Event) -> Option<Message> {
 
 impl App {
     /// Gives a terminal font to the renderer, once.
+    /// An entry of « Connexions › Historique », from what the page shows.
+    fn logged_connection(&self, id: i64) -> Option<nautile_core::db::ConnectionLog> {
+        self.cache.connection_log.iter().find(|e| e.id == id).cloned().or_else(|| {
+            let db = self.db.as_ref()?;
+            db.connection_log(500).into_iter().find(|e| e.id == id)
+        })
+    }
+
     fn load_font(&mut self, id: &str) -> Task<Message> {
         let f = crate::term::fonts::by_id(id);
         match f.bytes {
@@ -2447,11 +2919,11 @@ impl App {
                 };
                 h.group_id = gid;
             }
-            if let Some(file) = &item.identity_file {
-                if let Some(key_id) = import_key_file(file, &store, &mut keys) {
-                    h.auth_method = AuthMethod::Key;
-                    h.key_id = Some(key_id);
-                }
+            if let Some(file) = &item.identity_file
+                && let Some(key_id) = import_key_file(file, &store, &mut keys)
+            {
+                h.auth_method = AuthMethod::Key;
+                h.key_id = Some(key_id);
             }
             if let Ok(id) = store.insert(&h) {
                 ids.insert(item.alias.clone(), id);
@@ -2473,11 +2945,11 @@ impl App {
             ) else {
                 continue;
             };
-            if let Ok(Some(mut h)) = store.get::<Host>(id) {
-                if h.jump_host_id.is_none() {
-                    h.jump_host_id = Some(jump_id);
-                    let _ = store.update(&h);
-                }
+            if let Ok(Some(mut h)) = store.get::<Host>(id)
+                && h.jump_host_id.is_none()
+            {
+                h.jump_host_id = Some(jump_id);
+                let _ = store.update(&h);
             }
         }
         (added, skipped)
@@ -2502,7 +2974,7 @@ impl App {
             }
             .into(),
         );
-        let _ = self.settings.save(&self.paths);
+        self.save_settings();
     }
 
     /// A system notification, only while the window is hidden or in the background.
@@ -2521,55 +2993,136 @@ impl App {
         }
     }
 
+    /// The hash of the lock: in the database, or an older version's still in settings.json when it could not be
+    /// moved there (`lock_boot`).
+    fn lock_hash(&self) -> Option<String> {
+        let stored = self.db.as_ref().and_then(nautile_core::lock::stored).map(|(_, h)| h);
+        stored.or_else(|| self.settings.lock_hash.clone())
+    }
+
+    /// Locks now, when a lock is set (and the database that keeps it is open), with a hash to check the code
+    /// against: never a lock nothing can open.
+    fn lock_now(&mut self) -> Task<Message> {
+        if !self.settings.locks() || self.locked || self.db.is_none() || self.lock_hash().is_none() {
+            return Task::none();
+        }
+        self.locked = true;
+        self.lock_input.clear();
+        self.menu = None;
+        self.palette = None;
+        iced::widget::operation::focus("lock")
+    }
+
+    /// The window goes to the notification area or is minimised: locked too when asked.
+    fn lock_on_hide(&mut self) {
+        if self.settings.lock_on_hide {
+            let _ = self.lock_now();
+        }
+    }
+
+    /// The wait still to come after too many wrong codes, in whole seconds.
+    fn lock_wait_left(&self) -> Option<u64> {
+        let left = self.lock_until?.checked_duration_since(std::time::Instant::now())?;
+        Some(left.as_millis().div_ceil(1000) as u64)
+    }
+
+    /// One more wrong code: counted in the database (a restart does not reset it), the wait in memory.
+    fn lock_failed(&mut self) -> u32 {
+        use nautile_core::lock;
+        let Some(db) = &self.db else { return 0 };
+        let failures = lock::failures(db).saturating_add(1);
+        let _ = lock::set_failures(db, failures);
+        let wait = lock::lockout_ms(failures);
+        self.lock_until = (wait > 0).then(|| std::time::Instant::now() + std::time::Duration::from_millis(wait));
+        failures
+    }
+
     fn unlock(&mut self) -> Task<Message> {
         use nautile_core::lock;
-        let now = nautile_core::model::now_ms();
-        if now < self.settings.lock_until {
-            let secs = (self.settings.lock_until - now + 999) / 1000;
+        if let Some(secs) = self.lock_wait_left() {
             self.lock_error = Some(trf("Trop d'essais : réessayez dans %1$s s", &[&secs]));
             return Task::none();
         }
-        let ok = self
-            .settings
-            .lock_hash
-            .as_deref()
-            .is_some_and(|h| lock::verify(&self.lock_input, h));
+        let Some(db) = &self.db else { return Task::none() };
+        let ok = self.lock_hash().is_some_and(|h| lock::verify(&self.lock_input, &h));
         self.lock_input.clear();
         if ok {
+            let _ = lock::set_failures(db, 0);
             self.locked = false;
             self.lock_error = None;
-            self.settings.lock_failures = 0;
-            self.settings.lock_until = 0;
+            self.lock_until = None;
+            self.last_tick = (std::time::Instant::now(), std::time::SystemTime::now());
+            return self.install_pending();
         } else {
-            self.settings.lock_failures += 1;
-            let wait = lock::lockout_ms(self.settings.lock_failures);
-            self.settings.lock_until = now + wait as i64;
-            let left = lock::FREE_TRIES.saturating_sub(self.settings.lock_failures);
-            self.lock_error = Some(if wait > 0 {
-                trf("Trop d'essais : réessayez dans %1$s s", &[&(wait / 1000)])
-            } else {
-                trf("Code incorrect, %1$s essai(s) restant(s)", &[&left])
+            let failures = self.lock_failed();
+            let left = lock::FREE_TRIES.saturating_sub(failures);
+            self.lock_error = Some(match self.lock_wait_left() {
+                Some(secs) => trf("Trop d'essais : réessayez dans %1$s s", &[&secs]),
+                None => trf("Code incorrect, %1$s essai(s) restant(s)", &[&left]),
             });
         }
-        let _ = self.settings.save(&self.paths);
         Task::none()
     }
 
-    /// Saves the lock chosen in the settings (the current code is checked first when there is one).
+    /// Removes the lock (`--reset-lock`, or the master password in portable mode) and opens the window.
+    pub(crate) fn reset_lock(&mut self) {
+        use nautile_core::lock;
+        if let Some(db) = &self.db {
+            let _ = lock::store(db, None);
+            let _ = lock::set_failures(db, 0);
+        }
+        self.settings.lock_method = None;
+        self.settings.lock_hash = None;
+        self.settings.lock_failures = 0;
+        self.save_settings();
+        self.locked = false;
+        self.lock_until = None;
+        self.lock_input.clear();
+        self.lock_error = None;
+        self.lock_form = LockForm::default();
+    }
+
+    /// Portable mode: the master password typed on the lock screen, checked off the interface thread (Argon2id).
+    fn unlock_with_master(&mut self) -> Task<Message> {
+        if self.lock_busy || self.lock_input.is_empty() || !self.paths.portable {
+            return Task::none();
+        }
+        self.lock_busy = true;
+        self.lock_error = None;
+        let (paths, password) = (self.paths.clone(), std::mem::take(&mut self.lock_input));
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || crate::storage::open_master(&paths, &password).map(|_| ()))
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r)
+            },
+            Message::LockMasterChecked,
+        )
+    }
+
+    /// Saves the lock chosen in the settings (the current code is checked first when there is one, with the
+    /// same count of wrong tries as the lock screen).
     fn save_lock(&mut self) -> Task<Message> {
         use nautile_core::lock::{self, LockMethod};
         let f = self.lock_form.clone();
-        if let Some(h) = self.settings.lock_hash.as_deref().filter(|_| self.settings.locks()) {
+        if self.db.is_none() {
+            self.lock_form.error = Some(tr("La base n'est pas ouverte"));
+            return Task::none();
+        }
+        if let Some(h) = &self.lock_hash() {
+            if let Some(secs) = self.lock_wait_left() {
+                self.lock_form.error = Some(trf("Trop d'essais : réessayez dans %1$s s", &[&secs]));
+                return Task::none();
+            }
             if !lock::verify(&f.current, h) {
+                self.lock_failed();
                 self.lock_form.error = Some(tr("Code actuel incorrect"));
                 return Task::none();
             }
         }
-        match f.method {
-            None => {
-                self.settings.lock_method = None;
-                self.settings.lock_hash = None;
-            }
+        let hash = match f.method {
+            None => None,
             Some(m) => {
                 let valid = match m {
                     LockMethod::Pin => lock::valid_pin(&f.new),
@@ -2586,13 +3139,24 @@ impl App {
                     self.lock_form.error = Some(tr("Les deux saisies ne correspondent pas"));
                     return Task::none();
                 }
-                self.settings.lock_method = Some(m);
-                self.settings.lock_hash = Some(lock::hash(&f.new));
+                Some((m, lock::hash(&f.new)))
             }
+        };
+        let saved = match (&self.db, &hash) {
+            (Some(db), Some((m, h))) => lock::store(db, Some((*m, h))),
+            (Some(db), None) => lock::store(db, None),
+            (None, _) => Ok(()),
+        };
+        if let Err(e) = saved {
+            return self.fail(e);
         }
+        // An older version's hash that could not be moved: replaced for good.
+        self.settings.lock_hash = None;
         self.settings.lock_failures = 0;
-        self.settings.lock_until = 0;
-        let _ = self.settings.save(&self.paths);
+        self.settings.lock_method = hash.map(|(m, _)| m);
+        self.lock_until = None;
+        self.last_tick = (std::time::Instant::now(), std::time::SystemTime::now());
+        self.save_settings();
         self.lock_form = LockForm {
             method: self.settings.lock_method,
             ..LockForm::default()
@@ -2605,9 +3169,147 @@ impl App {
     }
 }
 
+/// How long nothing happened: the longer of the monotonic clock (stopped while the computer sleeps) and the wall
+/// clock (which goes on).
+fn idle_for(
+    last: std::time::Instant,
+    last_wall: std::time::SystemTime,
+    now: (std::time::Instant, std::time::SystemTime),
+) -> std::time::Duration {
+    let mono = now.0.saturating_duration_since(last);
+    let wall = now.1.duration_since(last_wall).unwrap_or_default();
+    mono.max(wall)
+}
+
+/// How often the idle check runs while a lock is set.
+const LOCK_TICK: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Whether the computer slept between two idle checks: the wall clock went on a minute more than the monotonic one
+/// (Linux, macOS: that clock stops while asleep), or the check came more than a minute late (Windows: its
+/// monotonic clock goes on while asleep, but no check runs then).
+fn slept(prev: (std::time::Instant, std::time::SystemTime), now: (std::time::Instant, std::time::SystemTime)) -> bool {
+    let mono = now.0.saturating_duration_since(prev.0);
+    let wall = now.1.duration_since(prev.1).unwrap_or_default();
+    let minute = std::time::Duration::from_secs(60);
+    wall > mono + minute || mono > LOCK_TICK + minute
+}
+
+#[cfg(test)]
+mod idle_tests {
+    use super::*;
+    use std::time::{Duration, Instant, SystemTime};
+
+    #[test]
+    fn a_sleeping_computer_counts_as_idle() {
+        let (i, w) = (Instant::now(), SystemTime::now());
+        // Awake: both clocks agree, the checks come on time.
+        let awake = (i + Duration::from_secs(600), w + Duration::from_secs(600));
+        assert_eq!(idle_for(i, w, awake), Duration::from_secs(600));
+        let tick = (i + LOCK_TICK, w + LOCK_TICK);
+        assert!(!slept((i, w), tick));
+        // Asleep for an hour: the monotonic clock saw 20 s, the wall clock an hour.
+        let woke = (i + Duration::from_secs(20), w + Duration::from_secs(3_600));
+        assert_eq!(idle_for(i, w, woke), Duration::from_secs(3_600));
+        assert!(slept((i, w), woke));
+        // Windows: both clocks went on, but no check ran for an hour.
+        let woke = (i + Duration::from_secs(3_600), w + Duration::from_secs(3_600));
+        assert!(slept((i, w), woke));
+        // The wall clock set back: the monotonic one still counts.
+        let back = (i + Duration::from_secs(20), w - Duration::from_secs(3_600));
+        assert_eq!(idle_for(i, w, back), Duration::from_secs(20));
+        assert!(!slept((i, w), back));
+    }
+}
+
 fn dropped_file(e: iced::Event, _status: iced::event::Status, _window: iced::window::Id) -> Option<Message> {
     match e {
         iced::Event::Window(iced::window::Event::FileDropped(p)) => Some(Message::FileDropped(p)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod deleted_meanwhile_tests {
+    use super::*;
+
+    #[test]
+    fn a_host_deleted_while_edited_is_saved_again_only_once_asked() {
+        let data = std::env::temp_dir().join(format!("nautile-recreate-{}", std::process::id()));
+        let mut app = App::with(
+            Paths {
+                data: data.clone(),
+                portable: true,
+            },
+            Settings::default(),
+            Some(Db::in_memory().unwrap()),
+            None,
+        );
+        app.locked = false;
+        let db = app.db.as_ref().unwrap();
+        let mut jump = Host::new("jump", "10.0.0.1");
+        jump.id = db.store().insert(&jump).unwrap();
+        let mut h = Host::new("web", "10.0.0.2");
+        h.jump_host_id = Some(jump.id);
+        h.os_id = Some("debian".into());
+        h.last_connected_at = Some(5);
+        let id = db.store().insert(&h).unwrap();
+        let stored: Host = db.store().get(id).unwrap().unwrap();
+        assert!(!stored.sync_id.is_empty());
+        app.reload();
+        let _ = app.update(Message::EditHost(id));
+        if let Some(Editor::Host(f)) = &mut app.editor {
+            f.alias = "web-01".into();
+        }
+        // Meanwhile, a synchronisation deletes the host and its jump host.
+        let db = app.db.as_ref().unwrap();
+        db.store().delete::<Host>(id).unwrap();
+        db.store().delete::<Host>(jump.id).unwrap();
+
+        let _ = app.update(Message::SaveHost);
+        assert!(app.deleted_meanwhile.is_some(), "asks first");
+        assert!(app.editor.is_some());
+        assert!(
+            app.db.as_ref().unwrap().store().all::<Host>().unwrap().is_empty(),
+            "nothing saved yet"
+        );
+
+        let _ = app.update(Message::Recreate);
+        assert!(app.deleted_meanwhile.is_none() && app.editor.is_none());
+        let hosts: Vec<Host> = app.db.as_ref().unwrap().store().all().unwrap();
+        assert_eq!(hosts.len(), 1);
+        let h = &hosts[0];
+        assert_eq!(h.alias, "web-01");
+        assert_ne!(h.id, id);
+        assert!(
+            !h.sync_id.is_empty() && h.sync_id != stored.sync_id,
+            "a new synchronisation identity"
+        );
+        assert_eq!((h.jump_host_id, h.os_id.as_deref(), h.last_connected_at), (None, None, None));
+        let _ = std::fs::remove_dir_all(data);
+    }
+
+    #[test]
+    fn an_edit_starts_from_the_row_as_stored_now() {
+        let db = Db::in_memory().unwrap();
+        let mut g: HostGroup = serde_json::from_value(serde_json::json!({ "name": "A" })).unwrap();
+        g.id = db.store().insert(&g).unwrap();
+        let original: HostGroup = db.store().get(g.id).unwrap().unwrap();
+        let mut changed = original.clone();
+        changed.icon = Some("server".into());
+        db.store().update(&changed).unwrap();
+        let base = save_base(&db, Some(&original), false).unwrap().unwrap();
+        assert_eq!(base.icon.as_deref(), Some("server"));
+        db.store().delete::<HostGroup>(g.id).unwrap();
+        assert_eq!(save_base(&db, Some(&original), false).unwrap_err(), BaseError::DeletedMeanwhile);
+        let again = save_base(&db, Some(&original), true).unwrap().unwrap();
+        assert_eq!((again.id, again.sync_id.as_str(), again.updated_at), (0, "", 0));
+        // The same record stored again under another id (a synchronisation): saved over, not asked.
+        let mut moved = original.clone();
+        moved.id = 0;
+        let moved_id = db.store().insert(&moved).unwrap();
+        assert_ne!(moved_id, original.id);
+        let base = save_base(&db, Some(&original), false).unwrap().unwrap();
+        assert_eq!((base.id, base.sync_id.as_str()), (moved_id, original.sync_id.as_str()));
+        assert!(matches!(save_base::<HostGroup>(&db, None, false), Ok(None)));
     }
 }

@@ -11,7 +11,6 @@ kotlin { jvmToolchain(17) }
 dependencies {
     api(libs.sshj)
     implementation(project(":core:i18n"))
-    api(libs.eddsa)
     implementation(libs.commons.net)
     api(libs.bouncycastle.prov)
     api(libs.bouncycastle.pkix)

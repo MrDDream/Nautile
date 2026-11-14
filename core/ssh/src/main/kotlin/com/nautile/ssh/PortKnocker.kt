@@ -1,7 +1,6 @@
 package com.nautile.ssh
 
 import com.nautile.i18n.tr
-
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress

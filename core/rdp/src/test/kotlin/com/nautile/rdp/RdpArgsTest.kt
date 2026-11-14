@@ -16,7 +16,22 @@ class RdpArgsTest {
         assertTrue("/size:2400x1080" in a)
         assertTrue("/gfx" in a)
         assertTrue("/sound" in a)
-        assertFalse(a.any { it.startsWith("/u:") || it.startsWith("/p:") || it.startsWith("/sec:") || it.startsWith("/cert") })
+        assertFalse(a.any { it.startsWith("/u:") || it.startsWith("/p:") || it.startsWith("/cert") })
+    }
+
+    @Test fun autoSecurityNeverFallsBackToStandardRdp() {
+        val a = RdpArgs.build(base.copy(password = "secret"), h264 = false)
+        assertEquals(listOf("/sec:tls:on,nla:on,rdp:off"), a.filter { it.startsWith("/sec") })
+        assertTrue("/p:secret" in a)
+    }
+
+    @Test fun standardRdpSecurityNeverSendsThePassword() {
+        val a = RdpArgs.build(base.copy(username = "alice", password = "secret", security = RdpSecurity.RDP), h264 = false)
+        assertTrue("/sec:rdp" in a)
+        assertTrue("/u:alice" in a)
+        assertFalse(a.any { it.startsWith("/p:") })
+        assertFalse(RdpArgs.sendsPassword(RdpSecurity.RDP))
+        assertTrue(RdpArgs.sendsPassword(RdpSecurity.TLS))
     }
 
     @Test fun credentialsSecurityAndOptions() {

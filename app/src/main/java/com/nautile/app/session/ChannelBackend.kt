@@ -1,10 +1,9 @@
 package com.nautile.app.session
 
 import com.nautile.i18n.tr
-
-import com.termux.terminal.TerminalSession
-import com.nautile.ssh.TerminalChannel
 import com.nautile.ssh.SshCancelledException
+import com.nautile.ssh.TerminalChannel
+import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -13,6 +12,7 @@ import kotlinx.coroutines.launch
 import net.schmizz.sshj.transport.TransportException
 import net.schmizz.sshj.userauth.UserAuthException
 import java.io.IOException
+import java.io.OutputStream
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
@@ -26,9 +26,10 @@ class ChannelBackend(
     private val startupCommand: String?,
     private val notice: String?,
     private val onConnected: () -> Unit,
-    /** Receives a copy of everything the server sends (session log), closed at the end. */
-    private val log: java.io.OutputStream? = null,
+    /** Opens the session log, which receives a copy of everything the server sends; closed at the end. */
+    private val openLog: (() -> OutputStream?)? = null,
 ) : TerminalSession.Backend {
+    @Volatile private var log: OutputStream? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var shell: TerminalChannel? = null
     @Volatile private var columns = 80
@@ -52,8 +53,15 @@ class ChannelBackend(
                 print("\u001b[90m$step\u001b[0m\r\n")
             }
             shell = sh
-            if (closedByUser) { finish(tr("Session fermée"), failed = false); return }
+            if (closedByUser || finished) {
+                // Closed while connecting: finish() may already have run (and closed nothing).
+                runCatching { sh.close() }
+                shell = null
+                finish(tr("Session fermée"), failed = false)
+                return
+            }
             session._state.value = SessionState.Connected
+            log = openLog?.let { runCatching { it() }.getOrNull() }
             onConnected()
             startupCommand?.let { cmd -> sh.output.write((cmd.replace("\n", "\r") + "\r").toByteArray()); sh.output.flush() }
             val buffer = ByteArray(8192)
@@ -97,6 +105,18 @@ class ChannelBackend(
         val out = shell?.output ?: return
         out.write(data, offset, count)
         out.flush()
+    }
+
+    // The writer thread failed (e.g. a write timeout) or the peer stopped reading: end the connection
+    // instead of leaving a session that silently drops what is typed.
+    override fun writeFailed(e: IOException) {
+        if (closedByUser) return
+        val reason = if (e is TerminalSession.OutgoingOverflowException) tr("Le serveur ne lit plus ce qui lui est envoyé") else describe(e)
+        // Closed off the main thread: release() would close it here otherwise.
+        val sh = shell
+        shell = null
+        if (sh != null) Thread { runCatching { sh.close() } }.start()
+        finish(reason, failed = true)
     }
 
     override fun resize(columns: Int, rows: Int) {

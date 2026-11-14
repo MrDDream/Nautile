@@ -1,7 +1,6 @@
 package com.nautile.ssh
 
 import com.nautile.i18n.tr
-
 import java.io.DataInputStream
 import java.io.IOException
 import java.net.InetAddress
@@ -91,7 +90,7 @@ internal class ProxiedSocket(private val proxy: ProxyConfig) : Socket() {
             append("CONNECT $authority HTTP/1.1\r\nHost: $authority\r\n")
             if (!proxy.username.isNullOrEmpty()) {
                 val token = Base64.getEncoder().encodeToString("${proxy.username}:${proxy.password.orEmpty()}".toByteArray())
-                append(tr("Proxy-Authorization: Basic %1\$s\r\n", token))
+                append("Proxy-Authorization: Basic $token\r\n")
             }
             append("\r\n")
         }

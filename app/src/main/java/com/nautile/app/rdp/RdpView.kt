@@ -15,6 +15,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -242,7 +243,7 @@ class RdpView(context: Context) : View(context), RdpDisplay {
 
     // ---- Touch gestures ----
 
-    private val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     /** Press and hold: right click on release, or left drag once the finger moves. */
     private var holding = false
     private var dragging = false

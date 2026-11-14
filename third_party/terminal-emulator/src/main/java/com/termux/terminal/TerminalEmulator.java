@@ -939,6 +939,12 @@ public final class TerminalEmulator {
                     // the meaning of e.g. "ku", "kd", "kr", "kl"
 
                     for (String part : dcs.substring(2).split(";")) {
+                        // Nautile: the name is echoed back in the reply, so only hex is accepted: anything else
+                        // would let the output inject text into the shell's input. Ignored without a reply.
+                        if (!isHexString(part)) {
+                            Logger.logError(mClient, LOG_TAG, "Invalid device termcap/terminfo encoded name");
+                            continue;
+                        }
                         if (part.length() % 2 == 0) {
                             StringBuilder transBuffer = new StringBuilder();
                             char c;
@@ -2003,13 +2009,11 @@ public final class TerminalEmulator {
                 }
                 break;
             case 52: // Manipulate Selection Data. Skip the optional first selection parameter(s).
-                int startIndex = textParameter.indexOf(";") + 1;
-                try {
-                    String clipboardText = new String(java.util.Base64.getMimeDecoder().decode(textParameter.substring(startIndex)), StandardCharsets.UTF_8);
-                    mSession.onCopyTextToClipboard(clipboardText);
-                } catch (Exception e) {
-                    Logger.logError(mClient, LOG_TAG, "OSC Manipulate selection, invalid string '" + textParameter + "");
-                }
+                // Nautile: a program writing to the clipboard goes through its own callback (the app decides
+                // whether to allow it). "?" is a read request, which is not supported: it used to decode to ""
+                // and empty the clipboard; empty and oversized payloads are ignored too.
+                String clipboardText = decodeOsc52(textParameter);
+                if (clipboardText != null) mSession.onRemoteCopyTextToClipboard(clipboardText);
                 break;
             case 104:
                 // "104;$c" → Reset Color Number $c. It is reset to the color specified by the corresponding X
@@ -2490,9 +2494,8 @@ public final class TerminalEmulator {
 
         // Then: Implement bracketed paste mode if enabled:
         boolean bracketed = isDecsetInternalBitSet(DECSET_BIT_BRACKETED_PASTE_MODE);
-        if (bracketed) mSession.write("\033[200~");
-        mSession.write(text);
-        if (bracketed) mSession.write("\033[201~");
+        // Nautile: one write, so that a paste refused as too large leaves no lone bracket behind.
+        mSession.write(bracketed ? "\033[200~" + text + "\033[201~" : text);
     }
 
     /** http://www.vt100.net/docs/vt510-rm/DECSC */
@@ -2510,4 +2513,35 @@ public final class TerminalEmulator {
             + "," + mLeftMargin + "}]";
     }
 
+
+    /** Nautile: most characters a program may put in the clipboard through OSC 52. */
+    static final int OSC52_MAX_CHARS = 100_000;
+
+    /** Nautile: the text an OSC 52 "Pc;Pd" parameter sets, or null when it must be ignored. */
+    static String decodeOsc52(String textParameter) {
+        String data = textParameter.substring(textParameter.indexOf(';') + 1).trim();
+        // "?" asks for the clipboard's content, empty data means "clear": neither is honoured.
+        if (data.isEmpty() || data.equals("?")) return null;
+        // Base64 needs 4 characters for 3 bytes; a UTF-8 character is at least one byte.
+        if (data.length() > (OSC52_MAX_CHARS / 3 + 1) * 4 * 4) return null;
+        String text;
+        try {
+            text = new String(java.util.Base64.getMimeDecoder().decode(data), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        if (text.isEmpty() || text.length() > OSC52_MAX_CHARS) return null;
+        return text;
+    }
+
+    /** Nautile: whether {@code s} is a non-empty run of hexadecimal digits. */
+    static boolean isHexString(String s) {
+        if (s.isEmpty()) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            boolean hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+            if (!hex) return false;
+        }
+        return true;
+    }
 }

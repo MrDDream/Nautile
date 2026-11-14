@@ -6,7 +6,7 @@ NAME=nautile-rdp
 cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; }
 cleanup
 trap cleanup EXIT
-docker run -d --name "$NAME" -p 127.0.0.1:23389:3389 --shm-size=1g scottyhardy/docker-remote-desktop:latest >/dev/null
+docker run -d --name "$NAME" -p 127.0.0.1:23389:3389 --shm-size=1g scottyhardy/docker-remote-desktop:latest@sha256:7c0d4c3247e08eb870b9335564060e5de40cbfd55b8a577e40cdcda42719d11f >/dev/null
 echo "Waiting for xrdp…"
 for _ in $(seq 1 90); do
   docker logs "$NAME" 2>&1 | grep -qi "listening" && break

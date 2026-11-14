@@ -1,7 +1,5 @@
 package com.nautile.app.ui.hosts
 
-import com.nautile.i18n.tr
-
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -11,20 +9,25 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.nautile.app.NautileApp
-import com.nautile.data.importer.CsvHostParser
-import com.nautile.data.importer.ImportedHost
-import com.nautile.data.importer.SshConfigParser
+import com.nautile.app.keys.DuplicateKeyException
+import com.nautile.app.rdp.RdpManager
+import com.nautile.app.readText
 import com.nautile.data.model.AuthMethod
 import com.nautile.data.model.DEFAULT_COLOR
 import com.nautile.data.model.Host
 import com.nautile.data.model.HostGroup
-import com.nautile.data.model.Protocol
-import com.nautile.data.model.defaultPort
-import com.nautile.data.model.ProxyKind
 import com.nautile.data.model.Identity
+import com.nautile.data.model.Protocol
+import com.nautile.data.model.ProxyKind
 import com.nautile.data.model.SshKey
-import com.nautile.ssh.PassphraseRequiredException
+import com.nautile.data.model.defaultPortOrSsh
+import com.nautile.data.model.isDesktop
+import com.nautile.data.model.usesSsh
 import com.nautile.data.repo.HostRepository
+import com.nautile.i18n.tr
+import com.nautile.ssh.PassphraseRequiredException
+import com.nautile.ssh.PortKnocker
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -74,10 +77,12 @@ data class HostForm(
 ) {
     val portValue: Int? get() = port.toIntOrNull()?.takeIf { it in 1..65535 }
     val proxyPortValue: Int? get() = proxyPort.toIntOrNull()?.takeIf { it in 1..65535 }
+    /** « SOCKS5 host:port » under the Proxy row; null without a proxy. */
+    val proxySummary: String? get() = proxyType?.let { "${it.name} $proxyHost" + (proxyPort.takeIf { p -> p.isNotEmpty() }?.let { p -> ":$p" } ?: "") }
     val needsAddress: Boolean get() = kind == Protocol.SSH || kind == Protocol.TELNET || kind == Protocol.RDP || kind == Protocol.VNC
-    val rdpResolutionValid: Boolean get() = rdpResolution.isBlank() || com.nautile.app.rdp.RdpManager.parseResolution(rdpResolution) != null
+    val rdpResolutionValid: Boolean get() = rdpResolution.isBlank() || RdpManager.parseResolution(rdpResolution) != null
     val rdpScaleValue: Int? get() = rdpScale.toIntOrNull()?.takeIf { it in 100..500 }
-    val knockValid: Boolean get() = knock.isBlank() || runCatching { com.nautile.ssh.PortKnocker.parse(knock) }.isSuccess
+    val knockValid: Boolean get() = knock.isBlank() || runCatching { PortKnocker.parse(knock) }.isSuccess
     val isValid: Boolean
         get() = (!needsAddress || (hostname.isNotBlank() && portValue != null && knockValid)) &&
             (kind != Protocol.SERIAL || baud.toIntOrNull() != null) &&
@@ -99,11 +104,20 @@ class HostEditViewModel(
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
+    /** While a save runs: « Enregistrer » and « Connecter » do nothing (a second tap would add the host twice). */
+    private val _saving = MutableStateFlow(false)
+    val saving: StateFlow<Boolean> = _saving.asStateFlow()
+
+    /** The host was deleted (on another device, by a synchronisation) while being edited: saving waits for a yes. */
+    private val _deletedElsewhere = MutableStateFlow(false)
+    val deletedElsewhere: StateFlow<Boolean> = _deletedElsewhere.asStateFlow()
+    private var pendingSave: ((Long) -> Unit)? = null
+
     val groups: StateFlow<List<HostGroup>> = repo.groups.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val keys: StateFlow<List<SshKey>> = app.keyRepository.keys.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val identities: StateFlow<List<Identity>> = app.keyRepository.identities.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val jumpCandidates: StateFlow<List<Host>> = repo.hosts
-        .map { list -> list.filter { it.id != hostId && it.protocol in setOf(Protocol.SSH, Protocol.MOSH) } }
+        .map { list -> jumpCandidates(list, hostId) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
@@ -113,7 +127,7 @@ class HostEditViewModel(
             val base = HostForm(
                 kind = if (kind == Protocol.MOSH) Protocol.SSH else kind,
                 mosh = kind == Protocol.MOSH,
-                port = kind.defaultPort.takeIf { it > 0 }?.toString() ?: "22",
+                port = kind.defaultPortOrSsh.toString(),
             )
             val target = handle.get<String>("target")?.let { QuickConnect.parse(it, kind) }
             _form.value = if (target == null) base
@@ -160,48 +174,95 @@ class HostEditViewModel(
     fun update(transform: (HostForm) -> HostForm) = _form.update(transform)
     fun consumeMessage() { _message.value = null }
 
-    fun save(onSaved: (Long) -> Unit) {
+    fun save(onSaved: (Long) -> Unit) = save(onSaved, recreate = false)
+
+    /** « Recréer » in the dialog shown by [deletedElsewhere]: saves the form as a new host. */
+    fun confirmRecreate() {
+        val onSaved = pendingSave ?: return
+        _deletedElsewhere.value = false
+        pendingSave = null
+        save(onSaved, recreate = true)
+    }
+
+    fun cancelRecreate() {
+        _deletedElsewhere.value = false
+        pendingSave = null
+    }
+
+    private fun save(onSaved: (Long) -> Unit, recreate: Boolean) {
         val f = _form.value
-        if (!f.isValid) return
+        if (!f.isValid || _saving.value) return
+        _saving.value = true
         viewModelScope.launch {
-            val groupId = f.group.trim().takeIf { it.isNotEmpty() }?.let { repo.groupId(it) }
-            val base = original ?: Host(alias = "", hostname = "")
-            val id = repo.save(
-                base.copy(
-                    alias = f.alias.trim().ifEmpty { f.hostname.trim() }.ifEmpty { if (f.kind == Protocol.LOCAL) tr("Ce téléphone") else tr("Port série") },
-                    hostname = when (f.kind) { Protocol.LOCAL -> "localhost"; Protocol.SERIAL -> "usb"; else -> f.hostname.trim() },
-                    port = if (f.needsAddress) f.portValue!! else 0,
-                    username = f.username.trim(),
-                    protocol = if (f.kind == Protocol.SSH && f.mosh) Protocol.MOSH else f.kind,
-                    knockSequence = f.knock.trim().takeIf { f.needsAddress && it.isNotEmpty() },
-                    serialBaud = f.baud.toIntOrNull().takeIf { f.kind == Protocol.SERIAL },
-                    authMethod = if ((f.kind == Protocol.RDP && f.auth == AuthMethod.KEY) || f.kind == Protocol.VNC) AuthMethod.PASSWORD else f.auth,
-                    // Also used by the terminal's key button to answer sudo prompts.
-                    password = f.password.takeIf { it.isNotEmpty() },
-                    keyId = f.keyId.takeIf { f.auth == AuthMethod.KEY },
-                    identityId = f.identityId.takeIf { f.auth == AuthMethod.IDENTITY },
-                    agentForwarding = f.agentForwarding,
-                    proxyType = f.proxyType,
-                    proxyHost = f.proxyHost.trim().takeIf { f.proxyType != null && it.isNotEmpty() },
-                    proxyPort = f.proxyPortValue.takeIf { f.proxyType != null },
-                    proxyUsername = f.proxyUsername.trim().takeIf { f.proxyType != null && it.isNotEmpty() },
-                    proxyPassword = f.proxyPassword.takeIf { f.proxyType != null && it.isNotEmpty() },
-                    groupId = groupId,
-                    jumpHostId = f.jumpHostId,
-                    color = f.color,
-                    tags = f.tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }.joinToString(","),
-                    startupCommand = f.startupCommand.trim().ifEmpty { null }.takeIf { f.kind != Protocol.RDP && f.kind != Protocol.VNC },
-                    rdpDomain = f.rdpDomain.trim().takeIf { f.kind == Protocol.RDP && it.isNotEmpty() },
-                    rdpResolution = f.rdpResolution.takeIf { f.kind == Protocol.RDP }
-                        ?.let(com.nautile.app.rdp.RdpManager::parseResolution)?.let { (w, h) -> "${w}x$h" },
-                    rdpScale = f.rdpScaleValue.takeIf { f.kind == Protocol.RDP },
-                    rdpSecurity = f.rdpSecurity.takeIf { f.kind == Protocol.RDP },
-                    rdpAudio = f.rdpAudio,
-                    rdpConsole = f.rdpConsole && f.kind == Protocol.RDP,
-                ),
-            )
-            onSaved(id)
+            try {
+                saveForm(f, onSaved, recreate)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A constraint refused it (a record it points to deleted in the meantime…): the form stays open.
+                _message.value = tr("Enregistrement impossible : %1\$s", e.message ?: e.javaClass.simpleName)
+            } finally {
+                _saving.value = false
+            }
         }
+    }
+
+    private suspend fun saveForm(f: HostForm, onSaved: (Long) -> Unit, recreate: Boolean) {
+        // The host as it is now (a synchronisation may have changed it since the screen opened); saved anew
+        // if it was deleted meanwhile, once the user said so.
+        val current = original?.let { repo.get(it.id) }
+        if (original != null && current == null && !recreate) {
+            pendingSave = onSaved
+            _deletedElsewhere.value = true
+            return
+        }
+        val groupId = f.group.trim().takeIf { it.isNotEmpty() }?.let { repo.groupId(it) }
+        val base = current ?: original?.copy(id = 0, syncId = "", updatedAt = 0, lastConnectedAt = null) ?: Host(alias = "", hostname = "")
+        val edited = base.copy(
+            alias = f.alias.trim().ifEmpty { f.hostname.trim() }.ifEmpty { if (f.kind == Protocol.LOCAL) tr("Ce téléphone") else tr("Port série") },
+            hostname = when (f.kind) { Protocol.LOCAL -> "localhost"; Protocol.SERIAL -> "usb"; else -> f.hostname.trim() },
+            port = if (f.needsAddress) f.portValue!! else 0,
+            username = f.username.trim(),
+            protocol = if (f.kind == Protocol.SSH && f.mosh) Protocol.MOSH else f.kind,
+            knockSequence = f.knock.trim().takeIf { f.needsAddress && it.isNotEmpty() },
+            serialBaud = f.baud.toIntOrNull().takeIf { f.kind == Protocol.SERIAL },
+            authMethod = if ((f.kind == Protocol.RDP && f.auth == AuthMethod.KEY) || f.kind == Protocol.VNC) AuthMethod.PASSWORD else f.auth,
+            // Also used by the terminal's key button to answer sudo prompts.
+            password = f.password.takeIf { it.isNotEmpty() },
+            keyId = f.keyId.takeIf { f.auth == AuthMethod.KEY },
+            identityId = f.identityId.takeIf { f.auth == AuthMethod.IDENTITY },
+            agentForwarding = f.agentForwarding,
+            proxyType = f.proxyType,
+            proxyHost = f.proxyHost.trim().takeIf { f.proxyType != null && it.isNotEmpty() },
+            proxyPort = f.proxyPortValue.takeIf { f.proxyType != null },
+            proxyUsername = f.proxyUsername.trim().takeIf { f.proxyType != null && it.isNotEmpty() },
+            proxyPassword = f.proxyPassword.takeIf { f.proxyType != null && it.isNotEmpty() },
+            groupId = groupId,
+            jumpHostId = f.jumpHostId,
+            color = f.color,
+            tags = f.tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }.joinToString(","),
+            startupCommand = f.startupCommand.trim().ifEmpty { null }.takeIf { !f.kind.isDesktop },
+            rdpDomain = f.rdpDomain.trim().takeIf { f.kind == Protocol.RDP && it.isNotEmpty() },
+            rdpResolution = f.rdpResolution.takeIf { f.kind == Protocol.RDP }
+                ?.let(RdpManager::parseResolution)?.let { (w, h) -> "${w}x$h" },
+            rdpScale = f.rdpScaleValue.takeIf { f.kind == Protocol.RDP },
+            rdpSecurity = f.rdpSecurity.takeIf { f.kind == Protocol.RDP },
+            rdpAudio = f.rdpAudio,
+            rdpConsole = f.rdpConsole && f.kind == Protocol.RDP,
+        )
+        // The key, identity or jump host picked may have been deleted since (here or by a synchronisation).
+        val keys = app.database.keyDao()
+        val id = repo.save(
+            withoutMissingLinks(
+                edited,
+                keyExists = edited.keyId?.let { keys.key(it) != null } ?: true,
+                identityExists = edited.identityId?.let { keys.identity(it) != null } ?: true,
+                jumpExists = edited.jumpHostId?.let { it != edited.id && repo.get(it) != null } ?: true,
+            ),
+        )
+        // Later saves (back from « Connecter ») update this host instead of adding another one.
+        original = repo.get(id)
+        onSaved(id)
     }
 
     fun delete(onDeleted: () -> Unit) {
@@ -213,7 +274,7 @@ class HostEditViewModel(
     fun importKey(uri: Uri) {
         viewModelScope.launch {
             val text = runCatching {
-                withContext(Dispatchers.IO) { app.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } }
+                withContext(Dispatchers.IO) { app.contentResolver.readText(uri) }
             }.getOrNull()
             if (text == null || !looksLikePrivateKey(text)) {
                 _message.value = tr("Ce fichier n'est pas une clé privée")
@@ -225,7 +286,7 @@ class HostEditViewModel(
                 .onFailure { e ->
                     _message.value = when (e) {
                         is PassphraseRequiredException -> tr("Clé chiffrée : importez-la depuis le Trousseau pour saisir sa phrase de passe")
-                        is com.nautile.app.keys.DuplicateKeyException -> {
+                        is DuplicateKeyException -> {
                             _form.update { it.copy(auth = AuthMethod.KEY, keyId = e.existing.id) }
                             tr("Déjà dans le trousseau : « %1\$s » sélectionnée", e.existing.name)
                         }
@@ -243,14 +304,29 @@ class HostEditViewModel(
             }
         }
 
+        /** [host] without the links to records that no longer exist (the database would refuse them). */
+        internal fun withoutMissingLinks(host: Host, keyExists: Boolean, identityExists: Boolean, jumpExists: Boolean) = host.copy(
+            keyId = host.keyId.takeIf { keyExists },
+            identityId = host.identityId.takeIf { identityExists },
+            jumpHostId = host.jumpHostId.takeIf { jumpExists },
+        )
+
         fun looksLikePrivateKey(text: String) =
             text.contains("PRIVATE KEY-----") || text.trimStart().startsWith("PuTTY-User-Key-File")
 
-        internal fun parseImport(text: String): List<ImportedHost> {
-            val firstLine = text.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().lowercase()
-            val looksCsv = ',' in firstLine && Regex("\\b(hostname|host|address)\\b").containsMatchIn(firstLine) &&
-                !firstLine.trimStart().startsWith("host ")
-            return if (looksCsv) CsvHostParser.parse(text) else SshConfigParser.parse(text)
+        /** SSH hosts that can serve as a jump host for [hostId]: not itself, nor one that already jumps through it. */
+        internal fun jumpCandidates(hosts: List<Host>, hostId: Long): List<Host> {
+            val byId = hosts.associateBy { it.id }
+            fun reaches(h: Host): Boolean {
+                val seen = HashSet<Long>()
+                var cur: Host? = h
+                while (cur != null && seen.add(cur.id)) {
+                    if (cur.id == hostId) return true
+                    cur = cur.jumpHostId?.let(byId::get)
+                }
+                return false
+            }
+            return hosts.filter { it.protocol.usesSsh && (hostId == 0L || !reaches(it)) }
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.nautile.app.update
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,7 +15,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nautile.app.BuildConfig
 import com.nautile.app.ui.theme.Nt
 import com.nautile.i18n.tr
@@ -33,7 +35,7 @@ import java.io.File
 @Composable
 fun UpdateDialog() {
     val context = LocalContext.current
-    val release by UpdateChecker.available.collectAsState()
+    val release by UpdateChecker.available.collectAsStateWithLifecycle()
     val r = release ?: return
     val scope = rememberCoroutineScope()
     var progress by remember(r.tag) { mutableStateOf<Float?>(null) }
@@ -74,7 +76,7 @@ fun UpdateDialog() {
                 onClick = {
                     downloaded?.let { f -> if (UpdateChecker.install(context, f)) UpdateChecker.later(); return@Button }
                     if (apk == null) {
-                        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(r.page)))
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(r.page)))
                         return@Button
                     }
                     error = null

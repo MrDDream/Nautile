@@ -58,15 +58,22 @@ fn entries() -> [(TrayEvent, String); 5] {
     ]
 }
 
+/// The app's icon (the packages' picture) as RGBA: width, height, pixels. `None` if it were not 8-bit RGBA.
+pub fn app_icon() -> Option<(u32, u32, Vec<u8>)> {
+    let decoder = png::Decoder::new(std::io::Cursor::new(include_bytes!("../../../packaging/nautile.png")));
+    let mut reader = decoder.read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()?];
+    let info = reader.next_frame(&mut buf).ok()?;
+    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+        return None;
+    }
+    buf.truncate(info.buffer_size());
+    Some((info.width, info.height, buf))
+}
+
 /// The app's icon, as RGBA, reduced to [size] pixels.
 fn icon_rgba(size: u32) -> (u32, u32, Vec<u8>) {
-    let decoder = png::Decoder::new(std::io::Cursor::new(include_bytes!("../../../packaging/nautile.png")));
-    let Some((w, h, src)) = decoder.read_info().ok().and_then(|mut r| {
-        let mut buf = vec![0; r.output_buffer_size()];
-        let info = r.next_frame(&mut buf).ok()?;
-        buf.truncate(info.buffer_size());
-        Some((info.width, info.height, buf))
-    }) else {
+    let Some((w, h, src)) = app_icon() else {
         return (1, 1, vec![0; 4]);
     };
     let step = (w / size).max(1);

@@ -1,6 +1,7 @@
 package com.nautile.app
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import java.io.File
@@ -62,7 +63,11 @@ object CrashReporter {
 
     private fun report(context: Context, thread: Thread, error: Throwable): String {
         val trace = StringWriter().also { error.printStackTrace(PrintWriter(it)) }.toString()
-        val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+        val version = runCatching {
+            val pm = context.packageManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
+            else @Suppress("DEPRECATION") pm.getPackageInfo(context.packageName, 0)
+        }.getOrNull()?.versionName
         return buildString {
             appendLine("Nautile $version — ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date())}")
             appendLine("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) · ${Build.MANUFACTURER} ${Build.MODEL}")
@@ -74,17 +79,35 @@ object CrashReporter {
 
     /**
      * Keeps the exception types and the code locations, masks what could name the user or their
-     * machines: messages' quoted parts, addresses, user@host, e-mails, paths, secrets.
+     * machines: messages' quoted parts, addresses, host names, user@host, e-mails, paths, secrets.
+     * Every line but a code location (`at …`, `... n more`) is scrubbed, the lines that go on a
+     * message over several lines included.
      */
     internal fun anonymize(trace: String): String = trace.lineSequence().joinToString("\n") { line ->
         val t = line.trimStart()
-        if (t.startsWith("at ") || t.startsWith("...")) return@joinToString line
+        if (t.startsWith("at ") || FRAMES_MORE.matches(t)) return@joinToString line
         // « java.net.UnknownHostException: Unable to resolve host "nas.lan" »: keep the type, scrub the message.
-        val lead = listOf("Caused by: ", "Suppressed: ").firstOrNull { t.startsWith(it) }?.let { line.indexOf(it) + it.length } ?: 0
-        val cut = line.indexOf(": ", lead)
-        if (cut < 0) return@joinToString line
-        line.substring(0, cut + 2) + scrub(line.substring(cut + 2))
+        val lead = listOf("Caused by: ", "Suppressed: ").firstOrNull { t.startsWith(it) }?.let { line.indexOf(it) + it.length }
+        val start = lead ?: (line.length - t.length)
+        val type = EXCEPTION_TYPE.find(line.substring(start))?.value
+        when {
+            type != null -> line.substring(0, start) + type + scrub(line.substring(start + type.length))
+            // A line of a message going on, or anything else: all of it.
+            else -> line.substring(0, line.length - t.length) + scrub(t)
+        }
     }
+
+    /** `... 12 more` (a code location too). */
+    private val FRAMES_MORE = Regex("""\.\.\. \d+ more""")
+
+    /**
+     * A class name and what follows it: `java.io.IOException: ` or the whole of `java.lang.NullPointerException`
+     * (lower-case packages, a capital class: a host name going on a message is not taken for one).
+     */
+    private val EXCEPTION_TYPE = Regex("""^(?:[a-z_$][\w$]*\.)+[A-Z][\w$]*(?:: |$)""")
+
+    /** Names of code, left alone in messages (a class cast, a missing method). */
+    private val CODE_PREFIXES = listOf("java.", "javax.", "android.", "androidx.", "kotlin.", "kotlinx.", "dalvik.", "com.android.", "com.google.", "com.nautile.", "org.bouncycastle.", "net.schmizz.", "com.hierynomus.", "com.termux.", "okhttp3.", "okio.")
 
     private fun scrub(message: String): String = message
         .replace(Regex("\"[^\"]*\"|'[^']*'"), "\"…\"")
@@ -93,5 +116,8 @@ object CrashReporter {
         .replace(Regex("\\b(?:[0-9a-fA-F]{1,4}:){2,}[0-9a-fA-F:]*\\b"), "<ip>")
         .replace(Regex("(?:/[\\w.@-]+){2,}/?"), "<path>")
         .replace(Regex("(?i)\\b(password|passwd|pwd|token|secret|key)\\s*[=:]\\s*\\S+"), "$1=<…>")
-        .replace(Regex("\\b[a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)*\\.(?:lan|local|home|internal|com|net|org|fr|io|dev|eu|de|uk|be|ch|ca)\\b"), "<host>")
+        // Any dotted name ending in letters (nas.lan, git.example.co.uk, srv-1.corp), not only known domains.
+        .replace(HOST_NAME) { m -> if (CODE_PREFIXES.any { m.value.startsWith(it) }) m.value else "<host>" }
+
+    private val HOST_NAME = Regex("""\b[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\.[A-Za-z][A-Za-z0-9-]*\b""")
 }

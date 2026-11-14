@@ -71,6 +71,20 @@ pub fn set_custom(list: Vec<TermFont>) {
     }
 }
 
+/// One more imported font (or the new version of one with the same id).
+pub fn add_custom(f: TermFont) {
+    if let Ok(mut c) = CUSTOM.write() {
+        c.retain(|x| x.id != f.id);
+        c.push(f);
+    }
+}
+
+pub fn remove_custom(id: &str) {
+    if let Ok(mut c) = CUSTOM.write() {
+        c.retain(|x| x.id != id);
+    }
+}
+
 /// The bundled fonts, then the imported ones.
 pub fn all() -> Vec<TermFont> {
     let mut v = ALL.to_vec();
@@ -80,6 +94,14 @@ pub fn all() -> Vec<TermFont> {
     v
 }
 
+/// Called at each redraw (the terminal's font): no list is built for it.
 pub fn by_id(id: &str) -> TermFont {
-    all().into_iter().find(|f| f.id == id).unwrap_or(JETBRAINS)
+    if let Some(f) = ALL.iter().find(|f| f.id == id) {
+        return *f;
+    }
+    CUSTOM
+        .read()
+        .ok()
+        .and_then(|c| c.iter().find(|f| f.id == id).copied())
+        .unwrap_or(JETBRAINS)
 }

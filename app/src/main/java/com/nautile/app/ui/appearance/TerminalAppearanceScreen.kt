@@ -1,7 +1,6 @@
 package com.nautile.app.ui.appearance
 
-import com.nautile.i18n.tr
-
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -12,6 +11,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,15 +26,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -44,26 +48,37 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nautile.app.NautileApp
+import com.nautile.app.readText
 import com.nautile.app.session.TerminalFont
 import com.nautile.app.session.TerminalFonts
 import com.nautile.app.session.TerminalPrefs
 import com.nautile.app.session.TerminalTheme
 import com.nautile.app.session.TerminalThemes
 import com.nautile.app.session.ThemeImporter
+import com.nautile.app.ui.common.ConfirmDialog
+import com.nautile.app.ui.common.NtCard
 import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.common.Segmented
+import com.nautile.app.ui.settings.LinkRow
+import com.nautile.app.ui.settings.ToggleRow
+import com.nautile.app.ui.terminal.KeyCatalog
+import com.nautile.app.ui.terminal.KeyFace
+import com.nautile.app.ui.terminal.ReorderableKeyRow
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,15 +94,15 @@ private fun fontLabel(f: TerminalFont): String = if (f.id == TerminalFonts.SYSTE
 fun TerminalAppearanceScreen(onBack: () -> Unit, onOpenLogs: () -> Unit) {
     val app = LocalContext.current.applicationContext as NautileApp
     val prefs = app.terminalPrefs
-    val theme by prefs.theme.collectAsState()
-    val custom by prefs.customThemes.collectAsState()
-    val cursor by prefs.cursorStyle.collectAsState()
-    val size by prefs.fontSize.collectAsState()
-    val font by prefs.font.collectAsState()
-    val importedFonts by prefs.importedFonts.collectAsState()
+    val theme by prefs.theme.collectAsStateWithLifecycle()
+    val custom by prefs.customThemes.collectAsStateWithLifecycle()
+    val cursor by prefs.cursorStyle.collectAsStateWithLifecycle()
+    val size by prefs.fontSize.collectAsStateWithLifecycle()
+    val font by prefs.font.collectAsStateWithLifecycle()
+    val importedFonts by prefs.importedFonts.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }
     var fontMessage by remember { mutableStateOf<String?>(null) }
     val density = LocalDensity.current
@@ -99,7 +114,7 @@ fun TerminalAppearanceScreen(onBack: () -> Unit, onOpenLogs: () -> Unit) {
         scope.launch {
             fontMessage = runCatching {
                 val f = withContext(Dispatchers.IO) {
-                    val name = app.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                    val name = app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
                         if (c.moveToFirst()) c.getString(0) else null
                     }?.substringBeforeLast('.') ?: tr("Police importée")
                     val bytes = app.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error(tr("Fichier illisible"))
@@ -117,10 +132,10 @@ fun TerminalAppearanceScreen(onBack: () -> Unit, onOpenLogs: () -> Unit) {
         scope.launch {
             message = runCatching {
                 val (name, text) = withContext(Dispatchers.IO) {
-                    val n = app.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                    val n = app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
                         if (c.moveToFirst()) c.getString(0) else null
                     } ?: tr("Thème importé")
-                    n.substringBeforeLast('.') to (app.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } ?: error(tr("Fichier illisible")))
+                    n.substringBeforeLast('.') to (app.contentResolver.readText(uri) ?: error(tr("Fichier illisible")))
                 }
                 val t = ThemeImporter.parse(text, name)
                 prefs.addCustomTheme(t)
@@ -184,12 +199,12 @@ fun TerminalAppearanceScreen(onBack: () -> Unit, onOpenLogs: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(tr("Taille du texte"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 SizeButton("A−", tr("Réduire")) { prefs.setFontSize(size - with(density) { 1.sp.toPx() }.toInt().coerceAtLeast(1)) }
-                Text("$sp px", fontFamily = Nt.Mono, fontSize = 14.sp, modifier = Modifier.width(52.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Text("$sp px", fontFamily = Nt.Mono, fontSize = 14.sp, modifier = Modifier.width(52.dp), textAlign = TextAlign.Center)
                 SizeButton("A+", tr("Agrandir")) { prefs.setFontSize(size + with(density) { 1.sp.toPx() }.toInt().coerceAtLeast(1)) }
             }
 
             SectionLabel(tr("Police · %1\$s", fontLabel(font)))
-            val cells: List<com.nautile.app.session.TerminalFont?> = TerminalFonts.builtIn + importedFonts + listOf(null)
+            val cells: List<TerminalFont?> = TerminalFonts.builtIn + importedFonts + listOf(null)
             cells.chunked(2).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     row.forEach { f ->
@@ -293,109 +308,113 @@ private fun HistorySection(onOpenLogs: () -> Unit) {
     val app = LocalContext.current.applicationContext as NautileApp
     val prefs = app.terminalPrefs
     val scope = rememberCoroutineScope()
-    val history by prefs.history.collectAsState()
-    val logs by prefs.logSessions.collectAsState()
-    val confirmClose by prefs.confirmClose.collectAsState()
-    val count by app.database.toolsDao().observeHistoryCount().collectAsState(initial = 0)
+    val history by prefs.history.collectAsStateWithLifecycle()
+    val logs by prefs.logSessions.collectAsStateWithLifecycle()
+    val confirmClose by prefs.confirmClose.collectAsStateWithLifecycle()
+    val count by app.database.toolsDao().observeHistoryCount().collectAsStateWithLifecycle(initialValue = 0)
     var confirm by remember { mutableStateOf(false) }
 
     SectionLabel(tr("Fermeture"))
-    com.nautile.app.ui.common.NtCard {
-        com.nautile.app.ui.settings.ToggleRow(
+    NtCard {
+        ToggleRow(
             tr("Confirmer la fermeture"), tr("Demande avant de fermer une session connectée (terminal ou bureau à distance)"),
             confirmClose, onChange = prefs::setConfirmClose,
         )
     }
 
+    // OSC 52: off by default, and never applied while the app is locked (SessionManager).
+    val remoteClipboard by prefs.remoteClipboard.collectAsStateWithLifecycle()
+    SectionLabel(tr("Presse-papiers pour les programmes"), Modifier.padding(top = 8.dp))
+    NtCard {
+        ToggleRow(
+            tr("Autoriser les programmes à écrire dans le presse-papiers"),
+            tr("Copie demandée par un programme distant (tmux, vim…, séquence OSC 52), jamais quand l'appli est verrouillée"),
+            remoteClipboard, onChange = prefs::setRemoteClipboard,
+        )
+    }
+
     SectionLabel(tr("Historique et journaux"), Modifier.padding(top = 8.dp))
-    com.nautile.app.ui.common.NtCard {
-        com.nautile.app.ui.settings.ToggleRow(
+    NtCard {
+        ToggleRow(
             tr("Suggestions depuis l'historique"),
             tr("Commandes affichées en écho, par hôte (%1\$s enregistrées). Jamais les mots de passe.", count),
             history, onChange = prefs::setHistory,
         )
-        androidx.compose.material3.HorizontalDivider(color = Nt.Border)
-        com.nautile.app.ui.settings.ToggleRow(
+        HorizontalDivider(color = Nt.Border)
+        ToggleRow(
             tr("Enregistrer les sessions"), tr("Copie de la sortie de chaque nouvelle session, stockée sur l'appareil"),
             logs, onChange = prefs::setLogSessions,
         )
-        androidx.compose.material3.HorizontalDivider(color = Nt.Border)
-        com.nautile.app.ui.settings.LinkRow(tr("Journaux de session"), tr("Lire, partager ou supprimer"), "", onOpenLogs)
+        HorizontalDivider(color = Nt.Border)
+        LinkRow(tr("Journaux de session"), tr("Lire, partager ou supprimer"), "", onOpenLogs)
     }
     if (count > 0) OutlinedButton(
         onClick = { confirm = true }, modifier = Modifier.fillMaxWidth(),
         border = BorderStroke(1.dp, Nt.Pink.copy(alpha = 0.5f)),
     ) { Text(tr("Effacer l'historique (%1\$s commandes)", count), color = Nt.Pink) }
 
-    if (confirm) androidx.compose.material3.AlertDialog(
-        onDismissRequest = { confirm = false }, containerColor = Nt.Surface,
-        title = { Text(tr("Effacer les %1\$s commandes enregistrées ?", count)) },
-        text = { Text(tr("Les suggestions repartiront de zéro sur tous les hôtes."), color = Nt.TextSoft) },
-        dismissButton = { androidx.compose.material3.TextButton(onClick = { confirm = false }) { Text(tr("Annuler"), color = Nt.TextSoft) } },
-        confirmButton = {
-            androidx.compose.material3.TextButton(onClick = { confirm = false; scope.launch { app.database.toolsDao().clearHistory() } }) {
-                Text(tr("Effacer"), color = Nt.Pink, fontWeight = FontWeight.SemiBold)
-            }
-        },
-    )
+    if (confirm) ConfirmDialog(
+        tr("Effacer les %1\$s commandes enregistrées ?", count), tr("Les suggestions repartiront de zéro sur tous les hôtes."), tr("Effacer"),
+        onDismiss = { confirm = false },
+    ) { confirm = false; scope.launch { app.database.toolsDao().clearHistory() } }
 }
 
 @Composable
 private fun Hint(text: String) = Text(text, color = Nt.Muted, fontSize = 12.sp)
 
 /** The key bar above the system keyboard: which keys, in which order, and how they feel. */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun KeyboardSettings() {
     val prefs = (LocalContext.current.applicationContext as NautileApp).terminalPrefs
-    val ids by prefs.compactKeys.collectAsState()
-    val haptic by prefs.haptic.collectAsState()
+    val ids by prefs.compactKeys.collectAsStateWithLifecycle()
+    val haptic by prefs.haptic.collectAsStateWithLifecycle()
     var selected by remember { mutableStateOf<String?>(null) }
     var adding by remember { mutableStateOf(false) }
-    fun label(id: String) = com.nautile.app.ui.terminal.KeyCatalog.byId(id)?.label ?: id
+    fun label(id: String) = KeyCatalog.byId(id)?.label ?: id
 
     SectionLabel(tr("Barre de touches"))
     Hint(tr("Telle qu'elle s'affiche au-dessus du clavier. Appui long puis glissez une touche pour la déplacer ; touchez-la pour la retirer."))
-    com.nautile.app.ui.terminal.ReorderableKeyRow(
+    ReorderableKeyRow(
         ids, selected, onSelect = { selected = if (selected == it) null else it }, onReorder = prefs::setCompactKeys,
     )
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = { adding = true }) { Text(tr("+ Ajouter une touche"), color = Nt.Accent) }
         selected?.let { id ->
             OutlinedButton(onClick = { prefs.setCompactKeys(ids - id); selected = null }, border = BorderStroke(1.dp, Nt.Pink.copy(alpha = 0.5f))) {
-                Text(tr("Retirer « %1\$s »", com.nautile.app.ui.terminal.KeyCatalog.byId(id)?.description ?: label(id)), color = Nt.Pink, maxLines = 1)
+                Text(tr("Retirer « %1\$s »", KeyCatalog.byId(id)?.description ?: label(id)), color = Nt.Pink, maxLines = 1)
             }
         }
     }
-    androidx.compose.material3.TextButton(onClick = { prefs.setCompactKeys(com.nautile.app.session.TerminalPrefs.DEFAULT_COMPACT_KEYS); selected = null }) {
+    TextButton(onClick = { prefs.setCompactKeys(TerminalPrefs.DEFAULT_COMPACT_KEYS); selected = null }) {
         Text(tr("Revenir à la barre par défaut"), color = Nt.TextSoft, fontSize = 13.sp)
     }
 
-    com.nautile.app.ui.common.NtCard {
-        com.nautile.app.ui.settings.ToggleRow(
+    NtCard {
+        ToggleRow(
             tr("Bouton mot de passe"), tr("Tape le mot de passe sudo de l'hôte à une invite"), "password" in ids,
             onChange = { on -> prefs.setCompactKeys(if (on) listOf("password") + ids else ids - "password") },
         )
-        androidx.compose.material3.HorizontalDivider(color = Nt.Border)
-        com.nautile.app.ui.settings.ToggleRow(tr("Vibration des touches"), tr("Retour tactile en touchant la barre"), haptic, onChange = prefs::setHaptic)
+        HorizontalDivider(color = Nt.Border)
+        ToggleRow(tr("Vibration des touches"), tr("Retour tactile en touchant la barre"), haptic, onChange = prefs::setHaptic)
     }
 
-    if (adding) androidx.compose.material3.AlertDialog(
+    if (adding) AlertDialog(
         onDismissRequest = { adding = false }, containerColor = Nt.Surface,
         title = { Text(tr("Ajouter une touche")) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    com.nautile.app.ui.terminal.KeyCatalog.all.filter { it.id !in ids }.forEach { def ->
-                        androidx.compose.material3.Surface(
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    KeyCatalog.all.filter { it.id !in ids }.forEach { def ->
+                        Surface(
                             onClick = { prefs.setCompactKeys(ids + def.id) }, shape = RoundedCornerShape(10.dp), color = Nt.KeyBg,
                             border = BorderStroke(1.dp, Nt.Border),
                             modifier = Modifier.height(42.dp).width(com.nautile.app.ui.terminal.keyWidth(def)).semantics { contentDescription = def.description },
-                        ) { com.nautile.app.ui.terminal.KeyFace(def) }
+                        ) { KeyFace(def) }
                     }
                 }
             }
         },
-        confirmButton = { androidx.compose.material3.TextButton(onClick = { adding = false }) { Text(tr("Terminé"), color = Nt.Accent) } },
+        confirmButton = { TextButton(onClick = { adding = false }) { Text(tr("Terminé"), color = Nt.Accent) } },
     )
 }

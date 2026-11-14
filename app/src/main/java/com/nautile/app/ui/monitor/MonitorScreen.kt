@@ -1,7 +1,5 @@
 package com.nautile.app.ui.monitor
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +24,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
@@ -39,7 +38,9 @@ import com.nautile.app.session.ChannelBackend
 import com.nautile.app.ui.common.NtCard
 import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 import com.nautile.ssh.ServerStats
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
 /** Live CPU / memory / disk / load of a host, polled every few seconds over SSH. */
@@ -53,7 +54,15 @@ fun MonitorScreen(hostId: Long, onBack: () -> Unit) {
 
     LaunchedEffect(hostId) {
         alias = app.hostRepository.get(hostId)?.alias.orEmpty()
-        app.sessions.sftp.acquire(hostId) // keep the connection for the whole screen
+        // Keeps the connection for the whole screen; a refused or unreachable host is shown, not thrown.
+        val lease = try {
+            app.sessions.sftp.acquire(hostId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            error = ChannelBackend.describe(e)
+            return@LaunchedEffect
+        }
         try {
             while (true) {
                 runCatching { ServerStats.parse(app.sessions.sftp.exec(hostId, ServerStats.COMMAND)) }
@@ -65,12 +74,12 @@ fun MonitorScreen(hostId: Long, onBack: () -> Unit) {
                 delay(4_000)
             }
         } finally {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { app.sessions.sftp.release(hostId) }
+            app.sessions.sftp.release(lease)
         }
     }
 
     Column(Modifier.fillMaxSize().background(Nt.Bg)) {
-        Row(Modifier.padding(start = 4.dp, top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Row(Modifier.padding(start = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Retour")) }
             Column {
                 Text("Moniteur · $alias", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)

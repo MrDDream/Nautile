@@ -1,7 +1,5 @@
 package com.nautile.app.serial
 
-import com.nautile.i18n.tr
-
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -12,6 +10,7 @@ import android.hardware.usb.UsbManager
 import androidx.core.content.ContextCompat
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
+import com.nautile.i18n.tr
 import com.nautile.ssh.TerminalChannel
 import java.io.IOException
 import java.io.InputStream
@@ -61,15 +60,22 @@ class SerialChannel private constructor(private val port: UsbSerialPort) : Termi
             val driver = UsbSerialProber.getDefaultProber().findAllDrivers(usb).firstOrNull()
                 ?: throw IOException(tr("Aucun adaptateur série USB détecté (câble OTG branché ?)"))
             val device = driver.device
-            onStep("Adaptateur : ${device.productName ?: device.deviceName}")
+            onStep(tr("Adaptateur : %1\$s", device.productName ?: device.deviceName))
             if (!usb.hasPermission(device)) {
                 onStep(tr("Autorisation USB demandée…"))
                 if (!requestPermission(context, usb, device)) throw IOException(tr("Accès à l'adaptateur USB refusé"))
             }
             val connection = usb.openDevice(device) ?: throw IOException(tr("Impossible d'ouvrir l'adaptateur USB"))
             val port = driver.ports.first()
-            port.open(connection)
-            port.setParameters(baud, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
+            try {
+                port.open(connection)
+                port.setParameters(baud, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
+            } catch (e: Exception) {
+                // A refused speed must not leave the adapter held: the next attempt could not open it.
+                runCatching { port.close() }
+                runCatching { connection.close() }
+                throw e
+            }
             runCatching { port.dtr = true; port.rts = true }
             onStep(tr("Port série ouvert à %1\$s bauds", baud))
             return SerialChannel(port)

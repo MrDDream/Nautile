@@ -1,7 +1,5 @@
 package com.nautile.app.ui.hosts
 
-import com.nautile.i18n.tr
-
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -9,44 +7,48 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.automirrored.outlined.Login
+import androidx.compose.material.icons.automirrored.outlined.ScreenShare
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DesktopWindows
-import androidx.compose.material.icons.outlined.ScreenShare
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Lan
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Search
@@ -55,6 +57,8 @@ import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Usb
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,8 +68,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -74,6 +76,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -82,10 +85,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -96,7 +100,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.nautile.app.ui.common.Centered
+import com.nautile.app.ui.common.ConfirmDialog
+import com.nautile.app.ui.common.CountChip
+import com.nautile.app.ui.common.FontGlyph
+import com.nautile.app.ui.common.GroupMark
+import com.nautile.app.ui.common.HostAvatar
+import com.nautile.app.ui.common.MdiIcons
 import com.nautile.app.ui.common.NtCard
+import com.nautile.app.ui.common.NtChip
+import com.nautile.app.ui.common.NtSearchField
 import com.nautile.app.ui.common.NtTextField
 import com.nautile.app.ui.common.PageHeader
 import com.nautile.app.ui.common.SectionLabel
@@ -106,6 +119,9 @@ import com.nautile.data.model.HOST_COLORS
 import com.nautile.data.model.Host
 import com.nautile.data.model.HostGroup
 import com.nautile.data.model.Protocol
+import com.nautile.data.model.defaultPortOrSsh
+import com.nautile.data.model.usesSsh
+import com.nautile.i18n.tr
 
 @Composable
 fun HostsScreen(
@@ -123,7 +139,7 @@ fun HostsScreen(
     val snackbar = remember { SnackbarHostState() }
     var newHost by remember { mutableStateOf(false) }
     var manageGroups by remember { mutableStateOf(false) }
-    val quick = QuickConnect.parse(state.query)?.takeIf { QuickConnect.looksLikeTarget(state.query) }
+    val quick = remember(state.query) { QuickConnect.parse(state.query)?.takeIf { QuickConnect.looksLikeTarget(state.query) } }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::import) }
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); vm.consumeMessage() } }
 
@@ -135,44 +151,30 @@ fun HostsScreen(
             item { PageHeader(tr("Hôtes")) }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = state.query,
-                        onValueChange = vm::setQuery,
-                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = Nt.Muted) },
-                        trailingIcon = {
-                            if (state.query.isNotEmpty()) IconButton(onClick = { vm.setQuery("") }) {
-                                Icon(Icons.Outlined.Close, contentDescription = tr("Effacer la recherche"), tint = Nt.Muted)
-                            }
-                        },
-                        placeholder = { Text(tr("Hôte ou user@ip"), color = Nt.Placeholder, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        singleLine = true,
+                    NtSearchField(
+                        state.query, vm::setQuery, tr("Hôte ou user@ip"), Modifier.weight(1f),
                         textStyle = TextStyle(fontFamily = Nt.Mono, fontSize = 13.sp, color = Nt.Text),
-                        shape = RoundedCornerShape(14.dp),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = if (quick != null) ImeAction.Go else ImeAction.Search),
                         keyboardActions = KeyboardActions(onGo = { quick?.let(onQuickConnect) }),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedContainerColor = Nt.Surface, focusedContainerColor = Nt.Surface,
-                            unfocusedBorderColor = Nt.Border, focusedBorderColor = Nt.Accent, cursorColor = Nt.Accent,
-                        ),
-                        modifier = Modifier.weight(1f),
                     )
                     HeaderIcon(Icons.Outlined.Key, tr("Trousseau de clés"), onKeys)
                     HeaderIcon(Icons.Outlined.SwapHoriz, tr("Tunnels"), onTunnels)
                 }
             }
             quick?.let { target -> item(key = "quick") { QuickConnectCard(target, onQuickConnect) } }
-            if (state.groups.isNotEmpty() || state.groupNames.isNotEmpty()) item {
-                // Groups scroll; « Gérer » stays at hand on the right.
+            if (state.groups.isNotEmpty() || state.groupFilters.isNotEmpty()) item {
+                // One selector (« Tous » then each group); « Gérer » stays at hand on the right.
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        com.nautile.app.ui.common.CountChip(tr("Tous"), state.total, state.selectedGroup == null, null) { vm.selectGroup(null) }
-                        state.groupNames.forEach { name ->
-                            val color = state.groups.firstOrNull { it.name == name }?.color
-                            com.nautile.app.ui.common.CountChip(tr(name), state.nameCounts[name] ?: 0, state.selectedGroup == name, color) {
-                                vm.selectGroup(if (state.selectedGroup == name) null else name)
-                            }
-                        }
-                    }
+                    GroupSelector(
+                        // Only the fixed labels are translated, never a name the user typed.
+                        options = listOf(Triple(null, tr("Tous"), state.total)) + state.groupFilters.map { id ->
+                            Triple(id, state.groups.firstOrNull { it.id == id }?.name ?: tr("Sans groupe"), state.counts[id] ?: 0)
+                        },
+                        groupOf = { id -> state.groups.firstOrNull { it.id == id } },
+                        selected = state.selectedGroup,
+                        onSelect = vm::selectGroup,
+                        modifier = Modifier.weight(1f),
+                    )
                     Surface(
                         onClick = { manageGroups = true }, shape = RoundedCornerShape(12.dp), color = Nt.Surface,
                         border = BorderStroke(1.dp, Nt.Border), modifier = Modifier.size(40.dp).semantics { contentDescription = tr("Gérer les groupes") },
@@ -188,7 +190,7 @@ fun HostsScreen(
             } else if (state.sections.isEmpty() && quick == null) item {
                 Text(tr("Aucun hôte ne correspond à « %1\$s ».", state.query), color = Nt.Muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 24.dp))
             }
-            items(state.sections, key = { it.title }) { section ->
+            items(state.sections, key = { it.key }) { section ->
                 Section(section, state.groups, onConnect, onEditHost, onSftp, onMove = vm::moveHost, onDelete = vm::deleteHost)
             }
         }
@@ -227,7 +229,7 @@ private fun HeaderIcon(icon: ImageVector, description: String, onClick: () -> Un
 private fun QuickConnectCard(parsed: QuickTarget, onConnect: (QuickTarget) -> Unit) {
     var protocol by remember(parsed) { mutableStateOf(parsed.protocol) }
     val target = if (protocol == parsed.protocol) parsed
-    else parsed.copy(protocol = protocol, port = if (parsed.port == parsed.protocol.defaultPortOrSsh()) protocol.defaultPortOrSsh() else parsed.port)
+    else parsed.copy(protocol = protocol, port = if (parsed.port == parsed.protocol.defaultPortOrSsh) protocol.defaultPortOrSsh else parsed.port)
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Nt.Accent.copy(alpha = 0.08f))
             .border(1.dp, Nt.Accent.copy(alpha = 0.5f), RoundedCornerShape(16.dp)).padding(14.dp),
@@ -250,28 +252,10 @@ private fun QuickConnectCard(parsed: QuickTarget, onConnect: (QuickTarget) -> Un
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(Protocol.SSH to "SSH", Protocol.MOSH to "Mosh", Protocol.TELNET to "Telnet", Protocol.RDP to "RDP", Protocol.VNC to "VNC").forEach { (p, label) ->
-                Chip(label, protocol == p) { protocol = p }
+                NtChip(label, protocol == p) { protocol = p }
             }
         }
         Text(tr("Pas enregistrée : retrouvez-la dans Connexions › Historique pour l'enregistrer."), color = Nt.Muted, fontSize = 12.sp)
-    }
-}
-
-private fun Protocol.defaultPortOrSsh() = when (this) { Protocol.TELNET -> 23; Protocol.RDP -> 3389; Protocol.VNC -> 5900; else -> 22 }
-
-@Composable
-private fun Chip(label: String, selected: Boolean, dot: Long? = null, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(18.dp),
-        color = if (selected) Nt.Accent.copy(alpha = 0.12f) else Nt.Surface,
-        border = BorderStroke(1.dp, if (selected) Nt.Accent else Nt.Border),
-        modifier = Modifier.height(36.dp),
-    ) {
-        Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            dot?.let { Box(Modifier.size(8.dp).clip(CircleShape).background(Color(it))) }
-            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (selected) Nt.Accent else Nt.TextSoft)
-        }
     }
 }
 
@@ -283,8 +267,8 @@ private fun Section(
 ) {
     Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            section.color?.let { Box(Modifier.size(8.dp).clip(CircleShape).background(Color(it))) }
-            SectionLabel(tr(section.title), Modifier.weight(1f))
+            section.color?.let { GroupMark(section.icon, Color(it), iconSize = 16.dp, dotSize = 8.dp) }
+            SectionLabel(if (section.groupId == null) tr("Sans groupe") else section.title, Modifier.weight(1f))
             val n = section.hosts.size
             Text(if (n > 1) tr("%1\$s hôtes", n) else tr("1 hôte"), fontSize = 12.sp, color = Nt.Muted)
         }
@@ -313,7 +297,7 @@ private fun HostRow(host: Host, groups: List<HostGroup>, onClick: () -> Unit, on
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            com.nautile.app.ui.common.HostAvatar(host.osId, host.alias.take(1).uppercase(), tint)
+            HostAvatar(host.osId, host.alias.take(1).uppercase(), tint)
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(host.alias, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
@@ -322,7 +306,7 @@ private fun HostRow(host: Host, groups: List<HostGroup>, onClick: () -> Unit, on
                 Text(host.address, fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             host.lastConnectedAt?.let { Text(relativeTime(it), fontSize = 11.sp, color = Nt.Muted) }
-            if (host.protocol == Protocol.SSH || host.protocol == Protocol.MOSH)
+            if (host.protocol.usesSsh)
                 IconButton(onClick = onSftp) { Icon(Icons.Outlined.Folder, contentDescription = tr("Fichiers de %1\$s", host.alias), tint = Nt.Muted) }
         }
         DropdownMenu(menu, onDismissRequest = { menu = false }) {
@@ -332,14 +316,15 @@ private fun HostRow(host: Host, groups: List<HostGroup>, onClick: () -> Unit, on
         }
     }
     if (moving) MoveDialog(host, groups, onDismiss = { moving = false }) { moving = false; onMove(it) }
-    if (confirmDelete) AlertDialog(
-        onDismissRequest = { confirmDelete = false }, containerColor = Nt.Surface,
-        title = { Text(tr("Supprimer %1\$s ?", host.alias)) },
-        text = { Text(tr("L'hôte et ses tunnels sont supprimés. Les clés du trousseau sont gardées."), color = Nt.TextSoft) },
-        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr("Annuler"), color = Nt.TextSoft) } },
-        confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text(tr("Supprimer"), color = Nt.Pink, fontWeight = FontWeight.SemiBold) } },
-    )
+    if (confirmDelete) DeleteHostDialog(host.alias, onDismiss = { confirmDelete = false }) { confirmDelete = false; onDelete() }
 }
+
+/** Confirmation before deleting the host [name], from the list or from its edit screen. */
+@Composable
+internal fun DeleteHostDialog(name: String, onDismiss: () -> Unit, onConfirm: () -> Unit) = ConfirmDialog(
+    tr("Supprimer %1\$s ?", name), tr("L'hôte et ses tunnels sont supprimés. Les clés du trousseau sont gardées."), tr("Supprimer"),
+    onDismiss, onConfirm,
+)
 
 @Composable
 private fun ProtocolBadge(protocol: Protocol) {
@@ -359,14 +344,14 @@ private fun MoveDialog(host: Host, groups: List<HostGroup>, onDismiss: () -> Uni
         title = { Text(tr("Déplacer %1\$s", host.alias)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                (groups.map { it.name to it.color } + (null to null)).forEach { (name, color) ->
+                (groups.map { Triple(it.name, it.color, it.icon) } + Triple(null, null, null)).forEach { (name, color, icon) ->
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button) { onMove(name) }
                             .background(if ((name == null && host.groupId == null) || groups.firstOrNull { it.id == host.groupId }?.name == name) Nt.Accent.copy(alpha = 0.10f) else Color.Transparent)
                             .padding(horizontal = 12.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(color?.let { Color(it) } ?: Nt.Border))
+                        GroupMark(icon, color?.let { Color(it) })
                         Text(name ?: tr("Sans groupe"), fontSize = 15.sp)
                     }
                 }
@@ -380,7 +365,6 @@ private fun MoveDialog(host: Host, groups: List<HostGroup>, onDismiss: () -> Uni
     )
 }
 
-/** Rename, recolour, reorder and delete groups. */
 /** Groups: their order, and a tap to rename, recolour or delete one; « + Nouveau groupe » at the bottom. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -401,59 +385,57 @@ internal fun GroupsSheetContent(
     initialEditing: HostGroup? = null,
 ) {
     var editing by remember { mutableStateOf(initialEditing) }
-    run {
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            val g = editing
-            if (g != null) GroupEditor(
-                g, count = counts[g.id] ?: 0,
-                onBack = { editing = null },
-                onSave = { onSave(it); editing = null },
-                onDelete = if (g.id != 0L) ({ onDelete(g); editing = null }) else null,
-            ) else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(tr("Groupes"), style = MaterialTheme.typography.titleLarge)
-                        Text(tr("Touchez un groupe pour le modifier"), color = Nt.Muted, fontSize = 13.sp)
-                    }
-                    IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, contentDescription = tr("Fermer"), tint = Nt.TextSoft) }
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        val g = editing
+        if (g != null) GroupEditor(
+            g, count = counts[g.id] ?: 0,
+            onBack = { editing = null },
+            onSave = { onSave(it); editing = null },
+            onDelete = if (g.id != 0L) ({ onDelete(g); editing = null }) else null,
+        ) else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(tr("Groupes"), style = MaterialTheme.typography.titleLarge)
+                    Text(tr("Touchez un groupe pour le modifier"), color = Nt.Muted, fontSize = 13.sp)
                 }
-                if (groups.isEmpty()) Text(tr("Aucun groupe. Créez-en un pour ranger vos hôtes."), color = Nt.Muted, fontSize = 14.sp)
-                else NtCard {
-                    groups.forEachIndexed { i, grp ->
-                        if (i > 0) HorizontalDivider(color = Nt.Border)
-                        Row(
-                            Modifier.fillMaxWidth().clickable(role = Role.Button) { editing = grp }.padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(Color(grp.color).copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-                                Box(Modifier.size(12.dp).clip(CircleShape).background(Color(grp.color)))
+                IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, contentDescription = tr("Fermer"), tint = Nt.TextSoft) }
+            }
+            if (groups.isEmpty()) Text(tr("Aucun groupe. Créez-en un pour ranger vos hôtes."), color = Nt.Muted, fontSize = 14.sp)
+            else NtCard {
+                groups.forEachIndexed { i, grp ->
+                    if (i > 0) HorizontalDivider(color = Nt.Border)
+                    Row(
+                        Modifier.fillMaxWidth().clickable(role = Role.Button) { editing = grp }.padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(Color(grp.color).copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
+                            GroupMark(grp.icon, Color(grp.color), iconSize = 20.dp, dotSize = 12.dp)
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(grp.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val n = counts[grp.id] ?: 0
+                            Text(if (n > 1) tr("%1\$s hôtes", n) else if (n == 1) tr("1 hôte") else tr("Vide"), fontSize = 12.sp, color = Nt.Muted)
+                        }
+                        // Order: one pill, two halves
+                        Row(Modifier.clip(RoundedCornerShape(10.dp)).background(Nt.Bg)) {
+                            IconButton(onClick = { onMove(grp, -1) }, enabled = i > 0, modifier = Modifier.size(40.dp)) {
+                                Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = tr("Monter %1\$s", grp.name), tint = if (i > 0) Nt.Text else Nt.Border)
                             }
-                            Column(Modifier.weight(1f)) {
-                                Text(grp.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                val n = counts[grp.id] ?: 0
-                                Text(if (n > 1) tr("%1\$s hôtes", n) else if (n == 1) tr("1 hôte") else tr("Vide"), fontSize = 12.sp, color = Nt.Muted)
-                            }
-                            // Order: one pill, two halves
-                            Row(Modifier.clip(RoundedCornerShape(10.dp)).background(Nt.Bg)) {
-                                IconButton(onClick = { onMove(grp, -1) }, enabled = i > 0, modifier = Modifier.size(40.dp)) {
-                                    Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = tr("Monter %1\$s", grp.name), tint = if (i > 0) Nt.Text else Nt.Border)
-                                }
-                                IconButton(onClick = { onMove(grp, 1) }, enabled = i < groups.lastIndex, modifier = Modifier.size(40.dp)) {
-                                    Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = tr("Descendre %1\$s", grp.name), tint = if (i < groups.lastIndex) Nt.Text else Nt.Border)
-                                }
+                            IconButton(onClick = { onMove(grp, 1) }, enabled = i < groups.lastIndex, modifier = Modifier.size(40.dp)) {
+                                Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = tr("Descendre %1\$s", grp.name), tint = if (i < groups.lastIndex) Nt.Text else Nt.Border)
                             }
                         }
                     }
                 }
-                Surface(
-                    onClick = { editing = HostGroup(name = "", color = HOST_COLORS[groups.size % HOST_COLORS.size]) },
-                    shape = RoundedCornerShape(14.dp), color = Nt.Accent.copy(alpha = 0.10f), border = BorderStroke(1.dp, Nt.Accent.copy(alpha = 0.5f)),
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                ) {
-                    Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Add, contentDescription = null, tint = Nt.Accent)
-                        Text("  " + tr("Nouveau groupe"), color = Nt.Accent, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                    }
+            }
+            Surface(
+                onClick = { editing = HostGroup(name = "", color = HOST_COLORS[groups.size % HOST_COLORS.size]) },
+                shape = RoundedCornerShape(14.dp), color = Nt.Accent.copy(alpha = 0.10f), border = BorderStroke(1.dp, Nt.Accent.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Add, contentDescription = null, tint = Nt.Accent)
+                    Text("  " + tr("Nouveau groupe"), color = Nt.Accent, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 }
             }
         }
@@ -461,11 +443,13 @@ internal fun GroupsSheetContent(
 }
 
 /** Name and colour of a group, with a preview of its chip. */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GroupEditor(group: HostGroup, count: Int, onBack: () -> Unit, onSave: (HostGroup) -> Unit, onDelete: (() -> Unit)?) {
     var name by remember(group) { mutableStateOf(group.name) }
     var color by remember(group) { mutableLongStateOf(group.color) }
+    var icon by remember(group) { mutableStateOf(group.icon) }
+    var picking by remember(group) { mutableStateOf(false) }
     var confirm by remember(group) { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Retour"), tint = Nt.Text) }
@@ -473,7 +457,7 @@ private fun GroupEditor(group: HostGroup, count: Int, onBack: () -> Unit, onSave
     }
     NtTextField(name, { name = it }, tr("Nom"), placeholder = tr("Homelab"))
     Text(tr("Couleur"), color = Nt.TextSoft, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         HOST_COLORS.forEach { c ->
             val on = c == color
             Box(
@@ -484,14 +468,29 @@ private fun GroupEditor(group: HostGroup, count: Int, onBack: () -> Unit, onSave
             ) { if (on) Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp)) }
         }
     }
+    Text(tr("Icône"), color = Nt.TextSoft, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Nt.Bg).clickable(role = Role.Button) { picking = true }.padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(Color(color).copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
+            GroupMark(icon, Color(color), iconSize = 24.dp, dotSize = 12.dp)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(icon?.let { "mdi:$it" } ?: tr("Aucune"), fontFamily = if (icon != null) Nt.Mono else null, fontSize = 14.sp, color = Nt.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (icon != null) tr("Touchez pour en changer") else tr("Le point de couleur ; touchez pour choisir une icône"), fontSize = 12.sp, color = Nt.Muted)
+        }
+        if (icon != null) IconButton(onClick = { icon = null }) { Icon(Icons.Outlined.Close, contentDescription = tr("Retirer l'icône"), tint = Nt.Muted) }
+    }
+    if (picking) IconPicker(Color(color), icon, onDismiss = { picking = false }) { icon = it; picking = false }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(tr("Aperçu"), color = Nt.Muted, fontSize = 13.sp)
-        com.nautile.app.ui.common.CountChip(name.ifBlank { tr("Groupe") }, count, selected = true, color = color) {}
+        CountChip(name.ifBlank { tr("Groupe") }, count, selected = true, color = color, icon = icon) {}
     }
-    androidx.compose.material3.Button(
-        onClick = { onSave(group.copy(name = name.trim(), color = color)) }, enabled = name.isNotBlank(),
+    Button(
+        onClick = { onSave(group.copy(name = name.trim(), color = color, icon = icon)) }, enabled = name.isNotBlank(),
         modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp),
-        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Nt.Accent, contentColor = Nt.OnAccent),
+        colors = ButtonDefaults.buttonColors(containerColor = Nt.Accent, contentColor = Nt.OnAccent),
     ) { Text(tr("Enregistrer"), fontWeight = FontWeight.SemiBold) }
     if (onDelete != null) Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         if (!confirm) TextButton(onClick = { confirm = true }) { Text(tr("Supprimer le groupe"), color = Nt.Pink) }
@@ -516,7 +515,7 @@ private fun NewHostSheet(onDismiss: () -> Unit, onPick: (Protocol) -> Unit, onIm
             Text(tr("Nouvel hôte"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 6.dp))
             TypeRow(Icons.Outlined.Terminal, Nt.Blue, "SSH", tr("Terminal sur un serveur Linux, macOS, routeur… (Mosh en option)")) { onPick(Protocol.SSH) }
             TypeRow(Icons.Outlined.DesktopWindows, Nt.Green, tr("Bureau à distance (RDP)"), tr("Bureau Windows ou serveur xrdp")) { onPick(Protocol.RDP) }
-            TypeRow(Icons.Outlined.ScreenShare, Nt.Blue, tr("Bureau à distance (VNC)"), tr("Linux, macOS, Raspberry Pi… (x11vnc, TigerVNC, partage d'écran)")) { onPick(Protocol.VNC) }
+            TypeRow(Icons.AutoMirrored.Outlined.ScreenShare, Nt.Blue, tr("Bureau à distance (VNC)"), tr("Linux, macOS, Raspberry Pi… (x11vnc, TigerVNC, partage d'écran)")) { onPick(Protocol.VNC) }
             TypeRow(Icons.Outlined.Lan, Nt.Accent, "Telnet", tr("Équipements réseau anciens, consoles")) { onPick(Protocol.TELNET) }
             TypeRow(Icons.Outlined.Usb, Nt.Pink, tr("Série USB"), tr("Câble console USB-OTG (FTDI, CP210x, CH34x…)")) { onPick(Protocol.SERIAL) }
             TypeRow(Icons.Outlined.PhoneAndroid, Nt.TextSoft, tr("Terminal local"), tr("Le shell de ce téléphone")) { onPick(Protocol.LOCAL) }
@@ -553,4 +552,118 @@ internal fun relativeTime(at: Long, now: Long = System.currentTimeMillis()): Str
         min < 60 * 24 * 30 -> tr("%1\$s sem", min / (60 * 24 * 7))
         else -> tr("%1\$s mois", min / (60 * 24 * 30))
     }
+}
+
+/** The group shown: a drop-down with « Tous » first, then each group with its icon (or colour) and its number of hosts. */
+@Composable
+private fun GroupSelector(
+    options: List<Triple<Long?, String, Int>>,
+    groupOf: (Long) -> HostGroup?,
+    selected: Long?,
+    onSelect: (Long?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var open by remember { mutableStateOf(false) }
+    val current = options.firstOrNull { it.first == selected } ?: options.first()
+    val group = current.first?.let(groupOf)
+    val tint = group?.let { Color(it.color) }
+    Box(modifier) {
+        Surface(
+            onClick = { open = true }, shape = RoundedCornerShape(12.dp),
+            color = if (tint != null) tint.copy(alpha = 0.12f) else Nt.Surface,
+            border = BorderStroke(1.dp, tint?.copy(alpha = 0.6f) ?: Nt.Border),
+            modifier = Modifier.fillMaxWidth().height(40.dp).semantics { contentDescription = tr("Groupe affiché : %1\$s", current.second) },
+        ) {
+            Row(Modifier.padding(start = 12.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OptionMark(current.first, group)
+                Text(current.second, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Nt.Text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                CountBadge(current.third)
+                Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, contentDescription = null, tint = Nt.TextSoft, modifier = Modifier.size(20.dp))
+            }
+        }
+        DropdownMenu(
+            open, onDismissRequest = { open = false }, containerColor = Nt.Surface,
+            shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, Nt.Border),
+            modifier = Modifier.widthIn(min = 240.dp),
+        ) {
+            options.forEachIndexed { i, (key, label, count) ->
+                // « Tous » apart from the groups; a line between each group.
+                if (i == 1) HorizontalDivider(thickness = 2.dp, color = Nt.Border, modifier = Modifier.padding(vertical = 4.dp))
+                else if (i > 1) HorizontalDivider(color = Nt.Border, modifier = Modifier.padding(horizontal = 12.dp))
+                val on = key == selected
+                DropdownMenuItem(
+                    text = { Text(label, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, color = if (on) Nt.Text else Nt.TextSoft, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingIcon = { Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) { OptionMark(key, key?.let(groupOf)) } },
+                    trailingIcon = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CountBadge(count)
+                            Icon(Icons.Filled.Check, contentDescription = null, tint = if (on) Nt.Accent else Color.Transparent, modifier = Modifier.size(18.dp))
+                        }
+                    },
+                    modifier = Modifier.background(if (on) Nt.Accent.copy(alpha = 0.08f) else Color.Transparent),
+                    onClick = { open = false; onSelect(key) },
+                )
+            }
+        }
+    }
+}
+
+/** « Tous »: a grid; a group: its icon, else its colour; « Sans groupe »: a grey dot. */
+@Composable
+private fun OptionMark(key: Long?, group: HostGroup?) = when {
+    key == null -> GroupMark("view-grid-outline", Nt.Accent)
+    group != null -> GroupMark(group.icon, Color(group.color))
+    else -> GroupMark(null, null)
+}
+
+@Composable
+private fun CountBadge(count: Int) {
+    Box(Modifier.defaultMinSize(minWidth = 24.dp).clip(RoundedCornerShape(11.dp)).background(Nt.Bg).padding(horizontal = 7.dp, vertical = 3.dp), contentAlignment = Alignment.Center) {
+        Text("$count", style = Centered.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold), color = Nt.TextSoft)
+    }
+}
+
+/** Choosing a Material Design Icon for a group: a search over the ~6 600 names, suggestions first. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun IconPicker(color: Color, current: String?, onDismiss: () -> Unit, onPick: (String) -> Unit) {
+    val context = LocalContext.current
+    var query by remember { mutableStateOf("") }
+    val results = remember(query) { MdiIcons.search(context, query, limit = 120) }
+    AlertDialog(
+        onDismissRequest = onDismiss, containerColor = Nt.Surface,
+        title = { Text(tr("Icône du groupe")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                NtTextField(query, { query = it }, tr("Rechercher"), placeholder = tr("server, home, cloud…"))
+                Text(
+                    if (query.isBlank()) tr("Suggestions · plus de 6 600 icônes Material Design (mdi:…) en cherchant en anglais")
+                    else if (results.isEmpty()) tr("Aucune icône ne correspond")
+                    else if (results.size == 1) tr("1 résultat") else tr("%1\$s résultats", results.size),
+                    fontSize = 12.sp, color = Nt.Muted,
+                )
+                // Not lazy: a dialog measures its content by intrinsics, which lazy grids refuse.
+                Column(Modifier.fillMaxWidth().height(330.dp).verticalScroll(rememberScrollState())) {
+                    FlowRow(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        results.forEach { name ->
+                            val glyph = MdiIcons.glyph(context, name) ?: return@forEach
+                            val on = name == current
+                            Column(
+                                Modifier.width(68.dp).clip(RoundedCornerShape(10.dp)).background(if (on) color.copy(alpha = 0.22f) else Nt.Bg)
+                                    .clickable(role = Role.Button) { onPick(name) }.padding(vertical = 8.dp, horizontal = 2.dp).semantics { contentDescription = name },
+                                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                FontGlyph(glyph, color, Modifier.size(26.dp))
+                                Text(name, fontSize = 9.sp, lineHeight = 11.sp, color = Nt.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Fermer"), color = Nt.TextSoft) } },
+    )
 }

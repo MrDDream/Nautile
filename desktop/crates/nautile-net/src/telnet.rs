@@ -4,7 +4,7 @@
 use nautile_core::trf;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::session::{channels, Event, Input, Session, RUNTIME};
+use crate::session::{Event, Input, RUNTIME, Session, channels};
 
 const IAC: u8 = 255;
 const DONT: u8 = 254;
@@ -37,6 +37,15 @@ enum State {
     Verb(u8),
     Sub,
     SubIac,
+}
+
+/// Longest subnegotiation kept: the only one read (TTYPE SEND) is two bytes, the rest is dropped.
+const MAX_SUB: usize = 1024;
+
+fn push_sub(sub: &mut Vec<u8>, b: u8) {
+    if sub.len() < MAX_SUB {
+        sub.push(b);
+    }
 }
 
 fn naws(cols: u16, rows: u16) -> Vec<u8> {
@@ -90,9 +99,7 @@ impl Telnet {
                 State::Verb(verb) => {
                     match (verb, b) {
                         (DO, NAWS) => {
-                            if !self.naws {
-                                self.naws = true;
-                            }
+                            self.naws = true;
                             reply.extend(naws(self.cols, self.rows));
                         }
                         (DO, TTYPE) => {}
@@ -105,14 +112,13 @@ impl Telnet {
                         }
                         (WILL, ECHO | SGA) => {}
                         (WILL, opt) => reply.extend([IAC, DONT, opt]),
-                        (WONT, _) => {}
                         _ => {}
                     }
                     State::Data
                 }
                 State::Sub if b == IAC => State::SubIac,
                 State::Sub => {
-                    self.sub.push(b);
+                    push_sub(&mut self.sub, b);
                     State::Sub
                 }
                 State::SubIac if b == SE => {
@@ -125,7 +131,7 @@ impl Telnet {
                     State::Data
                 }
                 State::SubIac => {
-                    self.sub.push(b);
+                    push_sub(&mut self.sub, b);
                     State::Sub
                 }
             };
@@ -217,5 +223,17 @@ mod tests {
         assert_eq!(reply, want);
         assert_eq!(t.resize(100, 40), Some(naws(100, 40)));
         assert_eq!(Telnet::send(b"a\r\xff"), b"a\r\0\xff\xff");
+    }
+
+    #[test]
+    fn an_endless_subnegotiation_stays_bounded() {
+        let mut t = Telnet::new(80, 24);
+        t.receive(&[IAC, SB, TTYPE, 1]);
+        for _ in 0..100 {
+            t.receive(&[b'x'; 4096]);
+        }
+        assert_eq!(t.sub.len(), MAX_SUB);
+        let (_, reply) = t.receive(&[IAC, SE]);
+        assert!(reply.starts_with(&[IAC, SB, TTYPE, 0]));
     }
 }

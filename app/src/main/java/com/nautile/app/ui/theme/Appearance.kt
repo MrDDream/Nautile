@@ -1,11 +1,11 @@
 package com.nautile.app.ui.theme
 
-import com.nautile.i18n.tr
-
 import android.content.Context
+import com.nautile.i18n.tr
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.Locale
 
 enum class AppTheme(val label: String) { SYSTEM(tr("Système")), DARK(tr("Sombre")), LIGHT(tr("Clair")), OLED(tr("Noir OLED")) }
 
@@ -29,7 +29,7 @@ enum class AccentColor(val label: String, val dark: Long, val darkInk: Long, val
 
 /** App appearance (not the terminal's colours, which have their own setting). */
 class AppearancePrefs(context: Context) {
-    private val prefs = context.getSharedPreferences("nautile_appearance", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
     private fun <E : Enum<E>> read(key: String, values: Array<E>, default: E) =
         prefs.getString(key, null)?.let { v -> values.firstOrNull { it.name == v } } ?: default
@@ -41,11 +41,26 @@ class AppearancePrefs(context: Context) {
     private val _style = MutableStateFlow(read("style", ButtonStyle.entries.toTypedArray(), ButtonStyle.FILLED))
     val style: StateFlow<ButtonStyle> = _style.asStateFlow()
 
-    val language: AppLanguage get() = read("language", AppLanguage.entries.toTypedArray(), AppLanguage.SYSTEM)
+    val language: AppLanguage get() = read(KEY_LANGUAGE, AppLanguage.entries.toTypedArray(), AppLanguage.SYSTEM)
     /** Saved synchronously: the app restarts right after. */
-    fun setLanguage(l: AppLanguage) { prefs.edit().putString("language", l.name).commit() }
+    fun setLanguage(l: AppLanguage) { prefs.edit().putString(KEY_LANGUAGE, l.name).commit() }
 
     fun setTheme(t: AppTheme) { _theme.value = t; prefs.edit().putString("theme", t.name).apply() }
     fun setAccent(a: AccentColor) { _accent.value = a; prefs.edit().putString("accent", a.name).apply() }
     fun setStyle(s: ButtonStyle) { _style.value = s; prefs.edit().putString("style", s.name).apply() }
+
+    companion object {
+        private const val FILE = "nautile_appearance"
+        private const val KEY_LANGUAGE = "language"
+
+        /**
+         * Whether the labels are in English: the saved [AppLanguage], or else the phone's language.
+         * Compares names only, because [AppLanguage]'s labels call tr() before I18n.english is set.
+         */
+        fun english(context: Context): Boolean = when (context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(KEY_LANGUAGE, null)) {
+            "FR" -> false
+            "EN" -> true
+            else -> Locale.getDefault().language != "fr"
+        }
+    }
 }

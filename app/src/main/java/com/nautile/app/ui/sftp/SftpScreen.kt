@@ -1,9 +1,9 @@
 package com.nautile.app.ui.sftp
 
-import com.nautile.i18n.tr
-
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -44,7 +44,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,6 +63,7 @@ import com.nautile.app.NautileApp
 import com.nautile.app.session.Transfer
 import com.nautile.app.ui.common.NtTextField
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 import com.nautile.ssh.RemoteEntry
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -74,7 +75,8 @@ fun SftpScreen(onBack: () -> Unit, onEdit: (Long, String) -> Unit, vm: SftpViewM
     val state by vm.state.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     val transfers by vm.transfers.collectAsStateWithLifecycle()
-    val hosts by app.hostRepository.hosts.collectAsState(initial = emptyList())
+    val canGoBack by vm.canGoBack.collectAsStateWithLifecycle()
+    val hosts by app.hostRepository.hosts.collectAsStateWithLifecycle(initialValue = emptyList())
     val snackbar = remember { SnackbarHostState() }
     var selected by remember { mutableStateOf<RemoteEntry?>(null) }
     var dialog by remember { mutableStateOf<String?>(null) }
@@ -88,6 +90,8 @@ fun SftpScreen(onBack: () -> Unit, onEdit: (Long, String) -> Unit, vm: SftpViewM
         downloading = null
     }
     val shown = state.entries.filter { state.showHidden || !it.name.startsWith(".") }
+    // The system back button walks back through the folders visited, then leaves.
+    BackHandler(enabled = canGoBack) { vm.back() }
 
     Box(Modifier.fillMaxSize().background(Nt.Bg)) {
         Column(Modifier.fillMaxSize()) {
@@ -143,7 +147,7 @@ fun SftpScreen(onBack: () -> Unit, onEdit: (Long, String) -> Unit, vm: SftpViewM
         dialog == "mkdir" -> NameDialog(tr("Nouveau dossier"), "") { n -> dialog = null; n?.let(vm::mkdir) }
         dialog?.startsWith("rename:") == true && target != null -> NameDialog("Renommer", target.name) { n -> dialog = null; n?.let { vm.rename(target, it) } }
         dialog?.startsWith("chmod:") == true && target != null ->
-            NameDialog("Permissions (octal)", "%03o".format(target.permissions and "777".toInt(8)), digitsOnly = true) { n ->
+            NameDialog(tr("Permissions (octal)"), permissionsText(target.permissions), digitsOnly = true) { n ->
                 dialog = null
                 if (n != null && n.matches(Regex("[0-7]{3,4}"))) vm.chmod(target, n)
             }
@@ -162,7 +166,7 @@ fun SftpScreen(onBack: () -> Unit, onEdit: (Long, String) -> Unit, vm: SftpViewM
 }
 
 @Composable
-private fun ToolButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean = true, onClick: () -> Unit) {
+private fun ToolButton(icon: ImageVector, label: String, enabled: Boolean = true, onClick: () -> Unit) {
     TextButton(onClick = onClick, enabled = enabled) {
         Icon(icon, contentDescription = null, tint = if (enabled) Nt.Accent else Nt.Muted, modifier = Modifier.size(18.dp))
         Text(" $label", color = if (enabled) Nt.TextSoft else Nt.Muted, fontSize = 13.sp)
@@ -171,7 +175,7 @@ private fun ToolButton(icon: androidx.compose.ui.graphics.vector.ImageVector, la
 
 private val dateFormat = SimpleDateFormat("dd/MM/yy HH:mm", Locale.FRANCE)
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EntryRow(e: RemoteEntry, onLongClick: () -> Unit, onClick: () -> Unit) {
     Row(
@@ -184,7 +188,7 @@ private fun EntryRow(e: RemoteEntry, onLongClick: () -> Unit, onClick: () -> Uni
         Column(Modifier.weight(1f)) {
             Text(e.name + if (e.isLink) " ↗" else "", fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                listOfNotNull(if (e.isDirectory) null else humanSize(e.size), dateFormat.format(Date(e.modified * 1000)), "%03o".format(e.permissions and "777".toInt(8))).joinToString(" · "),
+                listOfNotNull(if (e.isDirectory) null else humanSize(e.size), dateFormat.format(Date(e.modified * 1000)), permissionsText(e.permissions)).joinToString(" · "),
                 fontFamily = Nt.Mono, fontSize = 11.sp, color = Nt.Muted,
             )
         }
@@ -264,3 +268,6 @@ private fun CopyDialog(hosts: List<Pair<Long, String>>, onDone: (Pair<Long, Stri
         confirmButton = { TextButton(onClick = { onDone(dest, dir.trim().ifEmpty { "." }) }, enabled = dest != null) { Text(tr("Copier"), color = Nt.Accent) } },
     )
 }
+
+/** Octal mode with setuid / setgid / sticky when set (« 4755 », « 1777 »), so a chmod keeps them. */
+internal fun permissionsText(mode: Int): String = (mode and 0xFFF).let { if (it > 0x1FF) "%04o".format(it) else "%03o".format(it) }

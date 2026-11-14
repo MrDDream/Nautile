@@ -1,19 +1,24 @@
 package com.nautile.app.session
 
-import com.nautile.i18n.tr
-
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
+import com.nautile.i18n.tr
 import com.nautile.ssh.SftpSession
 import com.nautile.ssh.copyWithProgress
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -37,23 +42,30 @@ class TransferManager(private val context: Context, private val pool: SftpPool, 
     private val _transfers = MutableStateFlow<List<Transfer>>(emptyList())
     val transfers: StateFlow<List<Transfer>> = _transfers.asStateFlow()
 
-    /** Called with the remote directory that changed, so open browsers can refresh. */
-    var onRemoteChanged: (hostId: Long, dir: String) -> Unit = { _, _ -> }
+    /** (host, remote directory) that changed, so open browsers can refresh. */
+    private val _remoteChanges = MutableSharedFlow<Pair<Long, String>>(extraBufferCapacity = 16)
+    val remoteChanges: SharedFlow<Pair<Long, String>> = _remoteChanges.asSharedFlow()
 
     fun upload(hostId: Long, uri: Uri, remoteDir: String, name: String, size: Long) =
         launch(name, tr("Envoi vers %1\$s", remoteDir), size) { t ->
             pool.with(hostId) { sftp ->
                 val input = context.contentResolver.openInputStream(uri) ?: error(tr("Fichier illisible"))
-                input.use { inp -> sftp.openWrite(SftpSession.join(remoteDir, name)).use { out -> copy(t, inp, out) } }
+                input.use { inp -> writeRemote(sftp, SftpSession.join(remoteDir, safeName(name))) { out -> copy(t, inp, out) } }
             }
-            onRemoteChanged(hostId, remoteDir)
+            _remoteChanges.tryEmit(hostId to remoteDir)
         }
 
     fun download(hostId: Long, remotePath: String, size: Long, uri: Uri) =
         launch(remotePath.substringAfterLast('/'), tr("Téléchargement"), size) { t ->
             pool.with(hostId) { sftp ->
-                val output = context.contentResolver.openOutputStream(uri, "wt") ?: error("Destination inaccessible")
-                output.use { out -> sftp.openRead(remotePath).use { inp -> copy(t, inp, out) } }
+                try {
+                    val output = context.contentResolver.openOutputStream(uri, "wt") ?: error(tr("Destination inaccessible"))
+                    output.use { out -> sftp.openRead(remotePath).use { inp -> copy(t, inp, out) } }
+                } catch (e: Throwable) {
+                    // A cut-off file must not pass for the real one.
+                    runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }
+                    throw e
+                }
             }
         }
 
@@ -63,12 +75,20 @@ class TransferManager(private val context: Context, private val pool: SftpPool, 
             pool.with(fromHost) { src ->
                 pool.with(toHost) { dst ->
                     src.openRead(fromPath).use { inp ->
-                        dst.openWrite(SftpSession.join(toDir, fromPath.substringAfterLast('/'))).use { out -> copy(t, inp, out) }
+                        writeRemote(dst, SftpSession.join(toDir, safeName(fromPath.substringAfterLast('/')))) { out -> copy(t, inp, out) }
                     }
                 }
             }
-            onRemoteChanged(toHost, toDir)
+            _remoteChanges.tryEmit(toHost to toDir)
         }
+
+    /**
+     * Writes [dest] through a hidden temporary file renamed at the end when that keeps the same
+     * file (owner, mode, link), in place otherwise: see [SftpSession.writeFile].
+     */
+    private fun writeRemote(sftp: SftpSession, dest: String, write: (OutputStream) -> Unit) {
+        sftp.writeFile(dest, write)
+    }
 
     fun cancel(id: Long) {
         jobs.remove(id)?.cancel()
@@ -77,7 +97,7 @@ class TransferManager(private val context: Context, private val pool: SftpPool, 
 
     fun clearFinished() = _transfers.update { list -> list.filter { it.state == Transfer.State.RUNNING } }
 
-    private fun copy(t: Long, inp: java.io.InputStream, out: java.io.OutputStream) {
+    private fun copy(t: Long, inp: InputStream, out: OutputStream) {
         val job = jobs[t]
         copyWithProgress(inp, out, onProgress = { n -> set(t) { it.copy(done = n) } }, isCancelled = { job?.isCancelled == true })
     }
@@ -98,4 +118,14 @@ class TransferManager(private val context: Context, private val pool: SftpPool, 
     }
 
     private fun set(id: Long, f: (Transfer) -> Transfer) = _transfers.update { list -> list.map { if (it.id == id) f(it) else it } }
+
+    companion object {
+        /**
+         * A file name from elsewhere (a content provider's display name, a remote path) reduced to
+         * one path component: « ../.ssh/authorized_keys » must not leave the target folder.
+         */
+        fun safeName(name: String): String =
+            name.replace('\\', '/').substringAfterLast('/').filter { it >= ' ' }.trim()
+                .takeUnless { it.isEmpty() || it == "." || it == ".." } ?: tr("fichier")
+    }
 }

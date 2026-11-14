@@ -1,13 +1,10 @@
 package com.nautile.app.ui.terminal
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.Modifier
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -16,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -25,6 +23,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.nautile.app.session.PendingPrompt
 import com.nautile.app.ui.common.NtTextField
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
+import com.nautile.rdp.RdpCredentials
 
 /** Questions raised by SSH connections (host key, password, passphrase). */
 @Composable
@@ -34,7 +34,33 @@ fun PromptDialog(prompt: PendingPrompt) {
         is PendingPrompt.Secret -> SecretDialog(prompt)
         is PendingPrompt.Certificate -> CertificateDialog(prompt)
         is PendingPrompt.Login -> LoginDialog(prompt)
+        is PendingPrompt.AgentUse -> AgentUseDialog(prompt)
     }
+}
+
+@Composable
+private fun AgentUseDialog(p: PendingPrompt.AgentUse) {
+    AlertDialog(
+        onDismissRequest = { p.answer.complete(false) },
+        containerColor = Nt.Surface,
+        title = { Text(tr("Transfert d'agent")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    tr("Le serveur %1\$s demande à signer avec la clé « %2\$s », qui ne sert pas à s'y connecter. ", p.sessionAlias, p.keyName) +
+                        tr("Refusez si vous ne venez pas de lancer une connexion depuis ce serveur."),
+                    color = Nt.TextSoft, fontSize = 14.sp,
+                )
+                Text(p.fingerprint, fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.Muted)
+            }
+        },
+        dismissButton = { TextButton(onClick = { p.answer.complete(false) }) { Text(tr("Refuser"), color = Nt.TextSoft) } },
+        confirmButton = {
+            TextButton(onClick = { p.answer.complete(true) }) {
+                Text(tr("Autoriser pour cette session"), color = Nt.Accent, fontWeight = FontWeight.SemiBold)
+            }
+        },
+    )
 }
 
 @Composable
@@ -64,7 +90,7 @@ private fun CertificateDialog(p: PendingPrompt.Certificate) {
                 Text(p.fingerprint, fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.Text)
                 if (changed) {
                     Text(tr("Ancienne empreinte"), color = Nt.Muted, fontSize = 12.sp)
-                    Text(p.previous!!, fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.Muted)
+                    Text(p.previous, fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.Muted)
                 }
             }
         },
@@ -100,7 +126,7 @@ private fun LoginDialog(p: PendingPrompt.Login) {
         },
         dismissButton = { TextButton(onClick = { p.answer.complete(null) }) { Text(tr("Annuler"), color = Nt.TextSoft) } },
         confirmButton = {
-            TextButton(onClick = { p.answer.complete(com.nautile.rdp.RdpCredentials(user.trim(), domain.trim(), password)) }, enabled = user.isNotBlank()) {
+            TextButton(onClick = { p.answer.complete(RdpCredentials(user.trim(), domain.trim(), password)) }, enabled = user.isNotBlank()) {
                 Text(tr("Se connecter"), color = Nt.Accent, fontWeight = FontWeight.SemiBold)
             }
         },
@@ -110,6 +136,7 @@ private fun LoginDialog(p: PendingPrompt.Login) {
 @Composable
 private fun HostKeyDialog(p: PendingPrompt.HostKey) {
     val changed = p.previous != null
+    val otherType = p.previous != null && p.previous.keyType != p.info.keyType
     AlertDialog(
         onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
@@ -123,18 +150,25 @@ private fun HostKeyDialog(p: PendingPrompt.HostKey) {
                     else tr("Première connexion à %1\$s:%2\$s (%3\$s). Vérifiez l'empreinte avant de faire confiance.", p.info.host, p.info.port, p.sessionAlias),
                     color = Nt.TextSoft, fontSize = 14.sp,
                 )
+                if (otherType) Text(
+                    tr("Ce serveur était connu avec une clé %1\$s ; il ne propose plus qu'une clé %2\$s. Un serveur légitime garde d'habitude ses anciennes clés.", p.previous.keyType, p.info.keyType),
+                    color = Nt.Pink, fontSize = 13.sp,
+                )
                 Text(p.info.keyType, color = Nt.Muted, fontSize = 12.sp)
                 Text(p.info.fingerprint, fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.Text)
                 if (changed) {
                     Text(tr("Ancienne empreinte"), color = Nt.Muted, fontSize = 12.sp)
-                    Text(p.previous!!.fingerprint, fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.Muted)
+                    Text(p.previous.fingerprint, fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.Muted)
                 }
             }
         },
         dismissButton = { TextButton(onClick = { p.answer.complete(false) }) { Text(tr("Refuser"), color = Nt.TextSoft) } },
         confirmButton = {
             TextButton(onClick = { p.answer.complete(true) }) {
-                Text(if (changed) tr("Remplacer la clé") else tr("Faire confiance"), color = if (changed) Nt.Pink else Nt.Accent, fontWeight = FontWeight.SemiBold)
+                Text(
+                    when { otherType -> tr("Faire confiance à cette clé"); changed -> tr("Remplacer la clé"); else -> tr("Faire confiance") },
+                    color = if (changed) Nt.Pink else Nt.Accent, fontWeight = FontWeight.SemiBold,
+                )
             }
         },
     )

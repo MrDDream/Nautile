@@ -1,7 +1,5 @@
 package com.nautile.app.ui.keys
 
-import com.nautile.i18n.tr
-
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
@@ -11,9 +9,11 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.nautile.app.NautileApp
 import com.nautile.app.keys.DuplicateKeyException
+import com.nautile.app.readText
 import com.nautile.data.model.Identity
 import com.nautile.data.model.KnownHost
 import com.nautile.data.model.SshKey
+import com.nautile.i18n.tr
 import com.nautile.ssh.KeyAlgorithm
 import com.nautile.ssh.PassphraseRequiredException
 import com.nautile.ssh.WrongPassphraseException
@@ -64,12 +64,20 @@ class KeychainViewModel(private val app: NautileApp) : ViewModel() {
     /** Reads a key file and imports it directly, asking for a passphrase only if needed. */
     fun importFile(uri: Uri) {
         viewModelScope.launch {
-            val (name, text) = withContext(Dispatchers.IO) {
-                val display = app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-                    if (c.moveToFirst()) c.getString(0) else null
+            // A cloud file that cannot be fetched, a permission taken back…: a message, not a crash.
+            val read = runCatching {
+                withContext(Dispatchers.IO) {
+                    val display = runCatching {
+                        app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                            if (c.moveToFirst()) c.getString(0) else null
+                        }
+                    }.getOrNull()
+                    // Bounded: a key file is a few kilobytes, a huge one is refused before it is read whole.
+                    val text = app.contentResolver.readText(uri, com.nautile.ssh.SshKeys.MAX_KEY_TEXT) ?: error(tr("Fichier illisible"))
+                    (display ?: tr("Clé importée")) to text
                 }
-                (display ?: tr("Clé importée")) to app.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }.orEmpty()
             }
+            val (name, text) = read.getOrElse { _message.value = tr("Fichier illisible"); return@launch }
             submitImport(name, text, null, false)
         }
     }
@@ -94,11 +102,20 @@ class KeychainViewModel(private val app: NautileApp) : ViewModel() {
     fun delete(key: SshKey) = viewModelScope.launch { repo.delete(key); _message.value = tr("Clé supprimée") }
     fun canReencrypt(key: SshKey) = repo.canReencrypt(key)
 
+    /**
+     * The key and passphrase chosen for an export while the file picker is open. Kept here rather than in the
+     * screen, so that the export survives the activity being recreated meanwhile (and the passphrase never goes
+     * into the saved instance state).
+     */
+    var pendingExport: Pair<SshKey, String?>? = null
+
     fun exportPrivate(key: SshKey, passphrase: String?, uri: Uri) {
         viewModelScope.launch {
             runCatching {
                 val text = repo.exportPrivate(key, passphrase)
-                withContext(Dispatchers.IO) { app.contentResolver.openOutputStream(uri, "wt")?.use { it.write(text.toByteArray()) } }
+                withContext(Dispatchers.IO) {
+                    app.contentResolver.openOutputStream(uri, "wt")?.use { it.write(text.toByteArray()) } ?: error(tr("Destination inaccessible"))
+                }
             }.onSuccess { _message.value = tr("Clé privée exportée") }
                 .onFailure { _message.value = tr("Export impossible : %1\$s", it.message) }
         }

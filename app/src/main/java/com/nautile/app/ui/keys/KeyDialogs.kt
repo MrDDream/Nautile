@@ -1,15 +1,15 @@
 package com.nautile.app.ui.keys
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -35,12 +35,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.selection.selectable
+import com.nautile.app.ui.common.NtCard
 import com.nautile.app.ui.common.NtTextField
 import com.nautile.app.ui.theme.Nt
 import com.nautile.data.model.Identity
 import com.nautile.data.model.SshKey
+import com.nautile.i18n.tr
 import com.nautile.ssh.KeyAlgorithm
 
 @Composable
@@ -122,7 +122,7 @@ fun ImportKeyDialog(
 }
 
 @Composable
-fun ExportKeyDialog(key: SshKey, canEncrypt: Boolean, onDismiss: () -> Unit, onExport: (String?) -> Unit) {
+fun ExportKeyDialog(canEncrypt: Boolean, onDismiss: () -> Unit, onExport: (String?) -> Unit) {
     var pass by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
     AlertDialog(
@@ -137,7 +137,7 @@ fun ExportKeyDialog(key: SshKey, canEncrypt: Boolean, onDismiss: () -> Unit, onE
                 )
                 if (canEncrypt) {
                     NtTextField(pass, { pass = it }, tr("Phrase de passe (recommandée)"), visualTransformation = PasswordVisualTransformation())
-                    NtTextField(confirm, { confirm = it }, "Confirmer", visualTransformation = PasswordVisualTransformation(), isError = confirm != pass)
+                    NtTextField(confirm, { confirm = it }, tr("Confirmer"), visualTransformation = PasswordVisualTransformation(), isError = confirm != pass)
                     if (pass.isEmpty()) Text(tr("Sans phrase de passe, le fichier sera en clair."), color = Nt.Pink, fontSize = 12.sp)
                 } else Text(tr("Cette clé est chiffrée : elle sera exportée telle quelle, avec sa phrase de passe d'origine."), color = Nt.Muted, fontSize = 13.sp)
             }
@@ -161,18 +161,6 @@ fun RenameDialog(title: String, initial: String, onDismiss: () -> Unit, onSave: 
         text = { NtTextField(name, { name = it }, "Nom") },
         dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Annuler"), color = Nt.TextSoft) } },
         confirmButton = { TextButton(onClick = { onSave(name.trim()) }, enabled = name.isNotBlank()) { Text(tr("Enregistrer"), color = Nt.Accent) } },
-    )
-}
-
-@Composable
-fun ConfirmDialog(title: String, message: String, action: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Nt.Surface,
-        title = { Text(title) },
-        text = { Text(message, color = Nt.TextSoft) },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Annuler"), color = Nt.TextSoft) } },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(action, color = Nt.Pink, fontWeight = FontWeight.SemiBold) } },
     )
 }
 
@@ -211,7 +199,7 @@ fun IdentityDialog(initial: Identity?, keys: List<SshKey>, onDismiss: () -> Unit
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 NtTextField(name, { name = it }, tr("Nom"), placeholder = "admin homelab")
                 NtTextField(user, { user = it }, tr("Utilisateur"), mono = true)
-                com.nautile.app.ui.common.NtCard { KeyPicker(keys, keyId, { keyId = it }) }
+                NtCard { KeyPicker(keys, keyId, { keyId = it }) }
                 NtTextField(pass, { pass = it }, if (keyId == null) tr("Mot de passe (optionnel)") else tr("Mot de passe de secours (optionnel)"),
                     visualTransformation = PasswordVisualTransformation())
                 if (onDelete != null) TextButton(onClick = onDelete) { Text(tr("Supprimer l'identité"), color = Nt.Pink) }

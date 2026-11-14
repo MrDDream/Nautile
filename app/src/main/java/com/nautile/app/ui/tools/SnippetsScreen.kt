@@ -1,23 +1,17 @@
 package com.nautile.app.ui.tools
 
-import com.nautile.i18n.tr
-
 import android.content.ClipData
 import android.content.ClipboardManager
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.material3.TextButton
 import androidx.compose.foundation.border
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,28 +28,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileCopy
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,19 +53,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nautile.app.NautileApp
+import com.nautile.app.ui.common.ConfirmDialog
+import com.nautile.app.ui.common.CountChip
+import com.nautile.app.ui.common.NtSearchField
 import com.nautile.app.ui.common.PageHeader
 import com.nautile.app.ui.common.SectionLabel
 import com.nautile.app.ui.common.primaryBorder
 import com.nautile.app.ui.theme.Nt
 import com.nautile.data.model.Snippet
+import com.nautile.data.model.isDesktop
+import com.nautile.i18n.I18n
+import com.nautile.i18n.tr
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -95,7 +90,7 @@ private val STARTER_TEXTS = listOf("Espace disque", "Mises à jour (Debian, Ubun
 
 /** The examples follow the app language, whichever language they were added in. */
 private fun localized(text: String): String =
-    STARTER_TEXTS.firstOrNull { text == it || text == com.nautile.i18n.I18n.english(it) }?.let { tr(it) } ?: text
+    STARTER_TEXTS.firstOrNull { text == it || text == I18n.english(it) }?.let { tr(it) } ?: text
 
 /** Saved commands: search, filter by tag, run on open sessions or new ones, copy, edit. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -104,11 +99,11 @@ fun SnippetsScreen(onOpenSession: (Long) -> Unit) {
     val app = LocalContext.current.applicationContext as NautileApp
     val dao = app.database.toolsDao()
     val snippets by remember { dao.observeSnippets().map { list -> list.map { it.copy(name = localized(it.name), tag = localized(it.tag)) } } }
-        .collectAsState(initial = emptyList())
-    val sessions by app.sessions.sessions.collectAsState()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val sessions by app.sessions.sessions.collectAsStateWithLifecycle()
     // Remote desktops have no shell to run snippets in.
-    val hosts by remember { app.hostRepository.hosts.map { list -> list.filter { it.protocol != com.nautile.data.model.Protocol.RDP && it.protocol != com.nautile.data.model.Protocol.VNC } } }
-        .collectAsState(initial = emptyList())
+    val hosts by remember { app.hostRepository.hosts.map { list -> list.filter { !it.protocol.isDesktop } } }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var tag by rememberSaveable { mutableStateOf<String?>(null) }
@@ -129,24 +124,15 @@ fun SnippetsScreen(onOpenSession: (Long) -> Unit) {
         LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { PageHeader(tr("Snippets")) }
             if (snippets.isNotEmpty()) item {
-                OutlinedTextField(
-                    value = query, onValueChange = { query = it },
-                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = Nt.Muted) },
-                    trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, contentDescription = tr("Effacer la recherche"), tint = Nt.Muted) } },
-                    placeholder = { Text(tr("Rechercher un snippet"), color = Nt.Placeholder, fontSize = 13.sp) },
-                    singleLine = true, shape = RoundedCornerShape(14.dp),
-                    textStyle = TextStyle(fontSize = 14.sp, color = Nt.Text),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedContainerColor = Nt.Surface, focusedContainerColor = Nt.Surface,
-                        unfocusedBorderColor = Nt.Border, focusedBorderColor = Nt.Accent, cursorColor = Nt.Accent,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
+                NtSearchField(
+                    query, { query = it }, tr("Rechercher un snippet"),
+                    textStyle = TextStyle(fontSize = 14.sp, color = Nt.Text), placeholderSize = 13.sp,
                 )
             }
             if (tags.isNotEmpty()) item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    com.nautile.app.ui.common.CountChip(tr("Tous"), snippets.size, tag == null) { tag = null }
-                    tags.forEach { t -> com.nautile.app.ui.common.CountChip(t, snippets.count { it.tag == t }, tag == t) { tag = if (tag == t) null else t } }
+                    CountChip(tr("Tous"), snippets.size, tag == null) { tag = null }
+                    tags.forEach { t -> CountChip(t, snippets.count { it.tag == t }, tag == t) { tag = if (tag == t) null else t } }
                 }
             }
             if (snippets.isEmpty()) item {
@@ -204,7 +190,7 @@ fun SnippetsScreen(onOpenSession: (Long) -> Unit) {
 }
 
 /** One snippet: tap to edit, ▶ to run, long press for copy, duplicate and delete. */
-@OptIn(ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun SnippetCard(s: Snippet, onRun: () -> Unit, onCopy: () -> Unit, onEdit: () -> Unit, onDuplicate: () -> Unit, onDelete: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
@@ -249,23 +235,7 @@ private fun SnippetCard(s: Snippet, onRun: () -> Unit, onCopy: () -> Unit, onEdi
             DropdownMenuItem(text = { Text(tr("Supprimer"), color = Nt.Pink) }, leadingIcon = { Icon(Icons.Outlined.Delete, null, tint = Nt.Pink) }, onClick = { menu = false; confirmDelete = true })
         }
     }
-    if (confirmDelete) androidx.compose.material3.AlertDialog(
-        onDismissRequest = { confirmDelete = false }, containerColor = Nt.Surface,
-        title = { Text(tr("Supprimer « %1\$s » ?", s.name)) },
-        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr("Annuler"), color = Nt.TextSoft) } },
-        confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text(tr("Supprimer"), color = Nt.Pink, fontWeight = FontWeight.SemiBold) } },
-    )
-}
-
-@Composable
-private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick, shape = RoundedCornerShape(18.dp),
-        color = if (selected) Nt.Accent.copy(alpha = 0.12f) else Nt.Surface,
-        border = BorderStroke(1.dp, if (selected) Nt.Accent else Nt.Border), modifier = Modifier.height(36.dp),
-    ) {
-        Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
-            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (selected) Nt.Accent else Nt.TextSoft)
-        }
+    if (confirmDelete) ConfirmDialog(tr("Supprimer « %1\$s » ?", s.name), null, tr("Supprimer"), onDismiss = { confirmDelete = false }) {
+        confirmDelete = false; onDelete()
     }
 }

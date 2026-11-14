@@ -20,14 +20,14 @@ docker run -d --name coq-sshd --network "$NET" --network-alias sshd -p 127.0.0.1
   -p 127.0.0.1:60001-60005:60001-60005/udp \
   -e PASSWORD_ACCESS=true -e USER_NAME=nautile -e USER_PASSWORD=nautile \
   -e DOCKER_MODS=linuxserver/mods:openssh-server-ssh-tunnel \
-  lscr.io/linuxserver/openssh-server:latest >/dev/null
+  lscr.io/linuxserver/openssh-server:latest@sha256:161e0b670b31d9539ca1718bc5943e981779331b4e1c9d32e8929d7652a1f22f >/dev/null
 
 docker run -d --name coq-socks --network "$NET" -p 127.0.0.1:21080:1080 \
-  -e PROXY_USER=puser -e PROXY_PASSWORD=ppass serjs/go-socks5-proxy >/dev/null
+  -e PROXY_USER=puser -e PROXY_PASSWORD=ppass serjs/go-socks5-proxy:latest@sha256:0af522996f402c03ecd985a87997158eabeb28935365e3a384df37eafcf740ea >/dev/null
 
 printf 'Port 8888\nListen 0.0.0.0\nTimeout 600\nAllow 0.0.0.0/0\nMaxClients 20\n' > "$TMP/tinyproxy.conf"
 docker run -d --name coq-http --network "$NET" -p 127.0.0.1:28888:8888 \
-  -v "$TMP/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro" vimagick/tinyproxy >/dev/null
+  -v "$TMP/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro" vimagick/tinyproxy:latest@sha256:72b441b95ee1e641af948f68f09492f9f795ead72b73954414e339168c98ad8c >/dev/null
 
 echo "Waiting for sshd…"
 for _ in $(seq 1 90); do

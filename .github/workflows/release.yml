@@ -1,24 +1,31 @@
 name: Release
 
 # Pushing a tag vX.Y.Z (equal to versionName and to the desktop version) builds the signed APKs and the
-# desktop packages (Windows installer and portable zip, .deb, .rpm, .tar.gz) and attaches them to the release.
+# desktop packages (Windows installer and portable zip, .deb, .rpm, .tar.gz, .dmg) and attaches them to the release.
+#
+# The jobs that build (Gradle and its plugins, cargo and its build scripts) only read the repository and keep no
+# token in the checkout. The signing secrets live in the `release` environment and are only given to the jobs that
+# sign. Only the last job, which runs no build tool, may write to the release.
 on:
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  android:
     runs-on: ubuntu-latest
+    environment: release
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@v5
+      - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
 
       - name: Check that the tag matches versionName
         run: |
@@ -28,10 +35,19 @@ jobs:
             exit 1
           fi
 
+      - name: Check the prebuilt native libraries
+        run: scripts/check-native.sh
+
       - name: Restore the signing key
         env:
           KEYSTORE_B64: ${{ secrets.NAUTILE_KEYSTORE_B64 }}
-        run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/nautile-release.jks"
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::The NAUTILE_KEYSTORE_B64 secret is missing from the release environment"
+            exit 1
+          fi
+          umask 077
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/nautile-release.jks"
 
       - name: Tests and signed release APKs
         env:
@@ -48,6 +64,10 @@ jobs:
           done
           (cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt)
 
+      - name: Remove the signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/nautile-release.jks"
+
       - name: Signing certificate
         id: cert
         run: |
@@ -55,12 +75,12 @@ jobs:
           CERT=$("$APKSIGNER" verify --print-certs "dist/Nautile-$GITHUB_REF_NAME.apk" | grep -oP 'SHA-256 digest: \K[0-9a-f]+')
           echo "sha256=$CERT" >> "$GITHUB_OUTPUT"
 
-      - name: Publish the release
+      - name: Release notes
         env:
-          GH_TOKEN: ${{ github.token }}
           CERT: ${{ steps.cert.outputs.sha256 }}
         run: |
           CODE=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)
+          mkdir notes
           {
             # Full notes when written for this version, else the store changelogs.
             if [ -f "release-notes/$GITHUB_REF_NAME.md" ]; then
@@ -79,17 +99,21 @@ jobs:
             echo
             echo "**Package:** \`com.nautile\` · **Signing certificate SHA-256:** \`$CERT\`"
             echo
-            echo "**Desktop:** \`Nautile-*-setup.exe\` (Windows, no administrator rights needed), \`Nautile-*-portable.zip\` (Windows, everything stays in its folder), \`.deb\` (Debian, Ubuntu), \`.rpm\` (Fedora, openSUSE), \`.tar.gz\` (other Linux), \`.dmg\` (macOS, Apple silicon, not notarised yet: right click › Open). The Windows files are not signed yet: SmartScreen shows « Windows protected your PC » → *More info* → *Run anyway*."
-          } > notes.md
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" dist/* --title "Nautile $GITHUB_REF_NAME" --notes-file notes.md
-          fi
+            echo "**Desktop:** \`Nautile-*-setup.exe\` (Windows, no administrator rights needed), \`Nautile-*-portable.zip\` (Windows, everything stays in its folder), \`.deb\` (Debian, Ubuntu), \`.rpm\` (Fedora, openSUSE), \`.tar.gz\` (other Linux), \`.dmg\` (macOS, Apple silicon, not notarised yet: open it once, then System Settings › Privacy & Security › *Open Anyway*; before macOS 15, right click › Open). The Windows files are not signed yet: SmartScreen shows « Windows protected your PC » → *More info* → *Run anyway*. Checksums: \`SHA256SUMS-desktop.txt\`."
+          } > notes/notes.md
 
-      - name: Remove the signing key
-        if: always()
-        run: rm -f "$RUNNER_TEMP/nautile-release.jks"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android
+          path: dist/*
+          if-no-files-found: error
+          overwrite: true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: notes
+          path: notes/notes.md
+          if-no-files-found: error
+          overwrite: true
 
   desktop:
     strategy:
@@ -103,9 +127,11 @@ jobs:
       run:
         working-directory: desktop
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: desktop
       - name: Check that the tag matches the desktop version
@@ -118,38 +144,91 @@ jobs:
           fi
       - name: Packaging tools
         if: runner.os == 'Linux'
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
         with:
-          tool: cargo-deb,cargo-generate-rpm
+          tool: cargo-deb@3.8.0,cargo-generate-rpm@0.21.1
       - name: NSIS (Windows installer)
         if: runner.os == 'Windows'
-        run: choco install nsis -y --no-progress
+        run: choco install nsis --version 3.13.0 -y --no-progress
       - name: Tests and release build
         run: |
-          cargo test --all
-          cargo build --release -p nautile-app
+          cargo test --all --locked
+          cargo build --release --locked -p nautile-app
       - name: Packages
         shell: bash
         run: packaging/package.sh
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: desktop-${{ runner.os }}
+          # Not « desktop-* »: the sums job's own artifact (desktop-with-sums) must not match its download pattern.
+          name: build-desktop-${{ runner.os }}
           path: desktop/dist/*
+          if-no-files-found: error
+          overwrite: true
 
-  publish-desktop:
-    needs: [release, desktop]
+  # Sums of the desktop packages: the desktop app installs an update only when they list it with that very hash.
+  sums-desktop:
+    needs: desktop
     # Whatever was built is attached, even if one system failed (macOS runners are sometimes scarce).
-    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: desktop-*
+          pattern: build-desktop-*
           merge-multiple: true
           path: dist
-      - name: Attach the desktop packages
+      - name: Sums of the packages
+        run: |
+          ls dist/* >/dev/null
+          cd dist
+          # The packages only: never an older sums file.
+          files=()
+          for f in *; do
+            case "$f" in SHA256SUMS-desktop.txt*) ;; *) files+=("$f") ;; esac
+          done
+          sha256sum "${files[@]}" > SHA256SUMS-desktop.txt
+          cat SHA256SUMS-desktop.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-with-sums
+          path: dist/*
+          if-no-files-found: error
+          overwrite: true
+
+  # Only publishes what the other jobs built: no checkout, no build tool, no secret.
+  publish:
+    needs: [android, desktop, sums-desktop]
+    # The APKs are published even if a desktop build failed; the desktop packages only with their sums.
+    if: ${{ !cancelled() && needs.android.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: notes
+          path: notes
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ needs.sums-desktop.result == 'success' }}
+        with:
+          name: desktop-with-sums
+          path: dist
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          (cd dist && sha256sum * > SHA256SUMS-desktop.txt && cat SHA256SUMS-desktop.txt)
-          gh release upload "$GITHUB_REF_NAME" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          ls -la dist
+          # A tag with a suffix (v0.5.0-rc1) is a pre-release: never « latest », so no app offers it as an update.
+          kind=()
+          case "$GITHUB_REF_NAME" in
+            *-*) kind=(--prerelease --latest=false) ;;
+          esac
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* "${kind[@]}" --title "Nautile $GITHUB_REF_NAME" --notes-file notes/notes.md --repo "$GITHUB_REPOSITORY"
+          fi

@@ -1,21 +1,25 @@
 package com.nautile.app.rdp
 
-import com.nautile.i18n.tr
-
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import com.nautile.app.keys.KeyRepository
 import com.nautile.app.session.ChannelBackend
 import com.nautile.app.session.PendingPrompt
+import com.nautile.app.session.PromptOwner
 import com.nautile.app.session.SessionManager
 import com.nautile.app.session.SessionState
 import com.nautile.data.db.KnownHostDao
 import com.nautile.data.model.AuthMethod
 import com.nautile.data.model.Host
 import com.nautile.data.model.KnownHost
+import com.nautile.data.model.Protocol
 import com.nautile.data.model.ProxyKind
 import com.nautile.data.repo.HostRepository
+import com.nautile.i18n.tr
 import com.nautile.rdp.RdpArgs
 import com.nautile.rdp.RdpCertificate
 import com.nautile.rdp.RdpConfig
@@ -28,15 +32,20 @@ import com.nautile.ssh.ForwardType
 import com.nautile.ssh.PortKnocker
 import com.nautile.ssh.SshConnection
 import com.nautile.ssh.startForward
+import com.nautile.vnc.VncException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.Closeable
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.security.MessageDigest
+import java.security.cert.CertificateFactory
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -53,11 +62,11 @@ class RdpSession internal constructor(
     /** The host as opened (id 0 for a quick connection, never saved). */
     internal val host: Host,
     private val manager: RdpManager,
-) {
+) : PromptOwner {
     val hostId: Long get() = host.id
     val alias: String get() = host.alias
     val address: String get() = host.address
-    val protocol: com.nautile.data.model.Protocol get() = host.protocol
+    val protocol: Protocol get() = host.protocol
     internal val _state = MutableStateFlow<SessionState>(SessionState.Connecting(tr("Préparation…")))
     val state: StateFlow<SessionState> = _state.asStateFlow()
 
@@ -75,7 +84,12 @@ class RdpSession internal constructor(
     val isStarted: Boolean get() = started.get()
     /** Size of the view showing the session. */
     @Volatile private var viewSize: Pair<Int, Int>? = null
-    @Volatile internal var sizeJob: kotlinx.coroutines.Job? = null
+    @Volatile internal var sizeJob: Job? = null
+    /** Set once the user closed the session (or cancelled while connecting): its questions go away. */
+    @Volatile internal var closing = false
+    override val isClosing: Boolean get() = closing
+    /** The question FreeRDP's or VNC's thread is waiting on, cancelled when the session closes. */
+    @Volatile internal var pendingPrompt: PendingPrompt? = null
 
     val bitmap get() = backend?.bitmap
     val input: DesktopBackend? get() = backend?.takeIf { _state.value == SessionState.Connected }
@@ -131,7 +145,7 @@ class RdpManager(
 
     /** Same for a host that may not be saved (quick connection). */
     fun open(host: Host): Result<RdpSession> = runCatching {
-        if (host.protocol != com.nautile.data.model.Protocol.VNC)
+        if (host.protocol != Protocol.VNC)
             RdpConnection.unavailableReason()?.let { error(tr("Bureau à distance indisponible sur cet appareil : %1\$s", it)) }
         RdpSession(ids.incrementAndGet(), host, this).also { _list.value = _list.value + it }
     }
@@ -148,9 +162,28 @@ class RdpManager(
     }
 
     fun close(session: RdpSession) {
+        // First: FreeRDP's thread may be waiting on a question, and freeing the instance waits for that thread.
+        withdraw(session)
         _list.value = _list.value - session
         session.display = null
         scope.launch(Dispatchers.IO) { release(session) }
+    }
+
+    private fun withdraw(session: RdpSession) {
+        session.closing = true
+        session.pendingPrompt?.cancel()
+        sessions.withdrawPrompt(session)
+    }
+
+    /** Asks [p] for [session] from a connection thread; « cancel » once the session is closed. */
+    private fun <T> ask(session: RdpSession, p: PendingPrompt, await: suspend () -> T): T {
+        session.pendingPrompt = p
+        if (session.closing) p.cancel()
+        return try {
+            runBlocking { sessions.prompt(p, session, await) }
+        } finally {
+            if (session.pendingPrompt === p) session.pendingPrompt = null
+        }
     }
 
     /** Tries again after a failure or a disconnection, on a fresh session in the same place. */
@@ -159,6 +192,7 @@ class RdpManager(
         (if (session.hostId != 0L) open(session.hostId) else open(session.host)).also { close(session) }
 
     private fun release(session: RdpSession) {
+        if (!_list.value.contains(session)) withdraw(session)
         session.backend?.let { runCatching { it.close() } }
         session.backend = null
         session.tunnel?.let { runCatching { it.close() } }
@@ -180,7 +214,7 @@ class RdpManager(
                 val jumpId = host.jumpHostId
                 if (jumpId != null) {
                     val plan = sessions.plan(jumpId)
-                    val ssh: SshConnection = sessions.connector(plan.host.alias).connect(plan.chain, ::step, plan.proxy, plan.agentKeys?.let { k -> { k } })
+                    val ssh: SshConnection = sessions.connect(plan, ::step)
                     val fwd = try {
                         ssh.startForward(ForwardSpec(ForwardType.LOCAL, "127.0.0.1", 0, host.hostname, host.port))
                     } catch (e: Exception) {
@@ -195,7 +229,7 @@ class RdpManager(
                     proxy = RdpArgs.proxyUrl(if (http) "http" else "socks5", ph, host.proxyPort ?: if (http) 8080 else 1080, host.proxyUsername, host.proxyPassword)
                 }
 
-                if (host.protocol == com.nautile.data.model.Protocol.VNC) {
+                if (host.protocol == Protocol.VNC) {
                     if (proxy != null) error(tr("Proxy non pris en charge en VNC : passez par un rebond SSH"))
                     connectVnc(session, host, target, ::step)
                     return@launch
@@ -212,7 +246,7 @@ class RdpManager(
                     security = host.rdpSecurity?.let { runCatching { RdpSecurity.valueOf(it) }.getOrNull() } ?: RdpSecurity.AUTO,
                     audio = host.rdpAudio,
                     console = host.rdpConsole,
-                    clientName = android.os.Build.MODEL.filter { it.isLetterOrDigit() || it == '-' }.take(15).ifEmpty { "Nautile" },
+                    clientName = Build.MODEL.filter { it.isLetterOrDigit() || it == '-' }.take(15).ifEmpty { "Nautile" },
                     proxy = proxy,
                     quality = prefs.quality.value,
                     clipboard = prefs.clipboard.value,
@@ -221,7 +255,11 @@ class RdpManager(
                 val conn = RdpConnection(context, Events(session, host))
                 session.backend = RdpBackend(conn)
                 if (!_list.value.contains(session)) { release(session); return@launch }
-                if (!conn.start(config)) error(tr("Paramètres de connexion refusés par FreeRDP"))
+                if (!conn.start(config)) {
+                    // Closed meanwhile: start() refuses a freed instance.
+                    if (!_list.value.contains(session)) return@launch
+                    error(tr("Paramètres de connexion refusés par FreeRDP"))
+                }
             } catch (e: Exception) {
                 release(session)
                 session._state.value = SessionState.Closed(ChannelBackend.describe(e), failed = true)
@@ -232,9 +270,9 @@ class RdpManager(
     /** VNC: a socket to [target], the password saved (or asked), then the RFB session. */
     private suspend fun connectVnc(session: RdpSession, host: Host, target: Pair<String, Int>, step: (String) -> Unit) {
         step(tr("Connexion VNC à %1\$s:%2\$s…", host.hostname, host.port))
-        val socket = java.net.Socket()
+        val socket = Socket()
         try {
-            socket.connect(java.net.InetSocketAddress(target.first, target.second), 15_000)
+            socket.connect(InetSocketAddress(target.first, target.second), 15_000)
         } catch (e: Exception) {
             runCatching { socket.close() }
             throw IllegalStateException(tr("Serveur VNC injoignable (%1\$s)", e.message ?: ""))
@@ -247,12 +285,12 @@ class RdpManager(
         if (!_list.value.contains(session)) { release(session); return }
         try {
             backend.start {
-                saved?.takeIf { it.isNotEmpty() } ?: runBlocking {
+                saved?.takeIf { it.isNotEmpty() } ?: run {
                     val p = PendingPrompt.Secret(host.alias, tr("Mot de passe VNC"), tr("Mot de passe de %1\$s", host.alias))
-                    sessions.prompt(p) { p.answer.await() }
+                    ask(session, p) { p.answer.await() }
                 }
             }
-        } catch (e: com.nautile.vnc.VncException) {
+        } catch (e: VncException) {
             throw IllegalStateException(e.message)
         }
         session._state.value = SessionState.Connected
@@ -268,7 +306,7 @@ class RdpManager(
         override fun remoteClipboard(text: String) {
             if (!prefs.clipboard.value) return
             val cm = context.getSystemService(ClipboardManager::class.java)
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
+            Handler(Looper.getMainLooper()).post {
                 runCatching { cm.setPrimaryClip(ClipData.newPlainText(host.alias, text)) }
             }
         }
@@ -315,7 +353,7 @@ class RdpManager(
 
         override fun credentials(current: RdpCredentials, gateway: Boolean): RdpCredentials? {
             val p = PendingPrompt.Login(host.alias, current.username, current.domain, gateway)
-            return runBlocking { sessions.prompt(p) { p.answer.await() } }
+            return ask(session, p) { p.answer.await() }
         }
 
         override fun certificate(cert: RdpCertificate): Boolean {
@@ -323,7 +361,8 @@ class RdpManager(
             val known = knownHosts.findBlocking(host.hostname, host.port).firstOrNull { it.keyType == CERT_TYPE }
             if (known?.fingerprint == fp) return true
             val p = PendingPrompt.Certificate(host.alias, "${host.hostname}:${host.port}", cert, fp, known?.fingerprint)
-            val ok = runBlocking { sessions.prompt(p) { p.answer.await() } }
+            val ok = ask(session, p) { p.answer.await() } && !session.closing
+            // Never remembered for a connection the user abandoned meanwhile.
             if (ok) knownHosts.replaceBlocking(KnownHost(host = host.hostname, port = host.port, keyType = CERT_TYPE, publicKey = cert.subject, fingerprint = fp))
             return ok
         }
@@ -331,13 +370,21 @@ class RdpManager(
         override fun remoteClipboard(text: String) {
             if (!prefs.clipboard.value) return
             val cm = context.getSystemService(ClipboardManager::class.java)
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
+            Handler(Looper.getMainLooper()).post {
                 runCatching { cm.setPrimaryClip(ClipData.newPlainText(host.alias, text)) }
             }
         }
     }
 
     companion object {
+        /**
+         * Shown by the host editor under the security choice when « RDP » (standard security) is picked:
+         * nothing authenticates the server, so the saved password is not sent (Windows asks for it).
+         */
+        fun securityWarning(security: RdpSecurity): String? =
+            if (RdpArgs.sendsPassword(security)) null
+            else tr("Sécurité RDP standard : le serveur n'est pas authentifié, un intermédiaire pourrait lire la session. Le mot de passe enregistré n'est pas envoyé : saisissez-le dans l'écran de connexion de Windows.")
+
         /** keyType of RDP server certificates in the known hosts table. */
         const val CERT_TYPE = "rdp-x509"
 
@@ -351,7 +398,7 @@ class RdpManager(
         fun fingerprint(cert: RdpCertificate): String {
             if (cert.isPem) {
                 val der = runCatching {
-                    java.security.cert.CertificateFactory.getInstance("X.509")
+                    CertificateFactory.getInstance("X.509")
                         .generateCertificate(cert.fingerprint.byteInputStream()).encoded
                 }.getOrElse { cert.fingerprint.toByteArray() }
                 return MessageDigest.getInstance("SHA-256").digest(der).joinToString(":") { "%02X".format(it) }
@@ -361,6 +408,8 @@ class RdpManager(
 
         /** FreeRDP error names into words. */
         fun describe(error: String): String = when {
+            error.contains(RdpConnection.DESKTOP_TOO_LARGE) -> tr("Le serveur demande un bureau trop grand (%1\$s)", error.substringAfter(RdpConnection.DESKTOP_TOO_LARGE).trim())
+            error.startsWith(RdpConnection.CLIENT_ERROR) -> tr("Erreur interne du client RDP : %1\$s", error.substringAfter(':').trim())
             error.contains("LOGON_FAILURE", true) || error.contains("AUTHENTICATION_FAILED", true) -> tr("Identifiants refusés par le serveur")
             error.contains("PASSWORD_EXPIRED", true) || error.contains("PASSWORD_MUST_CHANGE", true) -> tr("Mot de passe expiré : changez-le depuis Windows")
             error.contains("ACCOUNT_DISABLED", true) -> tr("Compte désactivé")

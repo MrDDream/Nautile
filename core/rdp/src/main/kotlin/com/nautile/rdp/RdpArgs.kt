@@ -1,5 +1,7 @@
 package com.nautile.rdp
 
+import java.net.URLEncoder
+
 enum class RdpSecurity { AUTO, NLA, TLS, RDP }
 
 /** Image quality against bandwidth. */
@@ -46,7 +48,9 @@ object RdpArgs {
         add("/port:${c.port}")
         if (c.username.isNotEmpty()) add("/u:${c.username}")
         if (c.domain.isNotEmpty()) add("/d:${c.domain}")
-        if (!c.password.isNullOrEmpty()) add("/p:${c.password}")
+        // Standard RDP security has no server authentication: a man in the middle would get the password.
+        // Windows asks for it there instead (in the session, once the link is up).
+        if (!c.password.isNullOrEmpty() && sendsPassword(c.security)) add("/p:${c.password}")
         val (w, h) = desktopSize(c.width, c.height)
         add("/size:${w}x$h")
         add(if (c.quality == RdpQuality.FAST) "/bpp:16" else "/bpp:32")
@@ -55,7 +59,9 @@ object RdpArgs {
             RdpSecurity.NLA -> add("/sec:nla")
             RdpSecurity.TLS -> add("/sec:tls")
             RdpSecurity.RDP -> add("/sec:rdp")
-            RdpSecurity.AUTO -> {}
+            // FreeRDP would otherwise also accept standard RDP security, which a man in the middle can force
+            // (no certificate, nothing to check). TLS and NLA only; RDP stays available when chosen explicitly.
+            RdpSecurity.AUTO -> add(AUTO_SECURITY)
         }
         if (c.console) add("/admin")
         when (c.quality) {
@@ -84,6 +90,12 @@ object RdpArgs {
         add("/log-level:${c.logLevel}")
     }
 
+    /** What [RdpSecurity.AUTO] negotiates: TLS or NLA, never standard RDP security. */
+    const val AUTO_SECURITY = "/sec:tls:on,nla:on,rdp:off"
+
+    /** Whether the saved password goes on the command line: never with standard RDP security (no server check). */
+    fun sendsPassword(security: RdpSecurity): Boolean = security != RdpSecurity.RDP
+
     /** Clamps to sizes servers accept: width a multiple of 4, even height, at least 640×480. */
     fun desktopSize(width: Int, height: Int): Pair<Int, Int> =
         (width.coerceIn(640, 8192) / 4 * 4) to height.coerceIn(480, 8192).let { it - it % 2 }
@@ -99,5 +111,5 @@ object RdpArgs {
         append(if (':' in host && !host.startsWith("[")) "[$host]" else host).append(':').append(port)
     }
 
-    private fun encode(s: String) = java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+    private fun encode(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 }

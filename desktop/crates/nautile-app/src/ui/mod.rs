@@ -1,16 +1,16 @@
 //! What the app looks like: a sidebar, the page, and the editors in centred pop-ups.
 
-use iced::widget::{button, column, container, row, stack, text, text_input, Column, Space};
+use iced::widget::{Column, Space, button, column, container, row, stack, text, text_input};
 use iced::{Alignment, Color, Element, Fill, Length, Padding};
 use nautile_core::model::{AuthMethod, Host, Protocol};
 use nautile_core::{tr, trf};
 
-use crate::app::{App, AuthChoice, Choice, Editor, HostField, KeysTab, Message, Page, ProtocolChoice, COLORS};
+use crate::app::{App, AuthChoice, COLORS, Choice, Editor, HostField, KeysTab, Message, Page, ProtocolChoice};
 use crate::kit;
 use crate::sessions::{Tab, TabState, TunnelState};
 use crate::storage::{Appearance, Language};
 use crate::term::{themes, widget as term_view};
-use crate::theme::{self, argb, BOLD, MONO};
+use crate::theme::{self, BOLD, MONO, argb};
 use nautile_core::model::ForwardKind;
 use nautile_net::Prompt;
 
@@ -176,6 +176,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .into();
     }
 
+    if let Some(v) = &app.vault {
+        return vault_screen(v);
+    }
     if app.locked {
         return lock_screen(app);
     }
@@ -214,6 +217,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         (Some(crate::app::Modal::Password), None) => layers = layers.push(password_modal(app, max_h)),
         (Some(crate::app::Modal::Export), None) => layers = layers.push(export_modal(app, max_h)),
         (Some(crate::app::Modal::Update), None) => layers = layers.push(update_modal(app, max_h)),
+        (Some(crate::app::Modal::UpdateAsk), None) => layers = layers.push(update_ask_modal(max_h)),
         (Some(crate::app::Modal::ImportHosts), None) => layers = layers.push(import_hosts_modal(app, max_h)),
         (None, None) => {}
     }
@@ -257,6 +261,91 @@ pub fn view(app: &App) -> Element<'_, Message> {
     layers.into()
 }
 
+/// Portable mode, before anything is read: the master password that opens the database key (created at the
+/// first start).
+fn vault_screen(v: &crate::vault::VaultForm) -> Element<'_, Message> {
+    use crate::vault::VaultMsg as V;
+    let create = matches!(v.mode, crate::storage::Vault::Create { .. });
+    let vm = Message::Vault;
+    let submit = (!v.busy).then_some(vm(V::Submit));
+    let secure = |ph: String, value: &str, on: fn(String) -> V| {
+        let mut i = text_input(&ph, value)
+            .on_input(move |s| Message::Vault(on(s)))
+            .secure(true)
+            .padding([10, 14])
+            .size(16)
+            .width(320)
+            .style(theme::input);
+        if let Some(m) = submit.clone() {
+            i = i.on_submit(m);
+        }
+        i
+    };
+    let mut c = column![
+        container(icon(I_LOCK).size(30))
+            .padding([10, 14])
+            .style(|t: &iced::Theme| theme::tile(theme::nt(t).accent)(t)),
+        text(if create {
+            tr("Créer le mot de passe maître")
+        } else {
+            tr("Mot de passe maître")
+        })
+        .size(20)
+        .font(BOLD),
+    ]
+    .spacing(16)
+    .align_x(Alignment::Center)
+    .max_width(460);
+    if create {
+        c = c.push(
+            soft(tr(
+                "Mode portable : ce mot de passe chiffre la clé de la base. Il est demandé à chaque démarrage, sur tout ordinateur.",
+            ))
+            .align_x(Alignment::Center),
+        );
+        c = c.push(
+            pink(tr(
+                "Mot de passe perdu = données perdues : personne ne peut le retrouver ni le réinitialiser.",
+            ))
+            .align_x(Alignment::Center),
+        );
+        if v.mode == (crate::storage::Vault::Create { legacy: true }) {
+            c = c.push(
+                soft(tr(
+                    "La clé de la base, gardée en clair par l'ancienne version (db.key), sera chiffrée puis effacée.",
+                ))
+                .align_x(Alignment::Center),
+            );
+        }
+    } else {
+        c = c.push(soft(tr("Mode portable : saisissez le mot de passe maître pour ouvrir vos données.")).align_x(Alignment::Center));
+    }
+    let first = if create {
+        let min = nautile_core::lock::MASTER_MIN;
+        trf("Nouveau mot de passe (%1$s caractères au moins)", &[&min])
+    } else {
+        tr("Mot de passe maître")
+    };
+    c = c.push(secure(first, &v.password, V::Password).id("vault"));
+    if create {
+        c = c.push(secure(tr("Confirmer"), &v.confirm, V::Confirm));
+    }
+    c = c.push(primary(
+        if v.busy {
+            tr("Vérification…")
+        } else if create {
+            tr("Créer et ouvrir")
+        } else {
+            tr("Ouvrir")
+        },
+        submit,
+    ));
+    if let Some(e) = &v.error {
+        c = c.push(pink(e.clone()).size(13));
+    }
+    container(c).center(Fill).style(theme::page).into()
+}
+
 fn sidebar(app: &App) -> Element<'_, Message> {
     let compact = app.settings.sidebar_compact;
     let tip = |content: Element<'static, Message>, name: String| -> Element<'static, Message> {
@@ -295,7 +384,7 @@ fn sidebar(app: &App) -> Element<'_, Message> {
         brand = brand.push(text("Nautile").font(BOLD).size(21));
     }
     let place = if app.paths.portable {
-        tr("Mode portable")
+        tr("Mode portable, protégé par le mot de passe maître")
     } else {
         tr("Données chiffrées sur cet ordinateur")
     };
@@ -535,7 +624,7 @@ fn host_menu(app: &App, id: i64, at: iced::Point) -> Element<'_, Message> {
             groups = groups.push(
                 button(
                     row![
-                        kit::dot(argb(g.color), 9.0),
+                        kit::group_mark(g.icon.as_deref(), argb(g.color), 15.0, 9.0),
                         text(g.name.clone()).size(13).width(Fill),
                         icon(if here { I_CHECK } else { ' ' }).size(16)
                     ]

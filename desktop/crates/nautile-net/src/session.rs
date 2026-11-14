@@ -49,6 +49,8 @@ pub enum Event {
     Prompt(Prompt),
     /// A host key the user accepted, to save in the known hosts.
     Trust { info: HostKeyInfo, replace: bool },
+    /// The server's operating system (`nautile_core::os` id), found once connected.
+    Os(String),
     /// The end: `None` when it ended normally, else the reason.
     Closed(Option<String>),
 }

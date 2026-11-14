@@ -425,11 +425,15 @@ async fn sftp_editor_against_a_real_server() {
             },
         ))
         .unwrap();
-    assert!(wait_edit(&mut b).await.is_err(), "refused: it changed meanwhile");
+    assert_eq!(
+        wait_edit(&mut b).await.err(),
+        Some(nautile_net::sftp::CmdError::Changed),
+        "refused: it changed meanwhile"
+    );
     b.cmd.send((4, Cmd::Remove(path))).unwrap();
 }
 
-async fn wait_edit(b: &mut nautile_net::sftp::Browser) -> Result<nautile_net::sftp::Update, String> {
+async fn wait_edit(b: &mut nautile_net::sftp::Browser) -> Result<nautile_net::sftp::Update, nautile_net::sftp::CmdError> {
     use nautile_net::sftp::Update;
     loop {
         match tokio::time::timeout(Duration::from_secs(30), b.updates.recv())

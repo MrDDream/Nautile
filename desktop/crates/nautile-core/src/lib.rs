@@ -8,6 +8,7 @@ pub mod import;
 pub mod lan;
 pub mod lock;
 pub mod model;
+pub mod os;
 pub mod quick;
 pub mod sync;
 

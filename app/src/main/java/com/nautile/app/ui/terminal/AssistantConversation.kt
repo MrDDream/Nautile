@@ -1,7 +1,9 @@
 package com.nautile.app.ui.terminal
 
-import com.nautile.i18n.tr
-
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,7 +49,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nautile.app.NautileApp
 import com.nautile.app.ai.AiTurn
 import com.nautile.app.ai.prettyModel
@@ -71,7 +74,12 @@ import com.nautile.app.session.ActiveSession
 import com.nautile.app.session.aiKey
 import com.nautile.app.ui.common.ProviderLogo
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** The whole conversation with the assistant for this session, full screen, with follow-ups and export. */
 @Composable
@@ -88,7 +96,7 @@ internal fun ConversationContent(session: ActiveSession, onClose: () -> Unit, on
     val app = LocalContext.current.applicationContext as NautileApp
     val context = LocalContext.current
     val ai = app.ai
-    val turns by ai.conversation(session.aiKey).collectAsState()
+    val turns by remember(session.aiKey) { ai.conversationFlow(session.aiKey) }.collectAsStateWithLifecycle(ai.loadedConversation(session.aiKey).orEmpty())
     val scope = rememberCoroutineScope()
     var draft by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -99,7 +107,7 @@ internal fun ConversationContent(session: ActiveSession, onClose: () -> Unit, on
 
     fun markdown() = ai.markdown(turns, session.alias)
     val save = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/markdown"),
+        ActivityResultContracts.CreateDocument("text/markdown"),
     ) { uri -> uri?.let { u -> runCatching { context.contentResolver.openOutputStream(u)?.use { it.write(markdown().toByteArray()) } } } }
 
     fun send() {
@@ -109,7 +117,7 @@ internal fun ConversationContent(session: ActiveSession, onClose: () -> Unit, on
         busy = true; error = null; draft = ""
         scope.launch {
             runCatching { ai.ask(text, "${session.address} (${session.protocolLabel})", null, kind, conversation = session.aiKey) }
-                .onFailure { if (it !is kotlinx.coroutines.CancellationException) { error = it.message ?: tr("Échec de la requête"); draft = text } }
+                .onFailure { if (it !is CancellationException) { error = it.message ?: tr("Échec de la requête"); draft = text } }
             busy = false
         }
     }
@@ -134,18 +142,18 @@ internal fun ConversationContent(session: ActiveSession, onClose: () -> Unit, on
                         text = { Text(tr("Copier en Markdown")) }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) },
                         onClick = {
                             menu = false
-                            context.getSystemService(android.content.ClipboardManager::class.java)
-                                ?.setPrimaryClip(android.content.ClipData.newPlainText(tr("Conversation"), markdown()))
+                            context.getSystemService(ClipboardManager::class.java)
+                                ?.setPrimaryClip(ClipData.newPlainText(tr("Conversation"), markdown()))
                         },
                     )
                     DropdownMenuItem(
                         text = { Text(tr("Partager…")) }, leadingIcon = { Icon(Icons.Outlined.IosShare, null) },
                         onClick = {
                             menu = false
-                            val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/markdown")
-                                .putExtra(android.content.Intent.EXTRA_SUBJECT, tr("Assistant Nautile — %1\$s", session.alias))
-                                .putExtra(android.content.Intent.EXTRA_TEXT, markdown())
-                            context.startActivity(android.content.Intent.createChooser(send, tr("Partager la conversation")))
+                            val send = Intent(Intent.ACTION_SEND).setType("text/markdown")
+                                .putExtra(Intent.EXTRA_SUBJECT, tr("Assistant Nautile — %1\$s", session.alias))
+                                .putExtra(Intent.EXTRA_TEXT, markdown())
+                            context.startActivity(Intent.createChooser(send, tr("Partager la conversation")))
                         },
                     )
                     DropdownMenuItem(
@@ -153,7 +161,7 @@ internal fun ConversationContent(session: ActiveSession, onClose: () -> Unit, on
                         onClick = {
                             menu = false
                             save.launch("nautile-" + session.alias.replace(Regex("[^\\w.-]"), "_") + "-" +
-                                java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.ROOT).format(java.util.Date()) + ".md")
+                                SimpleDateFormat("yyyy-MM-dd-HHmm", Locale.ROOT).format(Date()) + ".md")
                         },
                     )
                     HorizontalDivider(color = Nt.Border)
@@ -231,7 +239,7 @@ private fun TurnView(t: AiTurn, onInsert: (String, Boolean) -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ProviderLogo(t.provider, 16.dp, tint = Nt.TextSoft)
                 Text("${t.provider.shortLabel} · ${prettyModel(t.model)}", color = Nt.Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                Text(java.text.SimpleDateFormat("HH:mm", java.util.Locale.ROOT).format(java.util.Date(t.at)), color = Nt.Muted, fontSize = 11.sp)
+                Text(SimpleDateFormat("HH:mm", Locale.ROOT).format(Date(t.at)), color = Nt.Muted, fontSize = 11.sp)
             }
             Answer(t.answer, onInsert)
         }
@@ -239,7 +247,7 @@ private fun TurnView(t: AiTurn, onInsert: (String, Boolean) -> Unit) {
 }
 
 @Composable
-private fun Meta(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String) {
+private fun Meta(icon: ImageVector, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Icon(icon, contentDescription = null, tint = Nt.Muted, modifier = Modifier.size(14.dp))
         Text(label, color = Nt.Muted, fontSize = 12.sp)

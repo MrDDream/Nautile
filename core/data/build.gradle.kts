@@ -1,19 +1,19 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
 }
 
 android {
     namespace = "com.nautile.data"
-    compileSdk = 34
+    compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
     testOptions {
         unitTests.isIncludeAndroidResources = true
         // Compatibility files for the desktop app: -PnautileFixtures writes them to desktop/tests/fixtures.
@@ -37,3 +37,5 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
 }
+
+kotlin { compilerOptions { jvmTarget = JvmTarget.JVM_17 } }

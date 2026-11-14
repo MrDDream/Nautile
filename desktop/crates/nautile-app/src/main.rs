@@ -45,13 +45,6 @@ fn main() -> iced::Result {
 
 /// The window's icon, from the same picture as the packages'.
 fn icon() -> Option<iced::window::Icon> {
-    let decoder = png::Decoder::new(std::io::Cursor::new(include_bytes!("../../../packaging/nautile.png")));
-    let mut reader = decoder.read_info().ok()?;
-    let mut buf = vec![0; reader.output_buffer_size()];
-    let info = reader.next_frame(&mut buf).ok()?;
-    if info.color_type != png::ColorType::Rgba {
-        return None;
-    }
-    buf.truncate(info.buffer_size());
-    iced::window::icon::from_rgba(buf, info.width, info.height).ok()
+    let (w, h, rgba) = nautile_app::tray::app_icon()?;
+    iced::window::icon::from_rgba(rgba, w, h).ok()
 }

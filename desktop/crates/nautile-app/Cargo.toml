@@ -27,14 +27,17 @@ rand.workspace = true
 hex.workspace = true
 base64.workspace = true
 sha2.workspace = true
+# Session logs and AI conversations sealed with a key derived from the database key (sealed.rs).
+aes-gcm.workspace = true
+hmac.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 # The window's icon.
-png = "0.17"
+png = "0.18"
 # Opens files and folders with the system (session logs, downloads).
-opener = "0.8"
+opener = "0.9"
 # The network interfaces, to know whether a VPN is up (« Seulement via le VPN »).
-if-addrs = "0.13"
+if-addrs = "0.15"
 
 # Notifications (backup failed, tunnel down, update) while the window is hidden.
 notify-rust = "4"
@@ -44,11 +47,11 @@ notify-rust = "4"
 ksni = { version = "0.3", features = ["blocking"] }
 
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
-tray-icon = "0.21"
+tray-icon = "0.26"
 
 # « Lancer au démarrage » on Windows.
 [target.'cfg(windows)'.dependencies]
-winreg = "0.55"
+winreg = "0.56"
 
 [build-dependencies]
 # The icon and the version of nautile.exe.
@@ -75,6 +78,7 @@ assets = [
     ["../../packaging/nautile.desktop", "usr/share/applications/", "644"],
     ["../../packaging/nautile.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
     ["../../packaging/nautile.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["../../packaging/THIRD-PARTY-LICENSES.txt", "usr/share/doc/nautile/", "644"],
 ]
 
 # `cargo generate-rpm -p crates/nautile-app` (Fedora, openSUSE…)
@@ -87,6 +91,8 @@ assets = [
     { source = "packaging/nautile.desktop", dest = "/usr/share/applications/nautile.desktop", mode = "644" },
     { source = "packaging/nautile.png", dest = "/usr/share/icons/hicolor/256x256/apps/nautile.png", mode = "644" },
     { source = "packaging/nautile.svg", dest = "/usr/share/icons/hicolor/scalable/apps/nautile.svg", mode = "644" },
+    { source = "../LICENSE", dest = "/usr/share/licenses/nautile/LICENSE", mode = "644", doc = true },
+    { source = "packaging/THIRD-PARTY-LICENSES.txt", dest = "/usr/share/doc/nautile/THIRD-PARTY-LICENSES.txt", mode = "644", doc = true },
 ]
 [package.metadata.generate-rpm.requires]
 libxkbcommon = "*"

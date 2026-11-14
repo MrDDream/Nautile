@@ -1,17 +1,15 @@
 package com.nautile.app.ui.sftp
 
-import com.nautile.i18n.tr
-
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -41,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.nautile.app.NautileApp
 import com.nautile.app.session.ChannelBackend
 import com.nautile.app.ui.theme.Nt
+import com.nautile.i18n.tr
 import kotlinx.coroutines.launch
 
 private const val MAX_EDIT_BYTES = 2L * 1024 * 1024
@@ -52,6 +51,7 @@ fun EditorScreen(hostId: Long, path: String, onBack: () -> Unit) {
     val pool = app.sessions.sftp
     var text by remember { mutableStateOf<String?>(null) }
     var original by remember { mutableStateOf("") }
+    var charset by remember { mutableStateOf(Charsets.UTF_8) }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
@@ -64,25 +64,35 @@ fun EditorScreen(hostId: Long, path: String, onBack: () -> Unit) {
                 require(size <= MAX_EDIT_BYTES) { tr("Fichier trop gros pour l'éditeur (%1\$s Ko, max 2 Mo)", size / 1024) }
                 val bytes = s.openRead(path).use { it.readBytes() }
                 require(bytes.take(8000).none { it == 0.toByte() }) { tr("Fichier binaire : ouverture impossible") }
-                bytes.decodeToString()
+                RemoteText.decode(bytes)
             }
-        }.onSuccess { text = it; original = it }.onFailure { error = it.message ?: ChannelBackend.describe(it) }
+        }.onSuccess { charset = it.charset; text = it.text; original = it.text }.onFailure { error = it.message ?: ChannelBackend.describe(it) }
     }
+    val modified = text.let { it != null && it != original }
 
     Column(Modifier.fillMaxSize().background(Nt.Bg).imePadding()) {
         Row(Modifier.padding(start = 4.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Retour")) }
             Column(Modifier.weight(1f)) {
-                Text(path.substringAfterLast('/') + if (text != null && text != original) " •" else "", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                Text(path, fontFamily = Nt.Mono, fontSize = 11.sp, color = Nt.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(path.substringAfterLast('/') + if (modified) " •" else "", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                Text(
+                    if (charset == Charsets.UTF_8) path else "$path · ISO-8859-1",
+                    fontFamily = Nt.Mono, fontSize = 11.sp, color = Nt.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
             }
             TextButton(
-                enabled = text != null && text != original && !saving,
+                enabled = modified && !saving,
                 onClick = {
                     val t = text ?: return@TextButton
+                    // The file's own encoding: a Latin-1 file stays Latin-1.
+                    val bytes = RemoteText.encode(t, charset) ?: run {
+                        scope.launch { snackbar.showSnackbar(tr("Ce fichier est en %1\$s : un des caractères saisis ne peut pas y être enregistré", charset.name())) }
+                        return@TextButton
+                    }
                     saving = true
                     scope.launch {
-                        runCatching { pool.with(hostId) { s -> s.openWrite(path).use { it.write(t.toByteArray()) } } }
+                        // Atomic when the server allows it: a dropped connection never leaves the file cut off.
+                        runCatching { pool.with(hostId) { s -> s.replaceContent(path, bytes) } }
                             .onSuccess { original = t; snackbar.showSnackbar(tr("Enregistré")) }
                             .onFailure { snackbar.showSnackbar(tr("Échec : %1\$s", ChannelBackend.describe(it))) }
                         saving = false
