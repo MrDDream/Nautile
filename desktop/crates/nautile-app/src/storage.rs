@@ -337,7 +337,7 @@ fn system_is_french() -> bool {
 fn windows_is_french() -> bool {
     // The user's UI language, without a crate: `GetUserDefaultUILanguage` primary language 0x0C is French.
     #[link(name = "kernel32")]
-    extern "system" {
+    unsafe extern "system" {
         fn GetUserDefaultUILanguage() -> u16;
     }
     unsafe { GetUserDefaultUILanguage() & 0x3ff == 0x0c }
