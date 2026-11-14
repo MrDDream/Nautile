@@ -29,7 +29,7 @@ bouncycastle = "1.87"
 slf4j = "2.0.20"
 annotation = "1.11.0"
 # Floors for anthropic-java's transitive dependencies (Jackson 2.19 is no longer maintained).
-jackson = "2.21.8"
+jackson = "2.23.0"
 opentelemetry = "1.68.0"
 
 [libraries]
