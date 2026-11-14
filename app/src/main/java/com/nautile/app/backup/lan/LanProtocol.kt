@@ -118,6 +118,11 @@ object LanProtocol {
     }
 
     /** Reads the responder's header; anything but OK is the matching [LanException]. */
+    /** A peer hanging up shows here on some systems (broken pipe, reset), before its reply is read. */
+    private fun sendOpening(out: DataOutputStream, opening: ByteArray) {
+        try { out.write(opening); out.flush() } catch (e: SocketException) { throw Unreachable() }
+    }
+
     private fun readReply(inp: DataInputStream) {
         val head = ByteArray(6)
         // Hanging up without an answer: an older Nautile does (its mDNS version, checked before connecting, says so),
@@ -176,7 +181,7 @@ object LanProtocol {
         val x = Spake2.scalar(Spake2.randomScalar(rng))!!
         val w = Spake2.password(code.trim())
         val pA = Spake2.encode(Spake2.message(x, w, Spake2.M))
-        out.write(opening(MODE_PAIR, me, pA)); out.flush()
+        sendOpening(out, opening(MODE_PAIR, me, pA))
         readReply(inp)
         val pB = ByteArray(Spake2.POINT_LEN).also { inp.readFully(it) }
         val cB = ByteArray(32).also { inp.readFully(it) }
@@ -235,7 +240,7 @@ object LanProtocol {
     fun syncConnect(input: InputStream, output: OutputStream, me: String, peer: String, secret: ByteArray, rng: SecureRandom = random): Channel {
         val out = DataOutputStream(output); val inp = DataInputStream(input)
         val (priv, pubI) = x25519(rng)
-        out.write(opening(MODE_SYNC, me, pubI)); out.flush()
+        sendOpening(out, opening(MODE_SYNC, me, pubI))
         readReply(inp)
         val pubR = ByteArray(32).also { inp.readFully(it) }
         val proof = ByteArray(32).also { inp.readFully(it) }

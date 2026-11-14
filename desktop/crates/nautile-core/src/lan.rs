@@ -433,14 +433,21 @@ fn write_opening<S: Write>(stream: &mut S, mode: u8, me: &str, rest: &[u8]) -> i
 }
 
 /// Reads the responder's header; anything but [status::OK] is the matching [LanError].
+/// Hanging up without an answer: an older Nautile does (its mDNS version, checked before connecting, says so),
+/// but so does one that is overloaded or stopping. Depending on the system and timing it shows while sending the
+/// opening (broken pipe, reset: macOS) or while reading the reply (end of stream).
+fn hung_up(e: io::Error) -> io::Error {
+    match e.kind() {
+        io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted | io::ErrorKind::BrokenPipe => {
+            LanError::Unreachable.io()
+        }
+        _ => e,
+    }
+}
+
 fn read_reply<S: Read>(stream: &mut S) -> io::Result<()> {
     let mut head = [0u8; 6];
-    // Hanging up without an answer: an older Nautile does (its mDNS version, checked before connecting, says so),
-    // but so does one that is overloaded or stopping.
-    stream.read_exact(&mut head).map_err(|e| match e.kind() {
-        io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted => LanError::Unreachable.io(),
-        _ => e,
-    })?;
+    stream.read_exact(&mut head).map_err(hung_up)?;
     if &head[..4] != MAGIC {
         return Err(err(tr("Ce n'est pas un appareil Nautile")));
     }
@@ -530,7 +537,7 @@ pub fn pair_connect_with<S: Read + Write>(mut stream: S, me: &str, peer: &str, c
     let x = spake2::scalar(&x).ok_or_else(invalid)?;
     let w = spake2::password(code.trim());
     let pa = spake2::encode(&spake2::message(&x, &w, &spake2::m()));
-    write_opening(&mut stream, MODE_PAIR, me, &pa)?;
+    write_opening(&mut stream, MODE_PAIR, me, &pa).map_err(hung_up)?;
     read_reply(&mut stream)?;
     let mut pb = [0u8; spake2::POINT_LEN];
     let mut cb = [0u8; 32];
@@ -625,7 +632,7 @@ pub fn sync_connect<S: Read + Write>(stream: S, me: &str, peer: &str, secret: &[
 pub fn sync_connect_with<S: Read + Write>(mut stream: S, me: &str, peer: &str, secret: &[u8], private: [u8; 32]) -> io::Result<Channel<S>> {
     let private = StaticSecret::from(private);
     let pub_i = PublicKey::from(&private).to_bytes();
-    write_opening(&mut stream, MODE_SYNC, me, &pub_i)?;
+    write_opening(&mut stream, MODE_SYNC, me, &pub_i).map_err(hung_up)?;
     read_reply(&mut stream)?;
     let mut pub_r = [0u8; 32];
     let mut proof = [0u8; 32];
