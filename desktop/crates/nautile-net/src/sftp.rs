@@ -153,7 +153,6 @@ pub fn safe_local_name(name: &str) -> bool {
 /// [safe_local_name] for Windows' rules or the others' (testable everywhere). Windows also refuses `<>"|?*`,
 /// control characters, a name ending with `.` or a space, and the devices' names (`CON`, `nul.txt`, `COM¹`…).
 pub fn local_name_ok(name: &str, windows: bool) -> bool {
-    use std::path::Component;
     if !remote_name_ok(name) {
         return false;
     }
@@ -173,8 +172,9 @@ pub fn local_name_ok(name: &str, windows: bool) -> bool {
             return false;
         }
     }
-    let mut parts = Path::new(name).components();
-    matches!((parts.next(), parts.next()), (Some(Component::Normal(n)), None) if n == std::ffi::OsStr::new(name))
+    // The rules above are spelled out rather than asked of `Path`, whose separators are those of the system the
+    // code runs on: the result must not depend on it (the tests check both sets of rules on every system).
+    true
 }
 
 fn err(e: impl std::fmt::Display) -> String {
