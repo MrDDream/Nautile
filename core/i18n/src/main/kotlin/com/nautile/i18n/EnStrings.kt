@@ -1627,6 +1627,7 @@ internal object EnStrings {
         "arrêté" to "stopped",
         "aujourd'hui à %1\$s" to "today at %1\$s",
         "auto" to "auto",
+        "autorisez « Appareils à proximité » (réseau local) pour Nautile dans les réglages d'Android" to "allow « Nearby devices » (local network) for Nautile in Android's settings",
         "ce fichier n'est pas une police TrueType ou OpenType" to "this file is not a TrueType or OpenType font",
         "ce téléphone" to "this phone",
         "cet ordinateur" to "this computer",

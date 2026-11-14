@@ -1,0 +1,2 @@
+• Les connexions vers les machines de ton réseau refonctionnent sur Android 17
+• Autorise « Appareils à proximité » quand Nautile le demande : c'est nécessaire pour joindre tes machines à la maison

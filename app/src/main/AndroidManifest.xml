@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 17+: needed to reach machines on the local network (SSH, RDP, VNC, Wi-Fi sync). -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <!-- « Seulement via le VPN »: whether a VPN network is up. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- « Mises à jour »: hands the downloaded APK to Android's installer. -->

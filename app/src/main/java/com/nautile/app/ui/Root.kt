@@ -159,6 +159,19 @@ fun NautileRoot() {
     var askConsent by remember { mutableStateOf(!app.updateConsentAsked && com.nautile.app.update.UpdateChecker.needsConsent(context)) }
     val release by com.nautile.app.update.UpdateChecker.available.collectAsStateWithLifecycle()
 
+    // Android 17+: without « Nearby devices », every machine on the local network times out. Asked once per
+    // start, once unlocked; the connection errors say what to do if it is refused.
+    val localNetwork = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { com.nautile.app.LocalNetwork.needsPermission(context) }
+    val locked = LocalAppLocked.current
+    LaunchedEffect(locked) {
+        if (!locked && !app.localNetworkAsked && com.nautile.app.LocalNetwork.needsPermission(context)) {
+            app.localNetworkAsked = true
+            localNetwork.launch(com.nautile.app.LocalNetwork.PERMISSION)
+        }
+    }
+
     // While locked (the lock screen is above): no window of these appears, not even for a frame on the way back.
     // One at a time, the most urgent first; the next one shows once it is closed.
     if (!LocalAppLocked.current) {

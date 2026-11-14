@@ -139,7 +139,18 @@ class ChannelBackend(
     }
 
     companion object {
-        fun describe(e: Throwable): String = when {
+        fun describe(e: Throwable): String = describeError(e).let { msg ->
+            // Android 17 blocks the local network without its permission: say so rather than « time out ».
+            val network = e is SocketTimeoutException || e is ConnectException || e is NoRouteToHostException ||
+                (e is IOException && e.message?.contains("EPERM") == true)
+            if (network && com.nautile.app.LocalNetwork.denied) {
+                msg + " — " + tr("autorisez « Appareils à proximité » (réseau local) pour Nautile dans les réglages d'Android")
+            } else {
+                msg
+            }
+        }
+
+        private fun describeError(e: Throwable): String = when {
             e is SshCancelledException -> e.message ?: tr("Connexion annulée")
             e is UnknownHostException -> tr("Hôte introuvable (%1\$s)", e.message)
             e is ConnectException -> tr("Connexion refusée")

@@ -113,6 +113,9 @@ open class NautileApp : Application() {
      * and the automatic backups wait for the user ([AutoBackup.autoPaused]) so that the empty database
      * never replaces the good backups.
      */
+    /** « Nearby devices » (local network, Android 17+) was asked in this process. */
+    @Volatile var localNetworkAsked = false
+
     val dataReset by lazy { MutableStateFlow(AutoBackup.autoPaused(this)) }
 
     /** Host asked by a widget or shortcut ([LaunchActivity]), connected only once the app is unlocked and on screen. */

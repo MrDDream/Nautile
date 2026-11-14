@@ -1,0 +1,2 @@
+• Connections to machines on your network work again on Android 17
+• Allow « Nearby devices » when Nautile asks: it is needed to reach your home machines
