@@ -368,6 +368,10 @@ pub struct Db {
 impl Db {
     /// Opens (or creates) the database at `path`, encrypted with `key` (32 random bytes kept by the system keyring).
     pub fn open(path: &std::path::Path, key: &[u8; 32]) -> Result<Db> {
+        // SQLCipher's first keying (its crypto provider set up on first use) is not safe from several threads at
+        // once: opening is serialized. The app opens one database; parallel tests open many.
+        static KEYING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _keying = KEYING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let conn = Connection::open(path)?;
         // Raw key: no passphrase derivation, the key is already random.
         conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_upper(key)))?;

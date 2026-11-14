@@ -174,10 +174,19 @@ impl Timed {
     }
 }
 
+/// macOS refuses a new timeout (EINVAL) on a socket the peer has already closed: the read or write that follows
+/// reports that end itself (and the previous, shorter-or-equal timeout still bounds it), so it is not an error here.
+fn settle(r: io::Result<()>) -> io::Result<()> {
+    match r {
+        Err(e) if e.kind() == io::ErrorKind::InvalidInput => Ok(()),
+        other => other,
+    }
+}
+
 impl Read for Timed {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let t = self.left()?;
-        self.stream.set_read_timeout(Some(t))?;
+        settle(self.stream.set_read_timeout(Some(t)))?;
         self.stream.read(buf)
     }
 }
@@ -185,7 +194,7 @@ impl Read for Timed {
 impl Write for Timed {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let t = self.left()?;
-        self.stream.set_write_timeout(Some(t))?;
+        settle(self.stream.set_write_timeout(Some(t)))?;
         self.stream.write(buf)
     }
 
