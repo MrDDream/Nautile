@@ -1,0 +1,2 @@
+• SFTP: long-press to select several files and folders, then download, delete, copy to another host or change permissions in one go
+• Upload several files at once

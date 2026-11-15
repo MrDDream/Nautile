@@ -1,0 +1,2 @@
+• SFTP : appui long pour sélectionner plusieurs fichiers et dossiers, puis les télécharger, supprimer, copier vers un autre hôte ou changer leurs permissions en une fois
+• Envoi de plusieurs fichiers d'un coup
