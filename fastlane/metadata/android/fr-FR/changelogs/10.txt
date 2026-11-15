@@ -1,0 +1,2 @@
+• Les noms d'hôtes prennent toute la largeur de la liste ; la dernière connexion passe sous l'adresse (« 22 min »)
+• Quand la place manque, c'est l'identifiant qui se raccourcit, jamais l'IP

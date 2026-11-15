@@ -1,0 +1,2 @@
+• Host names use the full width of the list; the last connection moves under the address (« 22 min »)
+• When room runs out, the user name is shortened, never the IP

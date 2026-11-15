@@ -1,7 +1,7 @@
 // French: English is the HTML's own text.
 const FR = {
   "nav.screens": "Captures", "nav.desktop": "Ordinateur", "nav.features": "Fonctionnalités", "nav.install": "Installer",
-  "hero.eyebrow": "Version 0.5.1 · Android · Windows · Linux · macOS · GPL-3.0",
+  "hero.eyebrow": "Version 0.5.2 · Android · Windows · Linux · macOS · GPL-3.0",
   "hero.title": "Tes serveurs,<br><em>dans ta poche.</em>",
   "hero.lead": "Nautile est un client SSH, Mosh et bureau à distance libre pour Android, désormais aussi sur ton ordinateur : un vrai terminal, SFTP, tunnels, snippets et synchro chiffrée entre tes appareils. Pas de cloud, pas de compte : tes hôtes, clés et mots de passe restent chiffrés chez toi.",
   "cta.desktop": "Pour ton ordinateur",
