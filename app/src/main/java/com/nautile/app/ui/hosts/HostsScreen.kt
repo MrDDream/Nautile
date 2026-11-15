@@ -303,9 +303,8 @@ private fun HostRow(host: Host, groups: List<HostGroup>, onClick: () -> Unit, on
                     Text(host.alias, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     if (host.protocol != Protocol.SSH) ProtocolBadge(host.protocol)
                 }
-                Text(host.address, fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                HostSubtitle(host.address, host.lastConnectedAt?.let { relativeTime(it, short = true) })
             }
-            host.lastConnectedAt?.let { Text(relativeTime(it), fontSize = 11.sp, color = Nt.Muted) }
             if (host.protocol.usesSsh)
                 IconButton(onClick = onSftp) { Icon(Icons.Outlined.Folder, contentDescription = tr("Fichiers de %1\$s", host.alias), tint = Nt.Muted) }
         }
@@ -541,12 +540,32 @@ private fun TypeRow(icon: ImageVector, tint: Color, title: String, detail: Strin
     }
 }
 
-internal fun relativeTime(at: Long, now: Long = System.currentTimeMillis()): String {
+/**
+ * The address under a host's name, then « · 22 min » when it was used. When short of room the user part is cut
+ * (« dwcloud_a…@203.0.113.42 »), never the host: the IP or name is what tells two machines apart.
+ */
+@Composable
+private fun HostSubtitle(address: String, lastUsed: String?) {
+    val at = address.lastIndexOf('@')
+    val user = if (at > 0) address.substring(0, at) else ""
+    val host = if (at > 0) address.substring(at) else address
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (user.isNotEmpty())
+            Text(user, fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        // Not weighted, so measured before the user part and given what it needs; a host too long for the whole
+        // row (an IPv6, a long DNS name) is cut in its middle, both ends staying readable.
+        Text(host, fontFamily = Nt.Mono, fontSize = 12.sp, color = Nt.Muted, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+        lastUsed?.let { Text("  ·  $it", fontSize = 12.sp, color = Nt.Muted, maxLines = 1, softWrap = false) }
+    }
+}
+
+/** « il y a 22 min » in a sentence; [short] (« 22 min ») where room is scarce, like a host's row. */
+internal fun relativeTime(at: Long, now: Long = System.currentTimeMillis(), short: Boolean = false): String {
     val min = (now - at) / 60_000
     return when {
         min < 1 -> tr("à l'instant")
-        min < 60 -> tr("il y a %1\$s min", min)
-        min < 60 * 24 -> tr("il y a %1\$s h", min / 60)
+        min < 60 -> if (short) tr("%1\$s min", min) else tr("il y a %1\$s min", min)
+        min < 60 * 24 -> if (short) tr("%1\$s h", min / 60) else tr("il y a %1\$s h", min / 60)
         min < 60 * 24 * 2 -> tr("hier")
         min < 60 * 24 * 7 -> tr("%1\$s j", min / (60 * 24))
         min < 60 * 24 * 30 -> tr("%1\$s sem", min / (60 * 24 * 7))

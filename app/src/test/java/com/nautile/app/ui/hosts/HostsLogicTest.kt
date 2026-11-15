@@ -69,6 +69,13 @@ class HostsLogicTest {
         assertTrue(relativeTime(now - 40L * 86_400_000, now).endsWith("mois"))
     }
 
+    @Test fun shortRelativeTimeDropsTheIlYa() {
+        val now = 1_000_000_000_000L
+        assertEquals("22 min", relativeTime(now - 22 * 60_000, now, short = true))
+        assertEquals("3 h", relativeTime(now - 3 * 3_600_000L, now, short = true))
+        assertEquals("hier", relativeTime(now - 30 * 3_600_000L, now, short = true))
+    }
+
     @Test fun linksToDeletedRecordsAreDroppedBeforeSaving() {
         val h = Host(1, "web", "10.0.0.1", keyId = 4, identityId = 5, jumpHostId = 6)
         val kept = HostEditViewModel.withoutMissingLinks(h, keyExists = true, identityExists = true, jumpExists = true)
