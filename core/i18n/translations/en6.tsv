@@ -162,3 +162,16 @@ Revenir au code	Back to the code
 Code oublié ? Utiliser le mot de passe maître	Forgot the code? Use the master password
 Une fois par jour au plus, sur GitHub (MrDDream/Nautile) ; rien n'est installé sans votre accord. Chaque fichier est vérifié par sa somme de contrôle.	At most once a day, on GitHub (MrDDream/Nautile); nothing is installed without your consent. Each file is checked against its checksum.
 autorisez « Appareils à proximité » (réseau local) pour Nautile dans les réglages d'Android	allow « Nearby devices » (local network) for Nautile in Android's settings
+%1\$s sur %2\$s : %3\$s	%1\$s of %2\$s: %3\$s
+%1\$s éléments supprimés	%1\$s items deleted
+Envoi de %1\$s fichiers lancé	Upload of %1\$s files started
+%1\$s fichier(s) impossible(s) à créer dans ce dossier	%1\$s file(s) could not be created in this folder
+Téléchargement de %1\$s fichier(s) lancé	Download of %1\$s file(s) started
+%1\$s (dossiers ignorés : %2\$s)	%1\$s (folders skipped: %2\$s)
+Supprimer %1\$s éléments ?	Delete %1\$s items?
+Les dossiers sélectionnés seront supprimés avec tout leur contenu.	The selected folders will be deleted with everything in them.
+1 sélectionné	1 selected
+%1\$s sélectionnés	%1\$s selected
+Tout sélectionner	Select all
+Annuler la sélection	Clear selection
+Sélectionner	Select

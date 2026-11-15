@@ -1,6 +1,7 @@
 package com.nautile.app.ui.sftp
 
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -31,6 +32,8 @@ data class SftpUiState(
     val loading: Boolean = true,
     val error: String? = null,
     val showHidden: Boolean = false,
+    /** Paths of the entries picked by long-press; not empty = selection mode. */
+    val selected: Set<String> = emptySet(),
 )
 
 class SftpViewModel(private val app: NautileApp, handle: SavedStateHandle) : ViewModel() {
@@ -81,7 +84,11 @@ class SftpViewModel(private val app: NautileApp, handle: SavedStateHandle) : Vie
                 .onSuccess { (p, list) ->
                     if (remember && from.isNotEmpty() && p != from && visited.lastOrNull() != from) visited.addLast(from)
                     _canGoBack.value = visited.isNotEmpty()
-                    _state.update { it.copy(path = p, entries = list, loading = false) }
+                    _state.update { st ->
+                        // A selection belongs to its folder; after a refresh, only what still exists stays picked.
+                        val keep = if (p == st.path) st.selected.intersect(list.mapTo(HashSet()) { it.path }) else emptySet()
+                        st.copy(path = p, entries = list, loading = false, selected = keep)
+                    }
                 }
                 .onFailure { e -> _state.update { it.copy(loading = false, error = ChannelBackend.describe(e)) } }
         }
@@ -107,20 +114,55 @@ class SftpViewModel(private val app: NautileApp, handle: SavedStateHandle) : Vie
         }
     }
 
+    fun toggleSelected(e: RemoteEntry) = _state.update {
+        it.copy(selected = if (e.path in it.selected) it.selected - e.path else it.selected + e.path)
+    }
+    fun selectAll(entries: List<RemoteEntry>) = _state.update { it.copy(selected = entries.mapTo(LinkedHashSet()) { e -> e.path }) }
+    fun clearSelection() = _state.update { it.copy(selected = emptySet()) }
+
+    /**
+     * Runs [block] on each of [entries] in turn, then reports how many went through: the first failure is
+     * shown, the others are still tried (one locked file must not stop the rest).
+     */
+    private fun opEach(entries: List<RemoteEntry>, done: (Int) -> String, block: (SftpSession, RemoteEntry) -> Unit) {
+        val s = sftp ?: return
+        clearSelection()
+        viewModelScope.launch {
+            var ok = 0
+            var first: Throwable? = null
+            withContext(Dispatchers.IO) {
+                entries.forEach { e -> runCatching { block(s, e) }.onSuccess { ok++ }.onFailure { if (first == null) first = it } }
+            }
+            _message.value = first?.let { tr("%1\$s sur %2\$s : %3\$s", ok, entries.size, ChannelBackend.describe(it)) } ?: done(ok)
+            refresh()
+        }
+    }
+
+    fun deleteMany(entries: List<RemoteEntry>) =
+        opEach(entries, { n -> if (n == 1) tr("Supprimé") else tr("%1\$s éléments supprimés", n) }) { s, e -> s.delete(e.path, recursive = e.isDirectory) }
+
+    fun chmodMany(entries: List<RemoteEntry>, octal: String) =
+        opEach(entries, { tr("Permissions modifiées") }) { s, e -> s.chmod(e.path, octal.toInt(8) and 0xFFF) }
+
     fun mkdir(name: String) = op(tr("Dossier créé")) { it.mkdir(SftpSession.join(_state.value.path, name)) }
     fun rename(e: RemoteEntry, name: String) = op(tr("Renommé")) { it.rename(e.path, SftpSession.join(SftpSession.parent(e.path), name)) }
     fun delete(e: RemoteEntry) = op(tr("Supprimé")) { it.delete(e.path, recursive = e.isDirectory) }
     fun chmod(e: RemoteEntry, octal: String) = op(tr("Permissions modifiées")) { it.chmod(e.path, octal.toInt(8) and 0xFFF) }
 
-    fun upload(uri: Uri) {
+    /** Sends the files picked on the phone (one or several) into the folder shown. */
+    fun upload(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val dir = _state.value.path
         viewModelScope.launch {
-            val (name, size) = withContext(Dispatchers.IO) {
-                app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
-                    if (c.moveToFirst()) (c.getString(0) ?: tr("fichier")) to (if (c.isNull(1)) -1L else c.getLong(1)) else null
-                } ?: (tr("fichier") to -1L)
+            val picked = withContext(Dispatchers.IO) {
+                uris.map { uri ->
+                    uri to (app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
+                        if (c.moveToFirst()) (c.getString(0) ?: tr("fichier")) to (if (c.isNull(1)) -1L else c.getLong(1)) else null
+                    } ?: (tr("fichier") to -1L))
+                }
             }
-            app.sessions.transfers.upload(hostId, uri, _state.value.path, name, size)
-            _message.value = tr("Envoi de %1\$s lancé", name)
+            picked.forEach { (uri, info) -> app.sessions.transfers.upload(hostId, uri, dir, info.first, info.second) }
+            _message.value = if (picked.size == 1) tr("Envoi de %1\$s lancé", picked[0].second.first) else tr("Envoi de %1\$s fichiers lancé", picked.size)
         }
     }
 
@@ -129,9 +171,40 @@ class SftpViewModel(private val app: NautileApp, handle: SavedStateHandle) : Vie
         _message.value = tr("Téléchargement de %1\$s lancé", e.name)
     }
 
-    fun copyTo(e: RemoteEntry, toHost: Long, toDir: String, toLabel: String) {
-        app.sessions.transfers.copyBetween(hostId, e.path, e.size, toHost, toDir, toLabel)
-        _message.value = tr("Copie vers %1\$s lancée", toLabel)
+    /**
+     * Downloads the selected files into the phone folder [tree] (picked once for all of them). A name already
+     * there gets the provider's own « (1) » suffix; folders are left out (one file per transfer).
+     */
+    fun downloadMany(entries: List<RemoteEntry>, tree: Uri) {
+        val files = entries.filter { !it.isDirectory }
+        clearSelection()
+        viewModelScope.launch {
+            val failed = withContext(Dispatchers.IO) {
+                val parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+                files.count { e ->
+                    val uri = runCatching { DocumentsContract.createDocument(app.contentResolver, parent, "application/octet-stream", e.name) }.getOrNull()
+                    if (uri != null) app.sessions.transfers.download(hostId, e.path, e.size, uri)
+                    uri == null
+                }
+            }
+            _message.value = when {
+                failed > 0 -> tr("%1\$s fichier(s) impossible(s) à créer dans ce dossier", failed)
+                else -> skippedFolders(entries, tr("Téléchargement de %1\$s fichier(s) lancé", files.size))
+            }
+        }
+    }
+
+    fun copyTo(entries: List<RemoteEntry>, toHost: Long, toDir: String, toLabel: String) {
+        val files = entries.filter { !it.isDirectory }
+        clearSelection()
+        files.forEach { e -> app.sessions.transfers.copyBetween(hostId, e.path, e.size, toHost, toDir, toLabel) }
+        _message.value = skippedFolders(entries, tr("Copie vers %1\$s lancée", toLabel))
+    }
+
+    /** [message], plus a word on the folders a file-only action did not take. */
+    private fun skippedFolders(entries: List<RemoteEntry>, message: String): String {
+        val dirs = entries.count { it.isDirectory }
+        return if (dirs == 0) message else tr("%1\$s (dossiers ignorés : %2\$s)", message, dirs)
     }
 
     override fun onCleared() {
