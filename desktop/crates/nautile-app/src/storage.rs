@@ -205,6 +205,12 @@ pub struct Settings {
     /// The themes this computer leaves out of the synchronisation (file and Wi-Fi).
     #[serde(default)]
     pub sync_skip: Vec<nautile_core::sync::SyncPart>,
+    /// The assistant's API keys go with the synchronisation too: off unless asked, being secrets.
+    #[serde(default)]
+    pub sync_ai_keys: bool,
+    /// When each provider's API key last changed here, set or removed (by provider name: CLAUDE…).
+    #[serde(default)]
+    pub ai_key_at: std::collections::HashMap<String, i64>,
     /// The first terminal's share of a split screen (0.2 to 0.8), when its divider was moved.
     #[serde(default)]
     pub split_ratio: Option<f32>,
@@ -273,6 +279,15 @@ impl Settings {
     /// Off until the user said yes (`None`: the question at start is still to come).
     pub fn update_check(&self) -> bool {
         self.update_check.unwrap_or(false)
+    }
+
+    /// Every theme left out of the synchronisation, the API keys included unless asked.
+    pub fn sync_left_out(&self) -> Vec<nautile_core::sync::SyncPart> {
+        let mut v = self.sync_skip.clone();
+        if !self.sync_ai_keys {
+            v.push(nautile_core::sync::SyncPart::AiKeys);
+        }
+        v
     }
 
     pub fn close_to_tray(&self) -> bool {

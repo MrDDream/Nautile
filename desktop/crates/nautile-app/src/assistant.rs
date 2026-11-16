@@ -275,6 +275,76 @@ impl App {
             .unwrap_or_else(|| ai::default_prompt().to_owned())
     }
 
+    /// A key set or removed here: dated, and sent at the next exchange when keys are synchronised.
+    fn ai_key_changed(&mut self, name: &str) {
+        self.settings.ai_key_at.insert(name.to_owned(), nautile_core::model::now_ms());
+        if self.settings.sync_ai_keys {
+            self.settings.synced_change = 0;
+            self.backup.lan_synced_change = -1;
+        }
+    }
+
+    /// This computer's keys for the others: those set, and those removed (empty) since keys are synchronised.
+    pub fn synced_ai_keys(&self) -> Vec<nautile_core::model::SyncedAiKey> {
+        let Some(db) = &self.db else { return Vec::new() };
+        ProviderKind::ALL
+            .into_iter()
+            .filter(|k| k.needs_key())
+            .filter_map(|k| {
+                let name = format!("{k:?}").to_uppercase();
+                let key = db.secret(&format!("ai-key-{name}")).filter(|s| !s.is_empty());
+                let at = self.settings.ai_key_at.get(&name).copied().unwrap_or(0);
+                match key {
+                    Some(key) => Some(nautile_core::model::SyncedAiKey {
+                        provider: name,
+                        key,
+                        updated_at: at.max(1),
+                    }),
+                    None if at > 0 => Some(nautile_core::model::SyncedAiKey {
+                        provider: name,
+                        key: String::new(),
+                        updated_at: at,
+                    }),
+                    None => None,
+                }
+            })
+            .collect()
+    }
+
+    /// Takes the keys changed more recently on another device (dates believed up to a year ahead). Whether
+    /// anything changed here.
+    pub fn apply_synced_ai_keys(&mut self, remote: &[nautile_core::model::SyncedAiKey]) -> bool {
+        let cap = nautile_core::model::now_ms() + 365 * 24 * 3_600_000;
+        let mut changed = false;
+        for r in remote {
+            let Some(k) = ProviderKind::ALL
+                .into_iter()
+                .find(|k| k.needs_key() && format!("{k:?}").to_uppercase() == r.provider)
+            else {
+                continue;
+            };
+            let at = r.updated_at.min(cap);
+            if at <= self.settings.ai_key_at.get(&r.provider).copied().unwrap_or(0) {
+                continue;
+            }
+            if let Some(db) = &self.db {
+                let _ = db.set_secret(
+                    &format!("ai-key-{}", r.provider),
+                    Some(&r.key).filter(|s| !s.is_empty()).map(|s| s.as_str()),
+                );
+            }
+            if r.key.is_empty() {
+                self.settings.ai_enabled.retain(|x| *x != k);
+            }
+            self.settings.ai_key_at.insert(r.provider.clone(), at);
+            changed = true;
+        }
+        if changed {
+            self.save_settings();
+        }
+        changed
+    }
+
     pub fn ai_config(&self, kind: ProviderKind) -> Config {
         let k = format!("{kind:?}").to_uppercase();
         Config {
@@ -637,7 +707,10 @@ impl App {
                 let k = st.edit.unwrap_or(ProviderKind::Claude);
                 let name = format!("{k:?}").to_uppercase();
                 let st = &mut self.assistant;
+                let mut key_changed = false;
                 if !st.key_input.trim().is_empty() {
+                    key_changed =
+                        self.db.as_ref().and_then(|db| db.secret(&format!("ai-key-{name}"))).as_deref() != Some(st.key_input.trim());
                     if let Some(db) = &self.db {
                         let _ = db.set_secret(&format!("ai-key-{name}"), Some(st.key_input.trim()));
                     }
@@ -645,7 +718,10 @@ impl App {
                 }
                 self.settings.ai_models.insert(name.clone(), st.model_input.trim().to_owned());
                 if k.editable_url() {
-                    self.settings.ai_urls.insert(name, st.url_input.trim().to_owned());
+                    self.settings.ai_urls.insert(name.clone(), st.url_input.trim().to_owned());
+                }
+                if key_changed {
+                    self.ai_key_changed(&name);
                 }
                 if (self.assistant.enable_after || self.settings.ai_enabled.is_empty())
                     && self.ai_configured(k)
@@ -666,6 +742,8 @@ impl App {
                 if let Some(db) = &self.db {
                     let _ = db.set_secret(&format!("ai-key-{name}"), None);
                 }
+                self.ai_key_changed(&name);
+                self.save_settings();
             }
             AiMsg::LoadModels => {
                 let c = self.ai_config_edited();

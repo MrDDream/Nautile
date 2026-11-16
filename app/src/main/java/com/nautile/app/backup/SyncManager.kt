@@ -62,8 +62,10 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
                     val remote = withContext(Dispatchers.IO) { store.read() }
                     val data = remote.text?.let { withContext(Dispatchers.Default) { BackupCodec.import(it, pw) } }
                     // The themes left out here are neither taken from the file nor replaced in it.
-                    val skip = prefs.syncSkip.value
+                    val skip = prefs.syncLeftOut()
+                    val withKeys = SyncPart.AI_KEYS !in skip
                     val stats = data?.let { merge.merge(SyncPart.without(it, skip)) } ?: SyncMerge.Stats()
+                    if (withKeys && data != null) app.ai.applySyncedKeys(data.aiKeys)
                     val now = System.currentTimeMillis()
                     val me = SyncDevice(prefs.deviceId, Build.MODEL.ifBlank { "Android" }, now)
                     val others = data?.devices.orEmpty().filter { it.id != me.id && now - it.lastSeen < 180L * 24 * 3600 * 1000 }
@@ -71,7 +73,7 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
                     val devices = (others + me).sortedByDescending { it.lastSeen }
                     if (data == null || dirtyBefore || stats.changed || now - myLastSeen > 12 * 3600_000L) {
                         val text = withContext(Dispatchers.Default) {
-                            val mine = merge.snapshot(devices)
+                            val mine = merge.snapshot(devices).let { if (withKeys) it.copy(aiKeys = app.ai.syncedKeys()) else it }
                             BackupCodec.export(if (data != null) SyncPart.carry(mine, data, skip) else SyncPart.without(mine, skip), pw)
                         }
                         withContext(Dispatchers.IO) {

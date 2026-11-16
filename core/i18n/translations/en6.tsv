@@ -221,3 +221,12 @@ Les deux appareils doivent être sur le même Wi-Fi.	Both devices must be on the
 Sur l'autre, choisissez le premier et saisissez ce code.	On the other, pick the first one and type that code.
 Sur un appareil, affichez un code.	On one device, show a code.
 Nautile %1\$s est disponible : installer	Nautile %1\$s is available: install
+%1\$s sur 5	%1\$s of 5
+Chiffrées avant de partir, et seulement vers les appareils qui les synchronisent aussi.	Encrypted before they leave, and only to the devices that sync them too.
+Claude, OpenAI, Gemini… La plus récente l'emporte, une clé retirée l'est partout.	Claude, OpenAI, Gemini… The latest wins, a key removed is removed everywhere.
+Clés API de l'assistant IA	AI assistant API keys
+Secrets	Secrets
+hôtes	hosts
+serveurs connus	known servers
+clés API	API keys
+Rien	Nothing

@@ -25,6 +25,14 @@ import javax.crypto.spec.SecretKeySpec
 @Serializable
 data class SyncDevice(val id: String, val name: String, val lastSeen: Long)
 
+/**
+ * An AI provider's API key, synchronised only between devices that chose to (« Clés API de l'assistant IA »). The
+ * latest change wins; an empty [key] is a key removed. [provider]: the provider's name (CLAUDE, OPENAI…), the same on
+ * the phone and the computer.
+ */
+@Serializable
+data class SyncedAiKey(val provider: String, val key: String, val updatedAt: Long)
+
 /** Everything a backup carries. Ids are the exporting device's; import remaps them. */
 @Serializable
 data class BackupData(
@@ -41,6 +49,8 @@ data class BackupData(
     val tombstones: List<SyncTombstone> = emptyList(),
     /** Devices that synchronise through this file. */
     val devices: List<SyncDevice> = emptyList(),
+    /** The assistant's API keys, from the devices that synchronise them (never in a backup). */
+    val aiKeys: List<SyncedAiKey> = emptyList(),
 )
 
 class WrongBackupPasswordException : Exception(tr("Mot de passe incorrect ou fichier altéré"))

@@ -283,7 +283,7 @@ pub struct BackupState {
     pub lan_busy: bool,
     /// Paired devices without a secret of their own (paired with an older version): to pair again.
     pub lan_stale: Vec<String>,
-    lan_synced_change: i64,
+    pub(crate) lan_synced_change: i64,
     lan_last_round: i64,
     /// When each automatic backup runs next (computed once, again after it ran or its settings changed).
     scheduled: std::collections::HashMap<String, i64>,
@@ -377,6 +377,8 @@ pub enum BackupMsg {
     SyncMinutes(u32),
     /// A theme taken into the synchronisation (true) or left out.
     SyncPart(nautile_core::sync::SyncPart, bool),
+    /// The assistant's API keys taken into the synchronisation, or left out.
+    SyncAiKeys(bool),
     SyncNow,
     Fetched(Box<Result<(Remote, Option<BackupData>), String>>),
     Written(Result<i64, StoreError>, Vec<SyncDevice>),
@@ -605,7 +607,8 @@ impl App {
             return Task::none();
         };
         let dirty_before = db.store().last_change().unwrap_or(0) > self.settings.synced_change;
-        let skip = self.settings.sync_skip.clone();
+        let skip = self.settings.sync_left_out();
+        let with_keys = !skip.contains(&sync::SyncPart::AiKeys);
         // The themes left out here are not taken from the file.
         let incoming = data.as_ref().map(|d| {
             let mut d = d.clone();
@@ -619,6 +622,11 @@ impl App {
             },
             None => sync::Stats::default(),
         };
+        // The API keys, when this computer shares them: the latest of each provider.
+        if with_keys && let Some(d) = &data {
+            self.apply_synced_ai_keys(&d.ai_keys);
+        }
+        let keys = if with_keys { self.synced_ai_keys() } else { Vec::new() };
         let now = now_ms();
         let me = SyncDevice {
             id: device.clone(),
@@ -649,6 +657,7 @@ impl App {
             Ok(s) => s,
             Err(e) => return self.sync_failed(e.to_string()),
         };
+        snapshot.ai_keys = keys;
         // …nor replaced in it: they stay as the others wrote them.
         match &data {
             Some(d) => sync::carry(&mut snapshot, d, &skip),
@@ -951,6 +960,16 @@ impl App {
                 self.settings.sync_minutes = Some(m);
                 self.save_settings();
             }
+            BackupMsg::SyncAiKeys(on) => {
+                self.settings.sync_ai_keys = on;
+                // Taken in: this computer's keys go out at the next exchange.
+                self.settings.synced_change = 0;
+                self.backup.lan_synced_change = -1;
+                self.save_settings();
+                if on && self.settings.sync_enabled {
+                    return self.sync_start();
+                }
+            }
             BackupMsg::SyncPart(p, on) => {
                 self.settings.sync_skip.retain(|x| *x != p);
                 if !on {
@@ -1123,12 +1142,18 @@ impl App {
                 self.save_settings();
             }
             LanEvent::Snapshot(reply) => {
-                let skip = self.settings.sync_skip.clone();
+                let skip = self.settings.sync_left_out();
+                let keys = if skip.contains(&sync::SyncPart::AiKeys) {
+                    Vec::new()
+                } else {
+                    self.synced_ai_keys()
+                };
                 let json = self
                     .db
                     .as_ref()
                     .and_then(|db| sync::snapshot(db, vec![]).ok())
                     .map(|mut d| {
+                        d.ai_keys = keys;
                         sync::without(&mut d, &skip);
                         d
                     })
@@ -1152,8 +1177,15 @@ impl App {
                     return Task::none();
                 };
                 // The themes left out here are neither taken nor sent.
-                let skip = self.settings.sync_skip.clone();
+                let skip = self.settings.sync_left_out();
                 sync::without(&mut data, &skip);
+                // The API keys, when this computer shares them: taken, and sent back with its data.
+                let keys = if skip.contains(&sync::SyncPart::AiKeys) {
+                    Vec::new()
+                } else {
+                    self.apply_synced_ai_keys(&data.ai_keys);
+                    self.synced_ai_keys()
+                };
                 let Some(db) = &mut self.db else { return Task::none() };
                 // The responder moves a tie past; the initiator merges data that already holds its own.
                 let changed = sync::merge_ties(db, &data, merged.is_some())
@@ -1164,6 +1196,7 @@ impl App {
                     let json = sync::snapshot(db, vec![])
                         .ok()
                         .map(|mut d| {
+                            d.ai_keys = keys;
                             sync::without(&mut d, &skip);
                             d
                         })

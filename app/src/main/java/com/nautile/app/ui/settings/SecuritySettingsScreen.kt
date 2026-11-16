@@ -1,5 +1,12 @@
 package com.nautile.app.ui.settings
 
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.outlined.VpnKey
+import androidx.compose.material.icons.outlined.VerifiedUser
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.Dns
 import com.nautile.data.sync.SyncPart
 import android.annotation.SuppressLint
 import android.content.Intent
@@ -716,34 +723,103 @@ private fun WebDavDialog(initial: BackupDestination.WebDav?, savedPassword: Stri
     )
 }
 
-/** What this phone synchronises, by theme (the shared file and the Wi-Fi alike); shown once one of them is on. */
+/**
+ * What this phone synchronises, by theme (the shared file and the Wi-Fi alike); shown once one of them is on. One row
+ * that says how many themes go, opening a pop-up with each theme's switch: the data, then the API keys apart (secrets,
+ * off unless asked).
+ */
 @Composable
 private fun SyncPartsSection(syncOn: Boolean) {
     val app = LocalContext.current.applicationContext as NautileApp
     val prefs = app.backupPrefs
     val lanOn by app.lanSync.enabled.collectAsStateWithLifecycle()
     val skip by prefs.syncSkip.collectAsStateWithLifecycle()
+    val keysOn by prefs.syncAiKeys.collectAsStateWithLifecycle()
+    var open by remember { mutableStateOf(false) }
     if (!syncOn && !lanOn) return
     val left = SyncPart.effective(skip)
     val hostsOn = SyncPart.HOSTS !in left
+    val names = listOf(
+        SyncPart.HOSTS to tr("hôtes"), SyncPart.TUNNELS to tr("tunnels"), SyncPart.SNIPPETS to tr("snippets"), SyncPart.KNOWN_HOSTS to tr("serveurs connus"),
+    ).filter { it.first !in left }.map { it.second } + if (keysOn) listOf(tr("clés API")) else emptyList()
+    fun resync() {
+        if (syncOn) app.sync.requestSoon(1_000)
+        if (lanOn) app.lanSync.requestSoon(1_000)
+    }
     fun set(part: SyncPart, on: Boolean) {
         prefs.setSyncPart(part, on)
-        if (on) {
-            if (syncOn) app.sync.requestSoon(1_000)
-            if (lanOn) app.lanSync.requestSoon(1_000)
+        if (on) resync()
+    }
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Nt.Surface).border(1.dp, Nt.Border, RoundedCornerShape(16.dp))
+            .clickable(role = Role.Button) { open = true }.padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        IconTile(Icons.Outlined.Tune, Nt.Green)
+        Column(Modifier.weight(1f)) {
+            Text(tr("Ce qui est synchronisé"), style = MaterialTheme.typography.titleMedium)
+            Text(
+                names.joinToString(", ").replaceFirstChar { it.uppercase() }.ifEmpty { tr("Rien") },
+                color = Nt.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
+        Text(
+            tr("%1\$s sur 5", names.size), color = Nt.Green, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Nt.Green.copy(alpha = 0.14f)).padding(horizontal = 10.dp, vertical = 3.dp),
+        )
+        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = Nt.Muted)
     }
-    SectionLabel(tr("Ce qui est synchronisé"), Modifier.padding(top = 8.dp))
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Nt.Surface).border(1.dp, Nt.Border, RoundedCornerShape(16.dp))) {
-        ToggleRow(tr("Hôtes et trousseau"), tr("Hôtes, groupes, clés SSH et identités"), hostsOn) { set(SyncPart.HOSTS, it) }
-        ToggleRow(
-            tr("Tunnels"),
-            if (hostsOn) tr("Redirections de ports") else tr("Suivent les hôtes, dont ils dépendent"),
-            SyncPart.TUNNELS !in left,
-            enabled = hostsOn,
-        ) { set(SyncPart.TUNNELS, it) }
-        ToggleRow(tr("Snippets"), tr("Commandes enregistrées"), SyncPart.SNIPPETS !in left) { set(SyncPart.SNIPPETS, it) }
-        ToggleRow(tr("Serveurs connus"), tr("Empreintes des clés d'hôtes déjà acceptées"), SyncPart.KNOWN_HOSTS !in left) { set(SyncPart.KNOWN_HOSTS, it) }
+    if (open) AlertDialog(
+        onDismissRequest = { open = false }, containerColor = Nt.Surface,
+        title = { Text(tr("Ce qui est synchronisé")) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    tr("Par le fichier partagé comme par le Wi-Fi. Un thème décoché n'est ni reçu ni envoyé : les autres appareils gardent le leur."),
+                    color = Nt.TextSoft, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(bottom = 8.dp),
+                )
+                PartRow(Icons.Outlined.Dns, Nt.Accent, tr("Hôtes et trousseau"), tr("Hôtes, groupes, clés SSH et identités"), hostsOn) { set(SyncPart.HOSTS, it) }
+                PartRow(
+                    Icons.Outlined.SwapHoriz, Nt.Blue, tr("Tunnels"),
+                    if (hostsOn) tr("Redirections de ports") else tr("Suivent les hôtes, dont ils dépendent"),
+                    SyncPart.TUNNELS !in left, enabled = hostsOn,
+                ) { set(SyncPart.TUNNELS, it) }
+                PartRow(Icons.Outlined.Terminal, Nt.Green, tr("Snippets"), tr("Commandes enregistrées"), SyncPart.SNIPPETS !in left) { set(SyncPart.SNIPPETS, it) }
+                PartRow(Icons.Outlined.VerifiedUser, Nt.Pink, tr("Serveurs connus"), tr("Empreintes des clés d'hôtes déjà acceptées"), SyncPart.KNOWN_HOSTS !in left) {
+                    set(SyncPart.KNOWN_HOSTS, it)
+                }
+                Text(tr("Secrets").uppercase(), color = Nt.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+                PartRow(
+                    Icons.Outlined.VpnKey, Nt.Accent, tr("Clés API de l'assistant IA"),
+                    tr("Claude, OpenAI, Gemini… La plus récente l'emporte, une clé retirée l'est partout."), keysOn,
+                ) { on -> prefs.setSyncAiKeys(on); if (on) resync() }
+                if (keysOn) Text(
+                    tr("Chiffrées avant de partir, et seulement vers les appareils qui les synchronisent aussi."),
+                    color = Nt.Muted, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { open = false }) { Text(tr("Fermer"), color = Nt.Accent, fontWeight = FontWeight.SemiBold) } },
+    )
+}
+
+/** One theme in the pop-up: a small tinted icon, what it holds, its switch; the whole row toggles it. */
+@Composable
+private fun PartRow(icon: ImageVector, tint: Color, title: String, detail: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(enabled = enabled, role = Role.Switch) { onChange(!checked) }
+            .padding(vertical = 8.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.size(32.dp).background((if (checked) tint else Nt.Muted).copy(alpha = 0.14f), RoundedCornerShape(9.dp)), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = if (checked) tint else Nt.Muted, modifier = Modifier.size(18.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (enabled) Nt.Text else Nt.Muted)
+            Text(detail, color = Nt.Muted, fontSize = 12.sp, lineHeight = 15.sp)
+        }
+        Switch(checked, onChange, enabled = enabled, colors = SwitchDefaults.colors(checkedTrackColor = Nt.Accent, uncheckedTrackColor = Nt.Toggle))
     }
-    Hint(tr("Par le fichier partagé comme par le Wi-Fi. Un thème décoché n'est ni reçu ni envoyé : les autres appareils gardent le leur."))
 }

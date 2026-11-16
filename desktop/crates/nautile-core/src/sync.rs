@@ -1702,10 +1702,18 @@ pub enum SyncPart {
     Tunnels,
     /// The trusted host keys (known hosts).
     KnownHosts,
+    /// The AI assistant's API keys: taken in only on demand (Settings::sync_ai_keys), being secrets.
+    AiKeys,
 }
 
 impl SyncPart {
-    pub const ALL: [SyncPart; 4] = [SyncPart::Hosts, SyncPart::Snippets, SyncPart::Tunnels, SyncPart::KnownHosts];
+    pub const ALL: [SyncPart; 5] = [
+        SyncPart::Hosts,
+        SyncPart::Snippets,
+        SyncPart::Tunnels,
+        SyncPart::KnownHosts,
+        SyncPart::AiKeys,
+    ];
 
     /// The tombstone kinds (table names) of the theme.
     fn kinds(self) -> &'static [&'static str] {
@@ -1714,6 +1722,7 @@ impl SyncPart {
             SyncPart::Snippets => &["snippet"],
             SyncPart::Tunnels => &["port_forward"],
             SyncPart::KnownHosts => &["known_host"],
+            SyncPart::AiKeys => &[],
         }
     }
 }
@@ -1741,6 +1750,7 @@ fn take_parts(to: &mut BackupData, from: Option<&BackupData>, skip: &[SyncPart])
             SyncPart::Snippets => to.snippets = from.map(|f| f.snippets.clone()).unwrap_or_default(),
             SyncPart::Tunnels => to.forwards = from.map(|f| f.forwards.clone()).unwrap_or_default(),
             SyncPart::KnownHosts => to.known_hosts = from.map(|f| f.known_hosts.clone()).unwrap_or_default(),
+            SyncPart::AiKeys => to.ai_keys = from.map(|f| f.ai_keys.clone()).unwrap_or_default(),
         }
     }
     to.tombstones.retain(|t| !kinds.contains(&t.kind.as_str()));

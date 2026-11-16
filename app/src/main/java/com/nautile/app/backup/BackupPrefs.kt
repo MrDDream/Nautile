@@ -126,6 +126,17 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
         prefs.edit().putStringSet(KEY_SYNC_SKIP, next.map { it.name }.toSet()).putLong(KEY_SYNCED_CHANGE, 0L).apply()
     }
 
+    private val _syncAiKeys = MutableStateFlow(prefs.getBoolean(KEY_SYNC_AI_KEYS, false))
+    /** The assistant's API keys go with the synchronisation too: off unless asked, being secrets. */
+    val syncAiKeys: StateFlow<Boolean> = _syncAiKeys.asStateFlow()
+    fun setSyncAiKeys(on: Boolean) {
+        _syncAiKeys.value = on
+        prefs.edit().putBoolean(KEY_SYNC_AI_KEYS, on).putLong(KEY_SYNCED_CHANGE, 0L).apply()
+    }
+
+    /** Every theme left out of the synchronisation, the API keys included unless asked. */
+    fun syncLeftOut(): Set<SyncPart> = _syncSkip.value + if (_syncAiKeys.value) emptySet() else setOf(SyncPart.AI_KEYS)
+
     private val _syncMinutes = MutableStateFlow(prefs.getInt(KEY_SYNC_MINUTES, 60))
     /** How often synchronisation runs in the background (it also runs after each change). */
     val syncMinutes: StateFlow<Int> = _syncMinutes.asStateFlow()
@@ -260,6 +271,7 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
         private const val KEY_NETWORK = "network"
         private const val KEY_SYNC_MINUTES = "sync_minutes"
         private const val KEY_SYNC_SKIP = "sync_skip"
+        private const val KEY_SYNC_AI_KEYS = "sync_ai_keys"
         private const val SECRET_PASSWORD = "backup_password"
         val SYNC_CHOICES = listOf(15, 60, 360, 1440)
         /** After this, Settings suggests backing up again. */

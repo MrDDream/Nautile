@@ -333,8 +333,11 @@ class LanSync(private val app: NautileApp, private val scope: CoroutineScope) {
         Base64.encodeToString(MessageDigest.getInstance("SHA-256").digest(data.toByteArray()), Base64.NO_WRAP)
 
     /** This device's data, as sent to the others. */
-    private suspend fun snapshotOf(merge: SyncMerge) =
-        json.encodeToString(BackupData.serializer(), SyncPart.without(merge.snapshot(emptyList()), app.backupPrefs.syncSkip.value))
+    private suspend fun snapshotOf(merge: SyncMerge): String {
+        val skip = app.backupPrefs.syncLeftOut()
+        val mine = merge.snapshot(emptyList()).let { if (SyncPart.AI_KEYS !in skip) it.copy(aiKeys = app.ai.syncedKeys()) else it }
+        return json.encodeToString(BackupData.serializer(), SyncPart.without(mine, skip))
+    }
 
     /** Whether a round is owed, or the data changed since the last exchange. */
     private suspend fun roundWanted(): Boolean = roundOwed.get() || withContext(Dispatchers.IO) {
@@ -403,8 +406,13 @@ class LanSync(private val app: NautileApp, private val scope: CoroutineScope) {
     private suspend fun exchange(ch: LanProtocol.Channel, peer: String, initiator: Boolean, live: () -> Boolean): Boolean? {
         val merge = SyncMerge(app.database)
         fun allowed() = _enabled.value && live() && secrets.containsKey(peer)
-        // The themes left out here are neither taken nor sent.
-        fun decode(text: String) = SyncPart.without(json.decodeFromString(BackupData.serializer(), text), app.backupPrefs.syncSkip.value)
+        // The themes left out here are neither taken nor sent; the API keys, when taken, go to the assistant.
+        fun decode(text: String): BackupData {
+            val skip = app.backupPrefs.syncLeftOut()
+            val d = SyncPart.without(json.decodeFromString(BackupData.serializer(), text), skip)
+            if (SyncPart.AI_KEYS !in skip) app.ai.applySyncedKeys(d.aiKeys)
+            return d
+        }
         if (initiator) {
             val mine = snapshotOf(merge)
             val (them, theirs) = LanExchange.initiate(ch, hello(), mine, peer)

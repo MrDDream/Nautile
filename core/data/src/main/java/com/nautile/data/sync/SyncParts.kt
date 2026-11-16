@@ -17,7 +17,9 @@ enum class SyncPart(internal val kinds: List<String>) {
     SNIPPETS(listOf("snippet")),
     TUNNELS(listOf("port_forward")),
     /** The trusted host keys. */
-    KNOWN_HOSTS(listOf("known_host"));
+    KNOWN_HOSTS(listOf("known_host")),
+    /** The AI assistant's API keys: taken in only on demand (BackupPrefs.syncAiKeys), being secrets. */
+    AI_KEYS(emptyList());
 
     companion object {
         /** The themes really left out: [skip], plus the tunnels when the hosts are. */
@@ -50,6 +52,7 @@ enum class SyncPart(internal val kinds: List<String>) {
             if (SNIPPETS in parts) d = d.copy(snippets = from?.snippets.orEmpty())
             if (TUNNELS in parts) d = d.copy(forwards = from?.forwards.orEmpty())
             if (KNOWN_HOSTS in parts) d = d.copy(knownHosts = from?.knownHosts.orEmpty())
+            if (AI_KEYS in parts) d = d.copy(aiKeys = from?.aiKeys.orEmpty())
             return d.copy(
                 tombstones = d.tombstones.filter { it.kind !in kinds } + from?.tombstones.orEmpty().filter { it.kind in kinds },
             )

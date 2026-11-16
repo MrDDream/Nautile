@@ -457,8 +457,31 @@ pub struct BackupData {
     pub tombstones: Vec<SyncTombstone>,
     #[serde(default)]
     pub devices: Vec<SyncDevice>,
+    /// The assistant's API keys, from the devices that synchronise them (never in a backup).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ai_keys: Vec<SyncedAiKey>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+/// An AI provider's API key, synchronised only between devices that chose to (« Clés API de l'assistant IA »;
+/// SyncedAiKey.kt). The latest change wins; an empty `key` is a key removed. `provider`: CLAUDE, OPENAI…
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncedAiKey {
+    pub provider: String,
+    pub key: String,
+    pub updated_at: i64,
+}
+
+impl std::fmt::Debug for SyncedAiKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SyncedAiKey")
+            .field("provider", &self.provider)
+            .field("key", &if self.key.is_empty() { "" } else { "***" })
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 fn two() -> i32 {

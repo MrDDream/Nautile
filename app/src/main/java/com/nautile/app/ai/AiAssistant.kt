@@ -1,5 +1,6 @@
 package com.nautile.app.ai
 
+import com.nautile.data.backup.SyncedAiKey
 import android.content.SharedPreferences
 import com.nautile.i18n.I18n
 import com.nautile.i18n.tr
@@ -138,12 +139,58 @@ class AiAssistant(
     )
 
     fun save(kind: AiProviderKind, apiKey: String?, model: String, baseUrl: String?) {
-        if (apiKey != null) secrets.put("key_${kind.name}", apiKey.trim())
+        if (apiKey != null && apiKey.trim() != secrets.get("key_${kind.name}")) {
+            secrets.put("key_${kind.name}", apiKey.trim())
+            keyChanged(kind)
+        }
         secrets.put("model_${kind.name}", model.trim())
         if (kind.editableUrl) secrets.put("url_${kind.name}", baseUrl?.trim())
     }
 
-    fun forgetKey(kind: AiProviderKind) = secrets.put("key_${kind.name}", null)
+    fun forgetKey(kind: AiProviderKind) {
+        secrets.put("key_${kind.name}", null)
+        keyChanged(kind)
+    }
+
+    // ── API keys between devices (« Clés API de l'assistant IA », off by default) ──
+
+    /** When [kind]'s key last changed here, set or removed (0: never, a key from before the synchronisation of keys). */
+    private fun keyAt(kind: AiProviderKind) = secrets.get("keyAt_${kind.name}")?.toLongOrNull() ?: 0L
+
+    private fun keyChanged(kind: AiProviderKind, at: Long = System.currentTimeMillis()) {
+        secrets.put("keyAt_${kind.name}", at.toString())
+        onKeysChanged()
+    }
+
+    /** Called when a key changed here, to synchronise it soon. */
+    @Volatile var onKeysChanged: () -> Unit = {}
+
+    /** This phone's keys for the others: those set, and those removed (empty) since keys are synchronised. */
+    fun syncedKeys(): List<SyncedAiKey> = AiProviderKind.entries.filter { it.needsKey }.mapNotNull { k ->
+        val key = secrets.get("key_${k.name}")?.takeIf { it.isNotBlank() }
+        val at = keyAt(k)
+        when {
+            key != null -> SyncedAiKey(k.name, key, maxOf(at, 1L))
+            at > 0 -> SyncedAiKey(k.name, "", at)
+            else -> null
+        }
+    }
+
+    /** Takes the keys changed more recently on another device. Whether anything changed here. */
+    fun applySyncedKeys(remote: List<SyncedAiKey>): Boolean {
+        var changed = false
+        // Dates believed up to a year ahead (a clock far off would otherwise win every time).
+        val cap = System.currentTimeMillis() + 365L * 24 * 3600 * 1000
+        for (r in remote) {
+            val k = AiProviderKind.entries.firstOrNull { it.name == r.provider && it.needsKey } ?: continue
+            val at = minOf(r.updatedAt, cap)
+            if (at <= keyAt(k)) continue
+            secrets.put("key_${k.name}", r.key.takeIf { it.isNotBlank() })
+            secrets.put("keyAt_${k.name}", at.toString())
+            changed = true
+        }
+        return changed
+    }
 
     fun isReady(c: AiConfig = config()) = (!c.kind.needsKey || c.apiKey != null) && (c.kind != AiProviderKind.CUSTOM || c.model.isNotBlank())
 

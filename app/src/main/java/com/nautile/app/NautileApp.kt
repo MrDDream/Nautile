@@ -188,6 +188,14 @@ open class NautileApp : Application() {
             runCatching { sync.watchLocalChanges() }
             if (backupPrefs.syncEnabled.value) sync.requestSoon(3_000)
         }
+        // An API key set or removed here goes to the other devices, when they share them.
+        ai.onKeysChanged = {
+            if (backupPrefs.syncAiKeys.value) {
+                backupPrefs.syncedChange = 0L
+                if (backupPrefs.syncEnabled.value) sync.requestSoon(2_000)
+                lanSync.requestSoon(2_000)
+            }
+        }
         // Keep launcher shortcuts and the widget in sync with recent connections (off the main thread).
         appScope.launch(Dispatchers.IO) {
             runCatching {
