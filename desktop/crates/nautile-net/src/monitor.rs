@@ -16,6 +16,51 @@ df -kP / | tail -1; cat /proc/loadavg; cat /proc/uptime; nproc 2>/dev/null || ge
 /// Seconds between two readings.
 pub const EVERY: u64 = 3;
 
+/// The processes, busiest first, after a marker line: added to [COMMAND] while the list is shown.
+pub const PROCESSES: &str = "echo '--processes--'; ps -eo pid=,user=,pcpu=,pmem=,rss=,args= --sort=-pcpu 2>/dev/null | head -n 400";
+const MARKER: &str = "--processes--";
+
+/// What the monitor's [Input::Data] asks: the process list on or off.
+pub const PROCESSES_ON: &[u8] = b"processes:on";
+pub const PROCESSES_OFF: &[u8] = b"processes:off";
+
+/// One line of `ps`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Process {
+    pub pid: u32,
+    pub user: String,
+    pub cpu: f32,
+    pub mem: f32,
+    pub rss_kb: u64,
+    pub command: String,
+}
+
+/// The processes of a reading, `None` when it has no list (not asked, or `ps` without `-o`).
+pub fn parse_processes(text: &str) -> Option<Vec<Process>> {
+    let (_, list) = text.split_once(MARKER)?;
+    let v: Vec<Process> = list
+        .lines()
+        .filter_map(|l| {
+            let mut w = l.split_whitespace();
+            let pid = w.next()?.parse().ok()?;
+            let user = w.next()?.to_owned();
+            let cpu = w.next()?.replace(',', ".").parse().ok()?;
+            let mem = w.next()?.replace(',', ".").parse().ok()?;
+            let rss_kb = w.next()?.parse().ok()?;
+            let command = w.collect::<Vec<_>>().join(" ");
+            (!command.is_empty()).then_some(Process {
+                pid,
+                user,
+                cpu,
+                mem,
+                rss_kb,
+                command,
+            })
+        })
+        .collect();
+    Some(v)
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Sample {
     /// Jiffies since boot, all and idle (with iowait): the CPU use is their difference between two samples.
@@ -58,6 +103,7 @@ impl Sample {
 
 /// Reads the output of [COMMAND]; `None` when it is not a Linux host.
 pub fn parse(text: &str) -> Option<Sample> {
+    let text = text.split_once(MARKER).map_or(text, |(head, _)| head);
     let mut s = Sample::default();
     let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
     let stat: Vec<u64> = lines
@@ -94,9 +140,14 @@ pub fn parse(text: &str) -> Option<Sample> {
     Some(s)
 }
 
-async fn read_once(conn: &ssh::Connection) -> Result<String, String> {
+async fn read_once(conn: &ssh::Connection, processes: bool) -> Result<String, String> {
     let mut ch = conn.handle.channel_open_session().await.map_err(|e| e.to_string())?;
-    ch.exec(true, COMMAND).await.map_err(|e| e.to_string())?;
+    let command = if processes {
+        format!("{COMMAND}; {PROCESSES}")
+    } else {
+        COMMAND.to_owned()
+    };
+    ch.exec(true, command).await.map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
@@ -121,14 +172,20 @@ pub fn spawn(p: Params) -> Session {
             Err(e) => Some(e),
             Ok(conn) => {
                 events.send(Event::Connected);
+                let mut processes = false;
                 let r = loop {
-                    match read_once(&conn).await {
+                    match read_once(&conn, processes).await {
                         Ok(text) => events.send(Event::Output(text.into_bytes())),
                         Err(e) if conn.handle.is_closed() => break Some(e),
                         Err(_) => {}
                     }
+                    // A change of the process list reads again at once.
                     tokio::select! {
-                        i = input.recv() => if matches!(i, Some(Input::Close) | None) { break None },
+                        i = input.recv() => match i {
+                            Some(Input::Close) | None => break None,
+                            Some(Input::Data(d)) => processes = d == PROCESSES_ON,
+                            Some(_) => {}
+                        },
                         _ = tokio::time::sleep(Duration::from_secs(EVERY)) => {}
                     }
                 };
@@ -166,5 +223,23 @@ MemAvailable:    5023412 kB
         later.cpu_idle += 300;
         assert!((later.cpu_percent(&s) - 25.0).abs() < 0.01);
         assert!(parse("not linux").is_none());
+    }
+
+    #[test]
+    fn the_process_list_follows_the_reading() {
+        let text = format!(
+            "{OUT}--processes--\n  812 postgres  12.5  3.1 251004 postgres: checkpointer\n    1 root  0,0  0.1 11520 /sbin/init splash\n"
+        );
+        // The reading itself is unchanged.
+        assert_eq!(parse(&text), parse(OUT));
+        let p = parse_processes(&text).unwrap();
+        assert_eq!(p.len(), 2);
+        assert_eq!(
+            (p[0].pid, p[0].user.as_str(), p[0].cpu, p[0].rss_kb),
+            (812, "postgres", 12.5, 251004)
+        );
+        assert_eq!(p[0].command, "postgres: checkpointer");
+        assert_eq!(p[1].command, "/sbin/init splash");
+        assert!(parse_processes(OUT).is_none());
     }
 }

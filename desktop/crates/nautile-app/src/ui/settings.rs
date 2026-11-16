@@ -1835,7 +1835,7 @@ fn switch_head<'a>(
 }
 
 pub(super) fn backup_settings(app: &App) -> Column<'_, Message> {
-    column![sync_card(app), lan_card(app), backup_card(app)]
+    column![sync_card(app), lan_card(app), sync_parts_card(app), backup_card(app)]
 }
 
 fn sync_card(app: &App) -> Element<'_, Message> {
@@ -1997,6 +1997,59 @@ fn sync_card(app: &App) -> Element<'_, Message> {
         CardTone::Plain
     };
     container(body).padding(18).width(Fill).style(toned_card(tone)).into()
+}
+
+/// What this computer synchronises, by theme (the file and the Wi-Fi alike); shown once one of them is on.
+fn sync_parts_card(app: &App) -> Element<'_, Message> {
+    use crate::backup::BackupMsg as B;
+    use nautile_core::sync::SyncPart as P;
+    let s = &app.settings;
+    if !s.sync_enabled && !s.lan_enabled {
+        return Space::new().into();
+    }
+    let skipped = nautile_core::sync::effective(&s.sync_skip);
+    let hosts_on = !skipped.contains(&P::Hosts);
+    let row_for = |p: P, title: String, detail: String| -> Element<'_, Message> {
+        let on = !skipped.contains(&p);
+        // Tunnels follow their hosts.
+        let locked = p == P::Tunnels && !hosts_on;
+        let toggle = iced::widget::toggler(on).size(22).style(theme::toggler);
+        let toggle = if locked {
+            toggle
+        } else {
+            toggle.on_toggle(move |v| bm(B::SyncPart(p, v)))
+        };
+        row![column![text(title).size(14), label(detail).size(12)].spacing(2).width(Fill), toggle]
+            .spacing(12)
+            .align_y(Alignment::Center)
+            .into()
+    };
+    let body = column![
+        row![kit::icon(I_SYNC, 20.0), text(tr("Ce qui est synchronisé")).size(16).font(BOLD)]
+            .spacing(10)
+            .align_y(Alignment::Center),
+        soft(tr(
+            "Par le fichier partagé comme par le Wi-Fi. Un thème décoché n'est ni reçu ni envoyé : les autres appareils gardent le leur."
+        )),
+        row_for(P::Hosts, tr("Hôtes et trousseau"), tr("Hôtes, groupes, clés SSH et identités")),
+        row_for(
+            P::Tunnels,
+            tr("Tunnels"),
+            if hosts_on {
+                tr("Redirections de ports")
+            } else {
+                tr("Suivent les hôtes, dont ils dépendent")
+            }
+        ),
+        row_for(P::Snippets, tr("Snippets"), tr("Commandes enregistrées")),
+        row_for(
+            P::KnownHosts,
+            tr("Serveurs connus"),
+            tr("Empreintes des clés d'hôtes déjà acceptées")
+        ),
+    ]
+    .spacing(12);
+    container(body).padding(18).width(Fill).style(theme::card).into()
 }
 
 fn lan_card(app: &App) -> Element<'_, Message> {
@@ -2686,14 +2739,42 @@ pub(super) fn target_modal(app: &App, max_height: f32) -> Element<'_, Message> {
                                 Frequency::Day => tr("Jour"),
                                 Frequency::Week => tr("Semaine"),
                                 Frequency::Month => tr("Mois"),
+                                Frequency::Hours(_) => tr("Autre"),
                             };
                             (*f, short)
                         })
+                        .chain(std::iter::once((
+                            match t.frequency {
+                                Frequency::Hours(h) => Frequency::Hours(h),
+                                _ => Frequency::Hours(crate::backup::CUSTOM_HOURS),
+                            },
+                            tr("Autre"),
+                        )))
                         .collect(),
                     t.frequency,
                     move |f| bm(B::Frequency(idf.clone(), f)),
                 ),
             ));
+            if let Frequency::Hours(h) = t.frequency {
+                let idh = id.clone();
+                body = body.push(
+                    row![
+                        container(kit::float_field(
+                            tr("Délai entre deux sauvegardes"),
+                            text_input("3", &h.to_string())
+                                .on_input(move |v| bm(B::CustomHours(idh.clone(), v)))
+                                .font(MONO)
+                        ))
+                        .width(220),
+                        soft(trf(
+                            "heures (1 à %1$s), à compter de la dernière",
+                            &[&crate::backup::MAX_CUSTOM_HOURS]
+                        )),
+                    ]
+                    .spacing(12)
+                    .align_y(Alignment::Center),
+                );
+            }
             if t.frequency.at_time() {
                 let idt = id.clone();
                 let mut r = row![
@@ -2974,6 +3055,22 @@ pub(super) fn system_settings(app: &App) -> Column<'_, Message> {
             )]),
             soft(tray_note),
         ]
+        .spacing(10),
+        column![
+            container(kit::section_label(tr("Affichage"))).padding([0, 4]),
+            kit::card(vec![kit::toggle_row(
+                None,
+                tr("Accélération graphique"),
+                tr("Dessine avec la carte graphique : plus fluide sur un grand écran, environ 130 Mo de mémoire en plus. Sans pilote compatible, Nautile revient au dessin sans carte graphique."),
+                s.gpu,
+                Message::Gpu
+            )]),
+        ]
+        .push(if s.gpu != app.gpu_at_start {
+            Element::from(soft(tr("Redémarrez Nautile pour l'appliquer (Quitter dans le menu de l'icône, puis relancer).")))
+        } else {
+            Space::new().into()
+        })
         .spacing(10),
         column![
             container(kit::section_label(tr("Démarrage"))).padding([0, 4]),

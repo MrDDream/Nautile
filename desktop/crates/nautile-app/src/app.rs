@@ -496,6 +496,39 @@ pub enum Message {
     SidebarMove(f32),
     SidebarRelease,
     SidebarToggle,
+    /// Shows a tab in a window of its own.
+    Detach(u64),
+    /// Puts a detached tab back in the main window (its window closes).
+    Reattach(iced::window::Id),
+    /// A keyboard shortcut, acting in the window that has the focus.
+    Key(Box<Message>),
+    /// Another window than the main one got the focus.
+    WindowFocusIn(iced::window::Id),
+    /// Takes this terminal out of the split screen (the other one stays shown).
+    SplitRemove(u64),
+    SplitGrab,
+    SplitMove(iced::Point),
+    /// Side by side, or one above the other.
+    SplitOrientation,
+    SplitRelease,
+    /// « Accélération graphique », from the next start.
+    Gpu(bool),
+    /// The monitor panel: its gauges or its process list.
+    MonitorProcesses(u64, bool),
+    MonitorFilter(String),
+    MonitorGrab,
+    MonitorMove(f32),
+    MonitorRelease,
+    /// Puts the active terminal beside another one (a copy of it when it is alone), or back alone.
+    SplitToggle,
+    /// Opens the same host again in a new tab.
+    DuplicateTab(u64),
+    /// The « + » of the tabs: the search over what opens a session.
+    ConnectPalette,
+    /// A `user@address` typed in that search, opened with this protocol without saving it.
+    QuickConnectTo(String, Protocol),
+    /// A settings sub-page, from elsewhere (the synchronisation block of the sidebar).
+    OpenSettings(SettingsPage),
     SystemTheme(iced::theme::Mode),
     /// Does nothing (previews).
     Noop,
@@ -741,6 +774,14 @@ pub struct App {
     pub tabs: Vec<Tab>,
     /// The monitor shown beside the hosts: a tab of [tabs] without a place in the tab bar.
     pub monitor_tab: Option<u64>,
+    /// Two terminals side by side (left, right), shown while one of them is the active tab.
+    pub split: Option<(u64, u64)>,
+    /// The main window, opened at start.
+    pub main_window: Option<iced::window::Id>,
+    /// Tabs shown in a window of their own (« Ouvrir dans une fenêtre »): (window, tab).
+    pub detached: Vec<(iced::window::Id, u64)>,
+    /// The window that last got the focus: the keyboard shortcuts act there.
+    pub focused_window: Option<iced::window::Id>,
     /// `None`: the hosts and the other pages.
     pub active_tab: Option<u64>,
     pub next_tab: u64,
@@ -788,6 +829,14 @@ pub struct App {
     pub window: iced::Size,
     /// The sidebar's edge is being dragged.
     pub sidebar_drag: bool,
+    /// « Accélération graphique » as it was at start: a change applies at the next one.
+    pub gpu_at_start: bool,
+    /// The divider of a split screen is being dragged.
+    pub split_drag: bool,
+    /// The monitor panel's edge is being dragged.
+    pub monitor_drag: bool,
+    /// What is typed in the filter of the monitor's process list.
+    pub monitor_filter: String,
     /// The system is in dark mode (for « Système »).
     pub os_dark: bool,
     pub term_tab: TermTab,
@@ -902,6 +951,7 @@ impl App {
     }
 
     pub fn with(paths: Paths, settings: Settings, db: Option<Db>, fatal: Option<String>) -> App {
+        let gpu_at_start = settings.gpu;
         let mut app = App {
             paths,
             settings,
@@ -929,6 +979,10 @@ impl App {
             prompt_input: String::new(),
             last_tab: None,
             monitor_tab: None,
+            split: None,
+            main_window: None,
+            detached: Vec::new(),
+            focused_window: None,
             snippet_run: None,
             tunnels: Default::default(),
             locked: false,
@@ -951,6 +1005,10 @@ impl App {
             modal: None,
             window: iced::Size::new(1280.0, 800.0),
             sidebar_drag: false,
+            monitor_drag: false,
+            split_drag: false,
+            gpu_at_start,
+            monitor_filter: String::new(),
             os_dark: true,
             term_tab: TermTab::Aspect,
             fonts_loaded: Vec::new(),
@@ -1031,6 +1089,15 @@ impl App {
         self.last_tick = (std::time::Instant::now(), std::time::SystemTime::now());
     }
 
+    /// The title of window [w]: a detached tab's own, else the main window's.
+    pub fn window_title(&self, w: iced::window::Id) -> String {
+        match self.detached_tab(w).and_then(|t| self.tab(t)) {
+            Some(_) if self.locked || self.vault.is_some() => "Nautile".into(),
+            Some(t) => format!("{} — Nautile", t.remote_title.as_deref().unwrap_or(&t.name)),
+            None => self.title(),
+        }
+    }
+
     pub fn title(&self) -> String {
         // Locked: neither the remote title nor the tab's name.
         if self.locked || self.vault.is_some() {
@@ -1045,21 +1112,34 @@ impl App {
     /// Window shortcuts: new local terminal, close / switch tabs.
     pub fn subscription(&self) -> iced::Subscription<Message> {
         let mut subs = vec![
-            iced::keyboard::listen().filter_map(shortcut),
+            iced::keyboard::listen().filter_map(shortcut).map(|m| Message::Key(Box::new(m))),
             iced::event::listen_with(dropped_file),
             iced::time::every(std::time::Duration::from_secs(30)).map(|_| Message::BackupTick),
-            iced::window::resize_events().map(|(_, size)| Message::WindowResized(size)),
+            // The main window's size and place only: a detached one has its own.
+            iced::window::resize_events()
+                .with(self.main_window)
+                .filter_map(|(main, (id, size))| (main.is_none() || main == Some(id)).then_some(Message::WindowResized(size))),
             crate::tray::subscription().map(Message::Tray),
             iced::window::close_requests().map(Message::CloseRequested),
-            iced::window::events().filter_map(|(_, e)| match e {
-                iced::window::Event::Moved(p) => Some(Message::WindowMoved(p)),
-                iced::window::Event::Focused => Some(Message::WindowFocused(true)),
-                iced::window::Event::Unfocused => Some(Message::WindowFocused(false)),
-                _ => None,
+            iced::window::events().with(self.main_window).filter_map(|(main, (id, e))| {
+                let is_main = main.is_none() || main == Some(id);
+                match e {
+                    iced::window::Event::Moved(p) if is_main => Some(Message::WindowMoved(p)),
+                    iced::window::Event::Focused if is_main => Some(Message::WindowFocused(true)),
+                    iced::window::Event::Focused => Some(Message::WindowFocusIn(id)),
+                    iced::window::Event::Unfocused if is_main => Some(Message::WindowFocused(false)),
+                    _ => None,
+                }
             }),
         ];
         if self.sidebar_drag {
             subs.push(iced::event::listen_with(sidebar_drag));
+        }
+        if self.monitor_drag {
+            subs.push(iced::event::listen_with(monitor_drag));
+        }
+        if self.split_drag {
+            subs.push(iced::event::listen_with(split_drag));
         }
         if self.settings.appearance == Appearance::System {
             subs.push(iced::system::theme_changes().map(Message::SystemTheme));
@@ -1143,7 +1223,18 @@ impl App {
         if refresh {
             self.refresh_view_cache();
         }
-        task
+        // A detached tab closed (or its session ended and was closed): its window goes too.
+        let gone: Vec<iced::window::Id> = self
+            .detached
+            .iter()
+            .filter(|(_, t)| self.tab(*t).is_none())
+            .map(|(w, _)| *w)
+            .collect();
+        if gone.is_empty() {
+            return task;
+        }
+        self.detached.retain(|(w, _)| !gone.contains(w));
+        Task::batch(std::iter::once(task).chain(gone.into_iter().map(iced::window::close)))
     }
 
     /// What the page shown reads from the disk and the database.
@@ -1529,20 +1620,7 @@ impl App {
                 self.settings.remote_fullscreen = v;
                 self.save_settings();
             }
-            Message::ToggleFullscreen => {
-                return iced::window::latest().and_then(|w| {
-                    iced::window::mode(w).then(move |m| {
-                        iced::window::set_mode(
-                            w,
-                            if m == iced::window::Mode::Fullscreen {
-                                iced::window::Mode::Windowed
-                            } else {
-                                iced::window::Mode::Fullscreen
-                            },
-                        )
-                    })
-                });
-            }
+            Message::ToggleFullscreen => return self.main_window.map(toggle_fullscreen).unwrap_or_else(Task::none),
             Message::HostMenu(id, p) => {
                 self.menu = Some((id, p));
                 self.menu_move = false;
@@ -1619,6 +1697,18 @@ impl App {
                     return iced::widget::operation::focus("palette");
                 }
             }
+            Message::ConnectPalette => {
+                self.palette = Some(crate::palette::PaletteState {
+                    connect: true,
+                    ..Default::default()
+                });
+                return iced::widget::operation::focus("palette");
+            }
+            Message::QuickConnectTo(target, p) => {
+                if let Some(t) = nautile_core::quick::parse(&target) {
+                    return self.quick_connect(t.with_protocol(p).to_host());
+                }
+            }
             Message::PaletteQuery(q) => {
                 if let Some(p) = &mut self.palette {
                     p.query = q;
@@ -1627,7 +1717,7 @@ impl App {
             }
             Message::PaletteMove(d) => {
                 if let Some(p) = &self.palette {
-                    let n = crate::palette::results(self, &p.query).len().max(1) as i32;
+                    let n = crate::palette::results(self, p).len().max(1) as i32;
                     let i = (p.selected as i32 + d).rem_euclid(n) as usize;
                     if let Some(p) = &mut self.palette {
                         p.selected = i;
@@ -1640,10 +1730,10 @@ impl App {
                 }
             }
             Message::PaletteRun(i) => {
-                let Some(q) = self.palette.as_ref().map(|p| p.query.clone()) else {
+                let Some(p) = self.palette.as_ref() else {
                     return Task::none();
                 };
-                let run = crate::palette::results(self, &q).into_iter().nth(i).map(|it| it.run);
+                let run = crate::palette::results(self, p).into_iter().nth(i).map(|it| it.run);
                 self.palette = None;
                 if let Some(m) = run {
                     return self.update(m);
@@ -1657,7 +1747,7 @@ impl App {
                 return iced::widget::operation::focus("search");
             }
             Message::SelectTabIndex(n) => {
-                let id = self.session_tabs().nth(n.saturating_sub(1)).map(|t| t.id);
+                let id = self.bar_tabs().nth(n.saturating_sub(1)).map(|t| t.id);
                 if let Some(id) = id {
                     return self.update(Message::SelectTab(Some(id)));
                 }
@@ -1735,6 +1825,8 @@ impl App {
                     T::Quit => self.update(Message::Quit),
                 };
             }
+            // A detached window closed: its tab comes back to the main one.
+            Message::CloseRequested(id) if self.detached_tab(id).is_some() => return self.reattach(id),
             Message::CloseRequested(id) => {
                 self.remember_window();
                 // Locked, the window only hides: quitting would close the sessions of whoever left it.
@@ -1754,12 +1846,16 @@ impl App {
             Message::WindowFocused(f) => {
                 self.focused = f;
                 if f {
+                    self.focused_window = self.main_window;
+                }
+                if f {
                     self.hidden = false;
                 } else if self.settings.lock_on_hide && self.settings.locks() && !self.locked {
                     // Minimised (the window events do not say it): asked to the window.
-                    return iced::window::latest()
-                        .and_then(iced::window::is_minimized)
-                        .map(Message::WindowMinimized);
+                    return self
+                        .main_window
+                        .map(|w| iced::window::is_minimized(w).map(Message::WindowMinimized))
+                        .unwrap_or_else(Task::none);
                 }
             }
             Message::WindowMinimized(m) => {
@@ -1769,13 +1865,16 @@ impl App {
             }
             Message::ShowWindow => {
                 self.hidden = false;
-                return iced::window::latest().and_then(|id| {
-                    Task::batch([
-                        iced::window::set_mode(id, iced::window::Mode::Windowed),
-                        iced::window::minimize(id, false),
-                        iced::window::gain_focus(id),
-                    ])
-                });
+                return self
+                    .main_window
+                    .map(|id| {
+                        Task::batch([
+                            iced::window::set_mode(id, iced::window::Mode::Windowed),
+                            iced::window::minimize(id, false),
+                            iced::window::gain_focus(id),
+                        ])
+                    })
+                    .unwrap_or_else(Task::none);
             }
             Message::Quit => {
                 if self.locked {
@@ -1869,6 +1968,103 @@ impl App {
             Message::SidebarToggle => {
                 self.settings.sidebar_compact = !self.settings.sidebar_compact;
                 self.save_settings();
+            }
+            Message::SplitToggle => return self.split_toggle(),
+            Message::Detach(id) => return self.detach(id),
+            Message::Reattach(w) => return self.reattach(w),
+            Message::WindowFocusIn(w) => self.focused_window = Some(w),
+            Message::Key(m) => {
+                // In a detached window: only what concerns its own tab.
+                if let Some(tab) = self.focused_window.and_then(|w| self.detached_tab(w)) {
+                    return match *m {
+                        Message::CloseActiveTab => {
+                            self.ask_close(tab);
+                            Task::none()
+                        }
+                        Message::ToggleFullscreen => self.focused_window.map(toggle_fullscreen).unwrap_or_else(Task::none),
+                        Message::Escape => Task::none(),
+                        _ => Task::none(),
+                    };
+                }
+                return self.update(*m);
+            }
+            Message::SplitRemove(id) => {
+                if let Some((l, r)) = self.split.filter(|(l, r)| *l == id || *r == id) {
+                    self.split = None;
+                    let other = if l == id { r } else { l };
+                    self.active_tab = Some(other);
+                    self.last_tab = Some(other);
+                }
+            }
+            Message::SplitGrab => self.split_drag = true,
+            Message::SplitMove(p) => {
+                if self.split_drag {
+                    let ratio = if self.settings.split_stacked {
+                        // Below the tab bar.
+                        let top = 50.0;
+                        (p.y - top) / (self.window.height - top).max(1.0)
+                    } else {
+                        // After the sidebar and its edge, before the assistant when open.
+                        let left = if self.settings.sidebar_compact {
+                            72.0
+                        } else {
+                            self.settings.sidebar_width.unwrap_or(232.0)
+                        } + 5.0;
+                        let panel = if self.assistant.open { 420.0 } else { 0.0 };
+                        (p.x - left) / (self.window.width - left - panel).max(1.0)
+                    };
+                    self.settings.split_ratio = Some(ratio.clamp(0.2, 0.8));
+                }
+            }
+            Message::SplitOrientation => {
+                self.settings.split_stacked = !self.settings.split_stacked;
+                self.save_settings();
+            }
+            Message::SplitRelease => {
+                if self.split_drag {
+                    self.split_drag = false;
+                    self.save_settings();
+                }
+            }
+            Message::Gpu(v) => {
+                self.settings.gpu = v;
+                self.save_settings();
+            }
+            Message::MonitorProcesses(id, on) => {
+                if let Some(t) = self.tab_mut(id) {
+                    if let Some(m) = &mut t.monitor {
+                        m.show_processes = on;
+                    }
+                    if let Some(tx) = &t.input {
+                        let ask = if on {
+                            nautile_net::monitor::PROCESSES_ON
+                        } else {
+                            nautile_net::monitor::PROCESSES_OFF
+                        };
+                        let _ = tx.send(nautile_net::Input::Data(ask.to_vec()));
+                    }
+                }
+                if on {
+                    return iced::widget::operation::focus("process-filter");
+                }
+            }
+            Message::MonitorFilter(f) => self.monitor_filter = f,
+            Message::MonitorGrab => self.monitor_drag = true,
+            Message::MonitorMove(x) => {
+                if self.monitor_drag {
+                    self.settings.monitor_width = Some((self.window.width - x).clamp(300.0, (self.window.width * 0.7).max(320.0)));
+                }
+            }
+            Message::MonitorRelease => {
+                if self.monitor_drag {
+                    self.monitor_drag = false;
+                    self.save_settings();
+                }
+            }
+            Message::DuplicateTab(id) => return self.duplicate_tab(id),
+            Message::OpenSettings(p) => {
+                let _ = self.update(Message::Nav(Page::Settings));
+                return self.update(Message::SettingsPage(Some(p)));
             }
             Message::MoveGroup(id, up) => {
                 let Some(db) = &self.db else { return Task::none() };
@@ -2763,6 +2959,10 @@ impl App {
                 self.page = Page::Hosts;
                 self.editor = None;
             }
+            // A detached tab: its window comes to the front.
+            Message::SelectTab(Some(id)) if self.window_of_detached(id).is_some() => {
+                return self.window_of_detached(id).map(iced::window::gain_focus).unwrap_or_else(Task::none);
+            }
             Message::SelectTab(id) => {
                 self.active_tab = id;
                 if id.is_some() {
@@ -2800,6 +3000,63 @@ impl App {
 }
 
 /// The mouse while the sidebar's edge is dragged.
+/// Full screen, or back to a window.
+fn toggle_fullscreen(w: iced::window::Id) -> Task<Message> {
+    iced::window::mode(w).then(move |m| {
+        iced::window::set_mode(
+            w,
+            if m == iced::window::Mode::Fullscreen {
+                iced::window::Mode::Windowed
+            } else {
+                iced::window::Mode::Fullscreen
+            },
+        )
+    })
+}
+
+/// The window's icon, from the same picture as the packages'.
+pub fn window_icon() -> Option<iced::window::Icon> {
+    let (w, h, rgba) = crate::tray::app_icon()?;
+    iced::window::icon::from_rgba(rgba, w, h).ok()
+}
+
+/// A window's settings: its size and place, shown or not; closing it is the app's decision.
+pub fn window_settings(size: iced::Size, position: iced::window::Position, visible: bool) -> iced::window::Settings {
+    iced::window::Settings {
+        size,
+        position,
+        visible,
+        min_size: Some(iced::Size::new(520.0, 360.0)),
+        exit_on_close_request: false,
+        icon: window_icon(),
+        // The Linux desktop file is matched by this name.
+        platform_specific: iced::window::settings::PlatformSpecific {
+            #[cfg(target_os = "linux")]
+            application_id: "nautile".into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+fn split_drag(e: iced::Event, _: iced::event::Status, _: iced::window::Id) -> Option<Message> {
+    use iced::mouse::{Button, Event as M};
+    match e {
+        iced::Event::Mouse(M::CursorMoved { position }) => Some(Message::SplitMove(position)),
+        iced::Event::Mouse(M::ButtonReleased(Button::Left)) => Some(Message::SplitRelease),
+        _ => None,
+    }
+}
+
+fn monitor_drag(e: iced::Event, _: iced::event::Status, _: iced::window::Id) -> Option<Message> {
+    use iced::mouse::{Button, Event as M};
+    match e {
+        iced::Event::Mouse(M::CursorMoved { position }) => Some(Message::MonitorMove(position.x)),
+        iced::Event::Mouse(M::ButtonReleased(Button::Left)) => Some(Message::MonitorRelease),
+        _ => None,
+    }
+}
+
 fn sidebar_drag(e: iced::Event, _: iced::event::Status, _: iced::window::Id) -> Option<Message> {
     use iced::mouse::{Button, Event as M};
     match e {

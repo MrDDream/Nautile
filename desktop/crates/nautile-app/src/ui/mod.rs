@@ -78,6 +78,15 @@ const I_FOLDER_MOVE: char = '\u{E675}'; // drive_file_move
 const I_CHECK: char = '\u{E5CA}'; // check
 const I_SEARCH: char = '\u{E8B6}'; // search
 const I_PLUS: char = '\u{E145}'; // add
+const I_SPLIT: char = '\u{E949}'; // vertical_split
+const I_OPEN_WINDOW: char = '\u{E89E}'; // open_in_new
+const I_ATTACH: char = '\u{E89D}'; // open_in_browser
+const I_SPLIT_STACKED: char = '\u{E947}'; // horizontal_split
+const I_DUPLICATE: char = '\u{E02E}'; // library_add
+const I_FOLD: char = '\u{E9BD}'; // menu_open
+const I_UNFOLD: char = '\u{E5D2}'; // menu
+const I_SYNC_OFF: char = '\u{E628}'; // sync_disabled
+const I_SYNC_PROBLEM: char = '\u{E629}'; // sync_problem
 
 pub fn icon<'a>(c: char) -> iced::widget::Text<'a> {
     text(c.to_string()).font(theme::ICONS).size(20).line_height(1.0)
@@ -126,17 +135,6 @@ fn icon_button<'a>(c: char, on: Message) -> button::Button<'a, Message> {
     button(icon(c).size(16)).padding([6, 8]).style(theme::ghost).on_press(on)
 }
 
-fn color_dot<'a>(c: i64, size: f32) -> Element<'a, Message> {
-    let col = argb(c);
-    container(Space::new().width(size).height(size))
-        .style(move |_| container::Style {
-            background: Some(col.into()),
-            border: iced::border::rounded(size / 2.0),
-            ..Default::default()
-        })
-        .into()
-}
-
 fn color_picker<'a>(current: i64, on: impl Fn(i64) -> Message + 'a) -> Element<'a, Message> {
     row(COLORS.iter().map(|&c| {
         let selected = c == current;
@@ -160,6 +158,14 @@ fn color_picker<'a>(current: i64, on: impl Fn(i64) -> Message + 'a) -> Element<'
 }
 
 /// The whole window.
+/// What window [w] shows: a detached tab, or everything (the main window).
+pub fn view_window(app: &App, w: iced::window::Id) -> Element<'_, Message> {
+    match app.detached_tab(w).and_then(|t| app.tab(t)) {
+        Some(t) => detached_window(app, w, t),
+        None => view(app),
+    }
+}
+
 pub fn view(app: &App) -> Element<'_, Message> {
     if let Some(e) = &app.fatal {
         return container(
@@ -195,7 +201,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         },
     };
     let mut center = Column::new();
-    if app.session_tabs().next().is_some() {
+    if app.bar_tabs().next().is_some() {
         center = center.push(tab_bar(app));
     }
     center = center.push(container(page).width(Fill).height(Fill).style(theme::page));
@@ -380,30 +386,42 @@ fn sidebar(app: &App) -> Element<'_, Message> {
     let mut brand = row![iced::widget::image(theme::mark()).height(28)]
         .spacing(12)
         .align_y(Alignment::Center);
-    if !compact {
-        brand = brand.push(text("Nautile").font(BOLD).size(21));
-    }
-    let place = if app.paths.portable {
-        tr("Mode portable, protégé par le mot de passe maître")
-    } else {
-        tr("Données chiffrées sur cet ordinateur")
+    // Folds the sidebar to its icons, and back (also a double click on its edge).
+    let fold = |c: char, name: String| -> Element<'static, Message> {
+        kit::tip(
+            button(icon(c).size(20))
+                .padding(6)
+                .style(theme::ghost)
+                .on_press(Message::SidebarToggle),
+            name,
+        )
     };
-    let mut c = column![
-        container(brand).padding([0, if compact { 10 } else { 6 }]),
-        Space::new().height(20),
-        item(I_HOSTS, tr("Hôtes"), Page::Hosts, Some(app.hosts.len())),
-        item(
-            I_HISTORY,
-            tr("Connexions"),
-            Page::Connections,
-            Some(app.session_tabs().count()).filter(|n| *n > 0)
-        ),
-        item(I_SNIPPETS, tr("Snippets"), Page::Snippets, Some(app.snippets.len())),
-        item(I_KEYS, tr("Trousseau"), Page::Keys, Some(app.keys.len())),
-        item(I_TUNNEL, tr("Tunnels"), Page::Tunnels, Some(app.forwards.len())),
-        Space::new().height(Fill),
-    ]
-    .spacing(4);
+    if !compact {
+        brand = brand
+            .push(text("Nautile").font(BOLD).size(21))
+            .push(Space::new().width(Fill))
+            .push(fold(I_FOLD, tr("Réduire le menu")));
+    }
+    let mut c = column![container(brand).padding([0, if compact { 10 } else { 6 }])];
+    if compact {
+        c = c.push(container(fold(I_UNFOLD, tr("Agrandir le menu"))).center_x(Fill).padding([8, 0]));
+    }
+    c = c.push(Space::new().height(if compact { 4 } else { 20 }));
+    c = c
+        .extend([
+            item(I_HOSTS, tr("Hôtes"), Page::Hosts, Some(app.hosts.len())),
+            item(
+                I_HISTORY,
+                tr("Connexions"),
+                Page::Connections,
+                Some(app.session_tabs().count()).filter(|n| *n > 0),
+            ),
+            item(I_SNIPPETS, tr("Snippets"), Page::Snippets, Some(app.snippets.len())),
+            item(I_KEYS, tr("Trousseau"), Page::Keys, Some(app.keys.len())),
+            item(I_TUNNEL, tr("Tunnels"), Page::Tunnels, Some(app.forwards.len())),
+            Space::new().height(Fill).into(),
+        ])
+        .spacing(4);
     if app.settings.locks() {
         let mut r = row![icon(I_LOCK).size(22)].spacing(14).align_y(Alignment::Center);
         if !compact {
@@ -420,9 +438,7 @@ fn sidebar(app: &App) -> Element<'_, Message> {
         ));
     }
     c = c.push(item(I_SETTINGS, tr("Réglages"), Page::Settings, None));
-    if !compact {
-        c = c.push(container(label(place).size(11)).padding([6, 14]));
-    }
+    c = c.push(Space::new().height(6)).push(sync_block(app, compact));
     container(c)
         .width(if compact {
             72.0
@@ -438,6 +454,109 @@ fn sidebar(app: &App) -> Element<'_, Message> {
         })
         .style(theme::sidebar)
         .into()
+}
+
+/// Whether this computer is in step with the others, and since when; a click opens the synchronisation settings.
+fn sync_block(app: &App, compact: bool) -> Element<'_, Message> {
+    let s = &app.settings;
+    let on = s.sync_enabled || s.lan_enabled;
+    // The latest exchange, through the shared file or over Wi-Fi.
+    let last = s
+        .last_sync
+        .into_iter()
+        .chain(
+            s.lan_enabled
+                .then(|| s.lan_peers.iter().map(|p| p.last).filter(|t| *t > 0).max())
+                .flatten(),
+        )
+        .max();
+    let now = nautile_core::model::now_ms();
+    #[derive(Clone, Copy)]
+    enum Tone {
+        Off,
+        Busy,
+        Ok,
+        Failed,
+    }
+    let (tone, head, detail) = if !on {
+        (Tone::Off, tr("Synchro désactivée"), tr("Activer dans Réglages"))
+    } else if app.backup.syncing || app.backup.lan_busy {
+        (
+            Tone::Busy,
+            tr("Synchronisation…"),
+            last.map(|t| kit::relative_time(t, now)).unwrap_or_default(),
+        )
+    } else if s.sync_enabled && app.backup.waiting_vpn {
+        (
+            Tone::Busy,
+            tr("En attente du VPN"),
+            last.map(|t| kit::relative_time(t, now)).unwrap_or_default(),
+        )
+    } else if s.sync_error.is_some() {
+        let since = last.map(|t| trf("Dernière réussie : %1$s", &[&kit::relative_time(t, now)]));
+        (Tone::Failed, tr("Synchro en échec"), since.unwrap_or_else(|| tr("Jamais réussie")))
+    } else {
+        match last {
+            Some(t) => (Tone::Ok, tr("Synchronisé"), kit::relative_time(t, now)),
+            None => (Tone::Busy, tr("En attente de synchro"), tr("Pas encore d'échange")),
+        }
+    };
+    let glyph = match tone {
+        Tone::Off => I_SYNC_OFF,
+        Tone::Busy => I_SYNC,
+        Tone::Ok => I_CLOUD_DONE,
+        Tone::Failed => I_SYNC_PROBLEM,
+    };
+    let color = move |t: &iced::Theme| {
+        let n = theme::nt(t);
+        match tone {
+            Tone::Off => n.muted,
+            Tone::Busy => n.accent,
+            Tone::Ok => n.green,
+            Tone::Failed => n.pink,
+        }
+    };
+    let mark = container(
+        icon(glyph)
+            .size(18)
+            .style(move |t: &iced::Theme| text::Style { color: Some(color(t)) }),
+    )
+    .center(Length::Fixed(34.0))
+    .style(move |t: &iced::Theme| container::Style {
+        background: Some(theme::alpha(color(t), 0.14).into()),
+        border: iced::border::rounded(10),
+        ..Default::default()
+    });
+    let body: Element<Message> = if compact {
+        mark.into()
+    } else {
+        row![
+            mark,
+            column![text(head.clone()).size(13).font(BOLD), label(detail.clone()).size(11)]
+                .spacing(1)
+                .width(Fill),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center)
+        .into()
+    };
+    let b = button(body)
+        .width(Fill)
+        .padding(if compact { [6, 9] } else { [8, 10] })
+        .style(theme::card_pick(false))
+        .on_press(Message::OpenSettings(crate::app::SettingsPage::Backup));
+    if compact {
+        let tip = if detail.is_empty() { head } else { format!("{head} · {detail}") };
+        iced::widget::tooltip(
+            b,
+            container(text(tip).size(13)).padding([6, 10]).style(theme::toast),
+            iced::widget::tooltip::Position::Right,
+        )
+        .gap(8)
+        .into()
+    } else {
+        b.into()
+    }
 }
 
 /// The sidebar's edge: drag it to change its width, double-click to fold it to its icons.
@@ -703,10 +822,15 @@ fn host_menu(app: &App, id: i64, at: iced::Point) -> Element<'_, Message> {
 
 /// « Ctrl+K »: the search and its results, chosen with the arrows and Enter.
 fn palette<'a>(app: &'a App, p: &'a crate::palette::PaletteState) -> Element<'a, Message> {
-    let results = crate::palette::results(app, &p.query);
+    let results = crate::palette::results(app, p);
+    let hint = if p.connect {
+        tr("Hôte, root@192.168.1.2 ou terminal local…")
+    } else {
+        tr("Hôte, snippet, réglage, action…")
+    };
     let input = row![
         icon(I_SEARCH).size(22),
-        text_input(&tr("Hôte, snippet, réglage, action…"), &p.query)
+        text_input(&hint, &p.query)
             .id("palette")
             .on_input(Message::PaletteQuery)
             .on_submit(Message::PaletteEnter)
@@ -760,10 +884,12 @@ fn palette<'a>(app: &'a App, p: &'a crate::palette::PaletteState) -> Element<'a,
                 .on_press(Message::PaletteRun(i)),
         );
     }
+    // Every host when connecting: the list scrolls within the window.
+    let max_list = (app.window.height - 260.0).max(200.0);
     let card = container(column![
         input,
         container(Space::new().height(1)).width(Fill).style(theme::divider),
-        list,
+        container(iced::widget::scrollable(list)).max_height(max_list),
         container(label(tr("↑ ↓ pour choisir · Entrée pour lancer"))).padding(Padding {
             top: 0.0,
             right: 18.0,

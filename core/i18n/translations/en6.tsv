@@ -176,3 +176,44 @@ Tout sélectionner	Select all
 Annuler la sélection	Clear selection
 Sélectionner	Select
 Fermer le moniteur	Close the monitor
+%1\$s processus sur %2\$s	%1\$s of %2\$s processes
+Accélération graphique	Graphics acceleration
+Activer dans Réglages	Turn it on in Settings
+Agrandir le menu	Expand the menu
+Ce qui est synchronisé	What is synced
+Commandes enregistrées	Saved commands
+Connexion rapide · %1\$s	Quick connection · %1\$s
+Dernière réussie : %1\$s	Last success: %1\$s
+Dessine avec la carte graphique : plus fluide sur un grand écran, environ 130 Mo de mémoire en plus. Sans pilote compatible, Nautile revient au dessin sans carte graphique.	Draws with the graphics card: smoother on a large screen, about 130 MB more memory. Without a suitable driver, Nautile falls back to drawing without it.
+Dupliquer l'onglet	Duplicate the tab
+Délai entre deux sauvegardes	Delay between two backups
+Empreintes des clés d'hôtes déjà acceptées	Fingerprints of the host keys already accepted
+En attente de synchro	Waiting to sync
+Filtrer : nom, utilisateur, PID	Filter: name, user, PID
+Hôte, root@192.168.1.2 ou terminal local…	Host, root@192.168.1.2 or local terminal…
+Hôtes et trousseau	Hosts and keychain
+Hôtes, groupes, clés SSH et identités	Hosts, groups, SSH keys and identities
+Jamais réussie	Never succeeded
+Le shell de cet ordinateur	This computer's shell
+Lecture des processus…	Reading the processes…
+Par le fichier partagé comme par le Wi-Fi. Un thème décoché n'est ni reçu ni envoyé : les autres appareils gardent le leur.	Through the shared file and over Wi-Fi alike. A theme left unchecked is neither received nor sent: the other devices keep theirs.
+PowerShell ou cmd de cet ordinateur	This computer's PowerShell or cmd
+Processus	Processes
+Redirections de ports	Port forwards
+Redémarrez Nautile pour l'appliquer (Quitter dans le menu de l'icône, puis relancer).	Restart Nautile to apply it (Quit in the icon's menu, then start it again).
+Ressources	Resources
+Revenir à un seul terminal	Back to a single terminal
+Réduire le menu	Collapse the menu
+Scinder l'écran (deux terminaux côte à côte)	Split the screen (two terminals side by side)
+Serveurs connus	Known servers
+Suivent les hôtes, dont ils dépendent	Follow the hosts they depend on
+Synchro désactivée	Sync off
+Synchro en échec	Sync failed
+heures (1 à %1\$s), à compter de la dernière	hours (1 to %1\$s), from the last one
+Retirer de l'écran scindé	Take out of the split screen
+Côte à côte	Side by side
+L'un au-dessus de l'autre	One above the other
+Scinder l'écran (deux terminaux)	Split the screen (two terminals)
+Ouvrir dans une fenêtre à part	Open in a separate window
+Rattacher	Reattach
+Remettre l'onglet dans la fenêtre principale	Put the tab back in the main window

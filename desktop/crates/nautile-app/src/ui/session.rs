@@ -18,14 +18,16 @@ pub(super) fn tab_bar(app: &App) -> Element<'_, Message> {
     ]
     .spacing(4)
     .align_y(Alignment::Center);
-    for t in app.session_tabs() {
-        let active = app.active_tab == Some(t.id);
+    let split = app.active_tab.and_then(|a| app.split_of(a));
+    for t in app.bar_tabs() {
+        // Both halves of a split screen show as open.
+        let active = app.active_tab == Some(t.id) || split.is_some_and(|(l, r)| l == t.id || r == t.id);
         let state = match &t.state {
             TabState::Open => None,
             TabState::Connecting(_) => Some(I_TERMINAL),
             TabState::Closed(_) => Some(I_CLOSE),
         };
-        let mut r = row![color_dot(t.color, 8.0), text(t.name.clone()).size(13)]
+        let mut r = row![tab_logo(app, t), text(t.name.clone()).size(13)]
             .spacing(8)
             .align_y(Alignment::Center);
         if let Some(c) = state {
@@ -67,12 +69,13 @@ pub(super) fn tab_bar(app: &App) -> Element<'_, Message> {
                 .on_exit(Message::DropOver(None)),
         );
     }
-    tabs = tabs.push(
+    tabs = tabs.push(kit::tip(
         button(icon(I_PLUS).size(15))
             .padding([6, 9])
             .style(theme::ghost)
-            .on_press(Message::OpenLocal),
-    );
+            .on_press(Message::ConnectPalette),
+        tr("Nouvelle session"),
+    ));
 
     let mut bar = row![
         container(scrollable(tabs).direction(scrollable::Direction::Horizontal(
@@ -85,6 +88,44 @@ pub(super) fn tab_bar(app: &App) -> Element<'_, Message> {
         .active_tab
         .and_then(|id| app.tab(id))
         .is_some_and(|t| t.files.is_none() && t.remote.is_none());
+    if let Some(id) = app.active_tab.filter(|_| shows_terminal) {
+        let tool = |c: char, on: bool, m: Message, hint: String| -> Element<'_, Message> {
+            kit::tip(button(icon(c).size(16)).padding([6, 9]).style(theme::nav(on)).on_press(m), hint)
+        };
+        bar = bar
+            .push(tool(I_DUPLICATE, false, Message::DuplicateTab(id), tr("Dupliquer l'onglet")))
+            .push(tool(
+                I_OPEN_WINDOW,
+                false,
+                Message::Detach(id),
+                tr("Ouvrir dans une fenêtre à part"),
+            ));
+        if split.is_some() {
+            let stacked = app.settings.split_stacked;
+            bar = bar.push(tool(
+                if stacked { I_SPLIT } else { I_SPLIT_STACKED },
+                false,
+                Message::SplitOrientation,
+                if stacked {
+                    tr("Côte à côte")
+                } else {
+                    tr("L'un au-dessus de l'autre")
+                },
+            ));
+        }
+        bar = bar
+            .push(tool(
+                I_SPLIT,
+                split.is_some(),
+                Message::SplitToggle,
+                if split.is_some() {
+                    tr("Revenir à un seul terminal")
+                } else {
+                    tr("Scinder l'écran (deux terminaux)")
+                },
+            ))
+            .push(Space::new().width(6));
+    }
     if shows_terminal {
         bar = bar.push(
             button(
@@ -100,6 +141,20 @@ pub(super) fn tab_bar(app: &App) -> Element<'_, Message> {
     container(bar).width(Fill).padding([6, 10]).style(theme::sidebar).into()
 }
 
+/// The server's logo before a tab's name, as in the hosts (its initial in its colour when its system is not
+/// known yet); a computer for the local terminal.
+fn tab_logo<'a>(app: &App, t: &Tab) -> Element<'a, Message> {
+    if t.protocol == Protocol::Local {
+        return kit::icon_tile_sized(I_COMPUTER, theme::argb(t.color), 20.0);
+    }
+    let host = t.host_id.and_then(|h| app.host_by(h));
+    let os = host
+        .and_then(|h| h.os_id.clone())
+        .or_else(|| (t.protocol == Protocol::Rdp).then(|| "windows".to_owned()));
+    let name = host.map(|h| h.alias.as_str()).unwrap_or(&t.name);
+    kit::host_avatar(os.as_deref(), name, theme::argb(t.color), 20.0)
+}
+
 /// A session: its terminal, and what is happening when it is not open.
 pub(super) fn session<'a>(app: &'a App, t: &'a Tab) -> Element<'a, Message> {
     let id = t.id;
@@ -113,6 +168,198 @@ pub(super) fn session<'a>(app: &'a App, t: &'a Tab) -> Element<'a, Message> {
         return monitor_view(app, t, m);
     }
     let focused = app.prompts.is_empty() && app.editor.is_none();
+    let with_panel = |e: Element<'a, Message>| -> Element<'a, Message> {
+        if app.assistant.open && t.state == TabState::Open {
+            term_view::with_panel(e, assistant_panel(app))
+        } else {
+            e
+        }
+    };
+    // Two terminals side by side: the active one gets the keys, a click on the other makes it active.
+    if let Some((l, r)) = app.split_of(id) {
+        let half = |x: u64| -> Element<'a, Message> {
+            let Some(tab) = app.tab(x) else { return Space::new().into() };
+            split_half(app, tab, x == id, focused && x == id)
+        };
+        let ratio = app.settings.split_ratio.unwrap_or(0.5).clamp(0.2, 0.8);
+        let share = |r: f32| Length::FillPortion((r * 1000.0).round().max(1.0) as u16);
+        let stacked = app.settings.split_stacked;
+        // The gap between them: drag it to share the space differently.
+        let grip = container(
+            Space::new()
+                .width(if stacked { 36.0 } else { 2.0 })
+                .height(if stacked { 2.0 } else { 36.0 }),
+        )
+        .style(|th: &iced::Theme| container::Style {
+            background: Some(theme::nt(th).border.into()),
+            border: iced::border::rounded(1),
+            ..Default::default()
+        });
+        let gap = if stacked {
+            container(grip).center_x(Fill).center_y(Length::Fixed(10.0))
+        } else {
+            container(grip).center_y(Fill).center_x(Length::Fixed(10.0))
+        };
+        let divider = iced::widget::mouse_area(gap).on_press(Message::SplitGrab).interaction(if stacked {
+            iced::mouse::Interaction::ResizingVertically
+        } else {
+            iced::mouse::Interaction::ResizingHorizontally
+        });
+        let row: Element<'a, Message> = if stacked {
+            column![
+                container(half(l)).height(share(ratio)).width(Fill),
+                divider,
+                container(half(r)).height(share(1.0 - ratio)).width(Fill),
+            ]
+            .padding([6, 6])
+            .into()
+        } else {
+            row![
+                container(half(l)).width(share(ratio)).height(Fill),
+                divider,
+                container(half(r)).width(share(1.0 - ratio)).height(Fill),
+            ]
+            .padding([6, 6])
+            .into()
+        };
+        return with_panel(container(row).style(theme::page).into());
+    }
+    with_panel(terminal_pane(app, t, focused))
+}
+
+/// A tab in a window of its own: a slim bar (its name, « Rattacher ») over its terminal, files or desktop. Hidden
+/// while Nautile is locked, as the main window is.
+pub(super) fn detached_window<'a>(app: &'a App, w: iced::window::Id, t: &'a Tab) -> Element<'a, Message> {
+    if app.locked || app.vault.is_some() {
+        return container(
+            column![icon(I_LOCK).size(36), text(tr("Nautile est verrouillé")).size(16).font(BOLD)]
+                .spacing(12)
+                .align_x(Alignment::Center),
+        )
+        .center(Fill)
+        .style(theme::page)
+        .into();
+    }
+    let bar = row![
+        tab_logo(app, t),
+        text(t.name.clone()).size(14).font(BOLD),
+        text(t.remote_title.clone().unwrap_or_default())
+            .size(12)
+            .font(MONO)
+            .wrapping(iced::widget::text::Wrapping::None)
+            .style(|th: &iced::Theme| text::Style {
+                color: Some(theme::nt(th).muted),
+            })
+            .width(Fill),
+        kit::tip(
+            button(
+                row![icon(I_ATTACH).size(15), text(tr("Rattacher")).size(13)]
+                    .spacing(6)
+                    .align_y(Alignment::Center),
+            )
+            .padding([5, 10])
+            .style(theme::ghost)
+            .on_press(Message::Reattach(w)),
+            tr("Remettre l'onglet dans la fenêtre principale"),
+        ),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+    let body: Element<'a, Message> = if let Some(f) = &t.files {
+        files_view(app, t, f)
+    } else if let Some(r) = &t.remote {
+        remote_desktop(app, t, r)
+    } else {
+        terminal_pane(app, t, app.prompts.is_empty())
+    };
+    column![
+        container(bar).padding([6, 12]).width(Fill).style(theme::sidebar),
+        container(body).width(Fill).height(Fill).style(theme::page),
+    ]
+    .into()
+}
+
+/// One half of a split screen: a header (logo, name, what the shell says, a button to take it out) over its
+/// terminal, framed in the accent when it gets the keys.
+fn split_half<'a>(app: &'a App, t: &'a Tab, active: bool, focused: bool) -> Element<'a, Message> {
+    let palette = t.term.palette.clone();
+    let (bg, fg) = (palette.background, palette.foreground);
+    let soft_fg = theme::alpha(fg, 0.6);
+    let mut title = row![
+        tab_logo(app, t),
+        text(t.name.clone())
+            .size(13)
+            .font(if active { BOLD } else { theme::UI })
+            .style(move |th: &iced::Theme| text::Style {
+                color: Some(if active { theme::nt(th).accent } else { fg }),
+            }),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    if let Some(rt) = &t.remote_title {
+        title = title.push(
+            text(rt.clone())
+                .size(12)
+                .font(MONO)
+                .color(soft_fg)
+                .wrapping(iced::widget::text::Wrapping::None),
+        );
+    }
+    let head = row![
+        button(container(title).clip(true))
+            .width(Fill)
+            .padding([4, 6])
+            .style(theme::ghost)
+            .on_press(Message::SelectTab(Some(t.id))),
+        kit::tip(
+            button(icon(I_CLOSE).size(14).color(soft_fg))
+                .padding([3, 5])
+                .style(theme::ghost)
+                .on_press(Message::SplitRemove(t.id)),
+            tr("Retirer de l'écran scindé"),
+        ),
+    ]
+    .spacing(4)
+    .align_y(Alignment::Center);
+    container(column![
+        container(head).padding(Padding {
+            top: 3.0,
+            right: 4.0,
+            bottom: 0.0,
+            left: 4.0,
+        }),
+        container(Space::new().height(1)).width(Fill).style(move |_| container::Style {
+            background: Some(theme::alpha(fg, 0.08).into()),
+            ..Default::default()
+        }),
+        container(terminal_pane(app, t, focused)).padding(Padding {
+            top: 0.0,
+            right: 3.0,
+            bottom: 4.0,
+            left: 3.0,
+        }),
+    ])
+    .width(Fill)
+    .height(Fill)
+    .style(move |th: &iced::Theme| container::Style {
+        background: Some(bg.into()),
+        border: iced::Border {
+            color: if active {
+                theme::alpha(theme::nt(th).accent, 0.75)
+            } else {
+                theme::nt(th).border
+            },
+            width: if active { 1.5 } else { 1.0 },
+            radius: 10.0.into(),
+        },
+        ..Default::default()
+    })
+    .into()
+}
+
+/// A terminal tab's screen: the terminal, the suggestions while typing, and what is happening when it is not open.
+fn terminal_pane<'a>(app: &'a App, t: &'a Tab, focused: bool) -> Element<'a, Message> {
+    let id = t.id;
     let term: Element<Message> = term_view::view(
         &t.term,
         id,
@@ -134,19 +381,12 @@ pub(super) fn session<'a>(app: &'a App, t: &'a Tab) -> Element<'a, Message> {
             .padding(24)
             .into()
     };
-    let with_panel = |e: Element<'a, Message>| -> Element<'a, Message> {
-        if app.assistant.open {
-            term_view::with_panel(e, assistant_panel(app))
-        } else {
-            e
-        }
-    };
     match &t.state {
         TabState::Open => {
             // Commands typed before on this host, offered as you type.
             let (typed, list) = app.suggestions(id);
-            if list.is_empty() {
-                with_panel(term.into())
+            if list.is_empty() || !focused {
+                term.into()
             } else {
                 let rows = column(list.into_iter().map(|c| {
                     let rest = c[typed.len()..].to_owned();
@@ -170,7 +410,7 @@ pub(super) fn session<'a>(app: &'a App, t: &'a Tab) -> Element<'a, Message> {
                     .padding(8)
                     .max_width(560)
                     .style(theme::dialog);
-                with_panel(stack![term, container(card).align_bottom(Fill).align_right(Fill).padding(16)].into())
+                stack![term, container(card).align_bottom(Fill).align_right(Fill).padding(16)].into()
             }
         }
         TabState::Connecting(step) => {
@@ -1046,32 +1286,124 @@ fn monitor_view<'a>(app: &'a App, t: &'a Tab, m: &'a crate::sessions::MonitorSta
     .into()
 }
 
-/// The monitor beside the hosts: the gauges one under the other, with a button to close it.
-pub(super) fn monitor_panel<'a>(t: &'a Tab, m: &'a crate::sessions::MonitorState) -> Element<'a, Message> {
+/// The monitor beside the hosts: its gauges one under the other, or the server's processes; its left edge
+/// changes its width.
+pub(super) fn monitor_panel<'a>(app: &'a App, t: &'a Tab, m: &'a crate::sessions::MonitorState) -> Element<'a, Message> {
+    let id = t.id;
     let head = row![
         icon(I_MONITOR).size(20),
         column![text(t.name.clone()).size(16).font(BOLD), soft(tr("Moniteur")).size(12)]
             .spacing(2)
             .width(Fill),
-        kit::tip(icon_button(I_CLOSE, Message::CloseTab(t.id)), tr("Fermer le moniteur")),
+        kit::tip(icon_button(I_CLOSE, Message::CloseTab(id)), tr("Fermer le moniteur")),
     ]
     .spacing(10)
     .align_y(Alignment::Center);
-    container(
-        column![
-            head,
-            scrollable(container(monitor_body(t, m, true)).padding(Padding {
-                right: 12.0,
-                ..Padding::ZERO
-            }))
-            .height(Fill)
-        ]
-        .spacing(14),
-    )
-    .padding(14)
-    .width(380)
-    .height(Fill)
-    .style(theme::panel)
+    let tabs = segmented(
+        vec![(false, tr("Ressources")), (true, tr("Processus"))],
+        m.show_processes,
+        move |on| Message::MonitorProcesses(id, on),
+    );
+    let body: Element<Message> = if m.show_processes {
+        process_list(app, t, m)
+    } else {
+        scrollable(container(monitor_body(t, m, true)).padding(Padding {
+            right: 12.0,
+            ..Padding::ZERO
+        }))
+        .height(Fill)
+        .into()
+    };
+    let panel = container(column![head, tabs, body].spacing(12))
+        .padding(14)
+        .width(Fill)
+        .height(Fill)
+        .style(theme::panel);
+    // The edge: drag it to change the width (as the sidebar's).
+    let edge = iced::widget::mouse_area(container(Space::new().width(5).height(Fill)))
+        .on_press(Message::MonitorGrab)
+        .interaction(iced::mouse::Interaction::ResizingHorizontally);
+    row![edge, panel].width(app.settings.monitor_width.unwrap_or(380.0)).into()
+}
+
+/// The server's processes, busiest first, with a filter on their command, user or number.
+fn process_list<'a>(app: &'a App, t: &'a Tab, m: &'a crate::sessions::MonitorState) -> Element<'a, Message> {
+    let filter = app.monitor_filter.trim().to_lowercase();
+    let search = kit::search_id(
+        "process-filter",
+        &app.monitor_filter,
+        tr("Filtrer : nom, utilisateur, PID"),
+        Message::MonitorFilter,
+        Message::MonitorFilter(String::new()),
+    );
+    let Some(list) = &m.processes else {
+        let note = if matches!(t.state, TabState::Closed(_)) {
+            tr("Session terminée")
+        } else {
+            tr("Lecture des processus…")
+        };
+        return column![search, soft(note).size(14)].spacing(12).into();
+    };
+    let shown: Vec<&nautile_net::monitor::Process> = list
+        .iter()
+        .filter(|p| {
+            filter.is_empty()
+                || p.command.to_lowercase().contains(&filter)
+                || p.user.to_lowercase().contains(&filter)
+                || p.pid.to_string().starts_with(&filter)
+        })
+        .collect();
+    let count = trf("%1$s processus sur %2$s", &[&shown.len(), &list.len()]);
+    let rows = Column::with_children(shown.into_iter().take(200).map(|p| {
+        let tone = move |th: &iced::Theme| {
+            let n = theme::nt(th);
+            if p.cpu >= 50.0 {
+                n.pink
+            } else if p.cpu >= 10.0 {
+                n.accent
+            } else {
+                n.text_soft
+            }
+        };
+        container(
+            row![
+                column![
+                    text(p.command.clone())
+                        .size(13)
+                        .font(MONO)
+                        .wrapping(iced::widget::text::Wrapping::None),
+                    label(format!("{} · {} · {}", p.pid, p.user, gb(p.rss_kb))).size(11),
+                ]
+                .spacing(1)
+                .width(Fill)
+                .clip(true),
+                column![
+                    text(decimal(format!("{:.1} %", p.cpu)))
+                        .size(13)
+                        .font(BOLD)
+                        .style(move |th: &iced::Theme| text::Style { color: Some(tone(th)) }),
+                    label(decimal(format!("{:.1} % RAM", p.mem))).size(11),
+                ]
+                .spacing(1)
+                .align_x(Alignment::End),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+        )
+        .padding([6, 8])
+        .into()
+    }))
+    .spacing(2);
+    column![
+        search,
+        label(count).size(11),
+        scrollable(container(rows).padding(Padding {
+            right: 12.0,
+            ..Padding::ZERO
+        }))
+        .height(Fill),
+    ]
+    .spacing(10)
     .into()
 }
 

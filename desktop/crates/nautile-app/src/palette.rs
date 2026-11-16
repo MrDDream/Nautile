@@ -8,6 +8,8 @@ use crate::app::{App, Message, Page, SettingsPage};
 pub struct PaletteState {
     pub query: String,
     pub selected: usize,
+    /// Opened by the « + » of the tabs: only what opens a session (hosts, `user@address`, the local terminal).
+    pub connect: bool,
 }
 
 /// One result: its icon, title, detail, shortcut and what it does.
@@ -193,8 +195,67 @@ pub fn items(app: &App) -> Vec<Item> {
     v
 }
 
-/// The results for what is typed, best first (ten at most).
-pub fn results(app: &App, query: &str) -> Vec<Item> {
+/// What the « + » of the tabs opens: `user@address` typed first, then the local terminal and the hosts, the
+/// latest used first.
+pub fn connect_items(app: &App, query: &str) -> Vec<Item> {
+    let mut v = Vec::new();
+    if let Some(t) = nautile_core::quick::parse(query).filter(|_| nautile_core::quick::looks_like_target(query)) {
+        v.push(Item {
+            icon: I_PLAY,
+            title: trf("Se connecter à %1$s", &[&t.label()]),
+            detail: trf("Connexion rapide · %1$s", &[&crate::app::protocol_label(t.protocol)]),
+            keys: None,
+            run: Message::QuickConnectTo(query.trim().to_owned(), t.protocol),
+        });
+    }
+    v.push(Item {
+        icon: I_TERMINAL,
+        title: tr("Terminal local"),
+        detail: if cfg!(windows) {
+            tr("PowerShell ou cmd de cet ordinateur")
+        } else {
+            tr("Le shell de cet ordinateur")
+        },
+        keys: Some("Ctrl+Maj+T"),
+        run: Message::OpenLocal,
+    });
+    let mut hosts: Vec<_> = app.hosts.iter().collect();
+    hosts.sort_by_key(|h| std::cmp::Reverse(h.last_connected_at.unwrap_or(0)));
+    for h in hosts {
+        v.push(Item {
+            icon: I_HOST,
+            title: h.alias.clone(),
+            detail: format!("{} · {}", crate::app::protocol_label(h.protocol), h.address()),
+            keys: None,
+            run: Message::Connect(h.id),
+        });
+    }
+    v
+}
+
+/// The results for what is typed, best first (ten at most; every host when connecting).
+pub fn results(app: &App, p: &PaletteState) -> Vec<Item> {
+    let query = p.query.as_str();
+    if p.connect {
+        let quick = usize::from(nautile_core::quick::looks_like_target(query) && nautile_core::quick::parse(query).is_some());
+        let all = connect_items(app, query);
+        let (first, rest): (Vec<_>, Vec<_>) = all.into_iter().enumerate().partition(|(i, _)| *i < quick);
+        let mut scored: Vec<(i32, usize, Item)> = rest
+            .into_iter()
+            .filter_map(|(i, it)| {
+                let s = score(query, &it.title).map(|s| s + 100).or_else(|| score(query, &it.detail))?;
+                Some((s, i, it))
+            })
+            .collect();
+        if !query.trim().is_empty() {
+            scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        }
+        return first
+            .into_iter()
+            .map(|(_, it)| it)
+            .chain(scored.into_iter().map(|(_, _, it)| it))
+            .collect();
+    }
     let mut scored: Vec<(i32, usize, Item)> = items(app)
         .into_iter()
         .enumerate()

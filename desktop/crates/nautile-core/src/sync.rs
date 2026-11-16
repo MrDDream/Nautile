@@ -1673,3 +1673,140 @@ mod tests {
         assert!(hosts(&a).is_empty() && hosts(&b).is_empty());
     }
 }
+
+/// What a device may leave out of the synchronisation, by theme. Records of a theme left out are neither taken from
+/// the others nor sent to them, and what the others wrote of it stays in the shared file ([carry]).
+///
+/// The themes follow the references between records: a host points to its keys, identity, group and jump host, so
+/// they travel together; a tunnel points to its host, so tunnels are left out whenever hosts are ([effective]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum SyncPart {
+    /// Hosts, groups, SSH keys and identities.
+    Hosts,
+    Snippets,
+    Tunnels,
+    /// The trusted host keys (known hosts).
+    KnownHosts,
+}
+
+impl SyncPart {
+    pub const ALL: [SyncPart; 4] = [SyncPart::Hosts, SyncPart::Snippets, SyncPart::Tunnels, SyncPart::KnownHosts];
+
+    /// The tombstone kinds (table names) of the theme.
+    fn kinds(self) -> &'static [&'static str] {
+        match self {
+            SyncPart::Hosts => &["host_group", "host", "ssh_key", "identity"],
+            SyncPart::Snippets => &["snippet"],
+            SyncPart::Tunnels => &["port_forward"],
+            SyncPart::KnownHosts => &["known_host"],
+        }
+    }
+}
+
+/// The themes really left out: [skip], plus the tunnels when the hosts are.
+pub fn effective(skip: &[SyncPart]) -> Vec<SyncPart> {
+    let mut v: Vec<SyncPart> = SyncPart::ALL.into_iter().filter(|p| skip.contains(p)).collect();
+    if v.contains(&SyncPart::Hosts) && !v.contains(&SyncPart::Tunnels) {
+        v.push(SyncPart::Tunnels);
+    }
+    v
+}
+
+fn take_parts(to: &mut BackupData, from: Option<&BackupData>, skip: &[SyncPart]) {
+    let skip = effective(skip);
+    let kinds: Vec<&str> = skip.iter().flat_map(|p| p.kinds().iter().copied()).collect();
+    for p in &skip {
+        match p {
+            SyncPart::Hosts => {
+                to.groups = from.map(|f| f.groups.clone()).unwrap_or_default();
+                to.hosts = from.map(|f| f.hosts.clone()).unwrap_or_default();
+                to.keys = from.map(|f| f.keys.clone()).unwrap_or_default();
+                to.identities = from.map(|f| f.identities.clone()).unwrap_or_default();
+            }
+            SyncPart::Snippets => to.snippets = from.map(|f| f.snippets.clone()).unwrap_or_default(),
+            SyncPart::Tunnels => to.forwards = from.map(|f| f.forwards.clone()).unwrap_or_default(),
+            SyncPart::KnownHosts => to.known_hosts = from.map(|f| f.known_hosts.clone()).unwrap_or_default(),
+        }
+    }
+    to.tombstones.retain(|t| !kinds.contains(&t.kind.as_str()));
+    if let Some(f) = from {
+        to.tombstones
+            .extend(f.tombstones.iter().filter(|t| kinds.contains(&t.kind.as_str())).cloned());
+    }
+}
+
+/// [data] without the themes in [skip] (records and deletions): what is taken from, or sent to, another device.
+pub fn without(data: &mut BackupData, skip: &[SyncPart]) {
+    take_parts(data, None, skip);
+}
+
+/// The themes in [skip] of what is written to the shared file taken from the file as it was ([from]): this device
+/// leaves them as the others wrote them.
+pub fn carry(data: &mut BackupData, from: &BackupData, skip: &[SyncPart]) {
+    take_parts(data, Some(from), skip);
+}
+
+#[cfg(test)]
+mod parts_tests {
+    use super::*;
+    use crate::model::{Host, Snippet, SyncTombstone};
+
+    fn data(alias: &str, snippet: &str) -> BackupData {
+        let mut d = BackupData::default();
+        d.hosts.push(Host::new(alias, "10.0.0.2"));
+        d.snippets
+            .push(serde_json::from_value::<Snippet>(serde_json::json!({ "name": snippet, "command": "ls" })).unwrap());
+        for kind in ["host", "snippet", "port_forward"] {
+            d.tombstones.push(SyncTombstone {
+                sync_id: format!("{alias}-{kind}"),
+                kind: kind.into(),
+                deleted_at: 1,
+                extra: Default::default(),
+            });
+        }
+        d
+    }
+
+    #[test]
+    fn a_theme_left_out_is_neither_taken_nor_sent() {
+        let mut d = data("nas", "logs");
+        without(&mut d, &[SyncPart::Snippets]);
+        assert!(d.snippets.is_empty());
+        assert_eq!(d.hosts.len(), 1);
+        let kinds: Vec<&str> = d.tombstones.iter().map(|t| t.kind.as_str()).collect();
+        assert_eq!(kinds, ["host", "port_forward"]);
+    }
+
+    #[test]
+    fn leaving_hosts_out_leaves_their_tunnels_out() {
+        assert_eq!(effective(&[SyncPart::Hosts]), [SyncPart::Hosts, SyncPart::Tunnels]);
+        let mut d = data("nas", "logs");
+        without(&mut d, &[SyncPart::Hosts]);
+        assert!(d.hosts.is_empty());
+        let kinds: Vec<&str> = d.tombstones.iter().map(|t| t.kind.as_str()).collect();
+        assert_eq!(kinds, ["snippet"]);
+    }
+
+    #[test]
+    fn the_shared_file_keeps_what_the_others_wrote_of_a_theme_left_out() {
+        let mut mine = data("pc", "mine");
+        let file = data("nas", "theirs");
+        carry(&mut mine, &file, &[SyncPart::Snippets]);
+        assert_eq!(mine.hosts[0].alias, "pc");
+        assert_eq!(mine.snippets[0].name, "theirs");
+        let snippet_stones: Vec<&str> = mine
+            .tombstones
+            .iter()
+            .filter(|t| t.kind == "snippet")
+            .map(|t| t.sync_id.as_str())
+            .collect();
+        assert_eq!(snippet_stones, ["nas-snippet"]);
+        // Nothing left out: nothing changes.
+        let before = data("pc", "mine");
+        let mut same = before.clone();
+        carry(&mut same, &file, &[]);
+        assert_eq!(same.hosts, before.hosts);
+        assert_eq!(same.snippets, before.snippets);
+        assert_eq!(same.tombstones.len(), before.tombstones.len());
+    }
+}

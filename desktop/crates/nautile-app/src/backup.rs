@@ -31,7 +31,13 @@ pub enum Frequency {
     #[default]
     Week,
     Month,
+    /// Every given number of hours (1 to 720), from the last one, at no set time.
+    Hours(u32),
 }
+
+/// The delay of [Frequency::Hours] offered at first, and its bounds.
+pub const CUSTOM_HOURS: u32 = 3;
+pub const MAX_CUSTOM_HOURS: u32 = 720;
 
 impl Frequency {
     pub const ALL: [Frequency; 5] = [
@@ -49,11 +55,13 @@ impl Frequency {
             Frequency::Day => 24,
             Frequency::Week => 24 * 7,
             Frequency::Month => 24 * 30,
+            Frequency::Hours(h) => h.clamp(1, MAX_CUSTOM_HOURS) as i64,
         }
     }
 
+    /// At a chosen time of day: the daily and longer presets (a delay of one's own runs from the last backup).
     pub fn at_time(self) -> bool {
-        self.hours() >= 24
+        !matches!(self, Frequency::Hours(_)) && self.hours() >= 24
     }
 
     pub fn label(self) -> String {
@@ -63,6 +71,7 @@ impl Frequency {
             Frequency::Day => tr("Chaque jour"),
             Frequency::Week => tr("Chaque semaine"),
             Frequency::Month => tr("Chaque mois"),
+            Frequency::Hours(h) => trf("Toutes les %1$s h", &[&h.clamp(1, MAX_CUSTOM_HOURS)]),
         }
     }
 }
@@ -357,6 +366,8 @@ pub enum BackupMsg {
     Remove(String),
     Auto(String, bool),
     Frequency(String, Frequency),
+    /// The hours typed for a delay of one's own.
+    CustomHours(String, String),
     Time(String, String),
     Weekday(String, u32),
     Now(String),
@@ -364,6 +375,8 @@ pub enum BackupMsg {
     SyncEnabled(bool),
     SyncTarget(String),
     SyncMinutes(u32),
+    /// A theme taken into the synchronisation (true) or left out.
+    SyncPart(nautile_core::sync::SyncPart, bool),
     SyncNow,
     Fetched(Box<Result<(Remote, Option<BackupData>), String>>),
     Written(Result<i64, StoreError>, Vec<SyncDevice>),
@@ -592,7 +605,14 @@ impl App {
             return Task::none();
         };
         let dirty_before = db.store().last_change().unwrap_or(0) > self.settings.synced_change;
-        let stats = match &data {
+        let skip = self.settings.sync_skip.clone();
+        // The themes left out here are not taken from the file.
+        let incoming = data.as_ref().map(|d| {
+            let mut d = d.clone();
+            sync::without(&mut d, &skip);
+            d
+        });
+        let stats = match &incoming {
             Some(d) => match sync::merge(db, d) {
                 Ok(s) => s,
                 Err(e) => return self.sync_failed(e.to_string()),
@@ -625,10 +645,15 @@ impl App {
         if data.is_some() && !dirty_before && !changed && now - my_last <= 12 * 3_600_000 {
             return self.backup_update(BackupMsg::Written(Ok(db.store().last_change().unwrap_or(0)), devices));
         }
-        let snapshot = match sync::snapshot(db, devices.clone()) {
+        let mut snapshot = match sync::snapshot(db, devices.clone()) {
             Ok(s) => s,
             Err(e) => return self.sync_failed(e.to_string()),
         };
+        // …nor replaced in it: they stay as the others wrote them.
+        match &data {
+            Some(d) => sync::carry(&mut snapshot, d, &skip),
+            None => sync::without(&mut snapshot, &skip),
+        }
         let Some(pw) = db.secret(PASSWORD) else {
             return self.sync_failed(tr("Mot de passe de sauvegarde non enregistré"));
         };
@@ -842,6 +867,17 @@ impl App {
                 }
                 self.save_settings();
             }
+            BackupMsg::CustomHours(id, v) => {
+                // Digits only; an empty field keeps the last delay until something is typed.
+                let digits: String = v.chars().filter(char::is_ascii_digit).take(3).collect();
+                if let Ok(h) = digits.parse::<u32>() {
+                    self.backup.scheduled.remove(&id);
+                    if let Some(t) = self.target_mut(&id) {
+                        t.frequency = Frequency::Hours(h.clamp(1, MAX_CUSTOM_HOURS));
+                    }
+                    self.save_settings();
+                }
+            }
             BackupMsg::Time(id, v) => {
                 self.backup.scheduled.remove(&id);
                 let parsed = v
@@ -914,6 +950,19 @@ impl App {
             BackupMsg::SyncMinutes(m) => {
                 self.settings.sync_minutes = Some(m);
                 self.save_settings();
+            }
+            BackupMsg::SyncPart(p, on) => {
+                self.settings.sync_skip.retain(|x| *x != p);
+                if !on {
+                    self.settings.sync_skip.push(p);
+                }
+                // A theme taken back in: this computer's records of it are sent at the next exchange.
+                self.settings.synced_change = 0;
+                self.backup.lan_synced_change = -1;
+                self.save_settings();
+                if on && self.settings.sync_enabled {
+                    return self.sync_start();
+                }
             }
             BackupMsg::SyncNow => return self.sync_start(),
             BackupMsg::Fetched(r) => return self.sync_fetched(*r),
@@ -1074,10 +1123,15 @@ impl App {
                 self.save_settings();
             }
             LanEvent::Snapshot(reply) => {
+                let skip = self.settings.sync_skip.clone();
                 let json = self
                     .db
                     .as_ref()
                     .and_then(|db| sync::snapshot(db, vec![]).ok())
+                    .map(|mut d| {
+                        sync::without(&mut d, &skip);
+                        d
+                    })
                     .and_then(|d| serde_json::to_string(&d).ok())
                     .unwrap_or_default();
                 reply.send(json);
@@ -1094,9 +1148,12 @@ impl App {
                 if !self.settings.lan_peers.iter().any(|p| p.id == id) {
                     return Task::none();
                 }
-                let Ok(data) = serde_json::from_str::<BackupData>(&json) else {
+                let Ok(mut data) = serde_json::from_str::<BackupData>(&json) else {
                     return Task::none();
                 };
+                // The themes left out here are neither taken nor sent.
+                let skip = self.settings.sync_skip.clone();
+                sync::without(&mut data, &skip);
                 let Some(db) = &mut self.db else { return Task::none() };
                 // The responder moves a tie past; the initiator merges data that already holds its own.
                 let changed = sync::merge_ties(db, &data, merged.is_some())
@@ -1106,6 +1163,10 @@ impl App {
                     // This device's data once merged, for the initiator.
                     let json = sync::snapshot(db, vec![])
                         .ok()
+                        .map(|mut d| {
+                            sync::without(&mut d, &skip);
+                            d
+                        })
                         .and_then(|d| serde_json::to_string(&d).ok())
                         .unwrap_or_default();
                     reply.send(json);
@@ -1146,6 +1207,11 @@ mod tests {
         let now = 1_000_000_000_000;
         assert_eq!(next_run(Frequency::Hours6, 0, 7, Some(now - 3_600_000), now), now + 5 * 3_600_000);
         assert_eq!(next_run(Frequency::Hours6, 0, 7, None, now), now + 6 * 3_600_000);
+        // A delay of one's own: from the last one, at no set time, even past a day.
+        assert_eq!(next_run(Frequency::Hours(3), 0, 7, Some(now - 3_600_000), now), now + 2 * 3_600_000);
+        assert_eq!(next_run(Frequency::Hours(36), 3 * 60, 7, Some(now), now), now + 36 * 3_600_000);
+        assert_eq!(serde_json::to_string(&Frequency::Hours(3)).unwrap(), r#"{"Hours":3}"#);
+        assert_eq!(serde_json::from_str::<Frequency>(r#""Week""#).unwrap(), Frequency::Week);
     }
 
     #[test]

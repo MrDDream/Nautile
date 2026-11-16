@@ -1,0 +1,4 @@
+# The screen tests (iced_test) draw with the CPU renderer, as the app does by default: the same pictures
+# everywhere, with or without a graphics card.
+[env]
+ICED_TEST_BACKEND = "tiny-skia"

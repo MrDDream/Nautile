@@ -199,6 +199,22 @@ pub struct Settings {
     pub sidebar_width: Option<f32>,
     /// The sidebar shows only its icons.
     pub sidebar_compact: bool,
+    /// The monitor panel's width, when set by dragging its edge.
+    #[serde(default)]
+    pub monitor_width: Option<f32>,
+    /// The themes this computer leaves out of the synchronisation (file and Wi-Fi).
+    #[serde(default)]
+    pub sync_skip: Vec<nautile_core::sync::SyncPart>,
+    /// The first terminal's share of a split screen (0.2 to 0.8), when its divider was moved.
+    #[serde(default)]
+    pub split_ratio: Option<f32>,
+    /// A split screen shows its terminals one above the other (else side by side).
+    #[serde(default)]
+    pub split_stacked: bool,
+    /// « Accélération graphique »: drawn by the graphics card (wgpu) from the next start, the CPU renderer
+    /// (tiny-skia) when it fails; off: tiny-skia only.
+    #[serde(default)]
+    pub gpu: bool,
 }
 
 impl Settings {

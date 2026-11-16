@@ -157,15 +157,25 @@ fn test_fonts() -> Vec<std::borrow::Cow<'static, [u8]>> {
     f
 }
 
-fn shoot(app: &App, name: &str) {
+fn shoot(app: &mut App, name: &str) {
     // The settings page is long: shown whole.
     let height = if name.ends_with("backups") { 1600.0 } else { 800.0 };
-    let settings = iced_test::core::Settings {
+    let settings = || iced_test::core::Settings {
         fonts: test_fonts(),
         default_font: theme::UI,
         ..Default::default()
     };
-    let mut ui = iced_test::simulator::Simulator::with_size(settings, (1280.0, height), ui::view(app));
+    // A first drawing: the terminals ask for the grid their place holds, as in the app.
+    let mut first = iced_test::simulator::Simulator::with_size(settings(), (1280.0, height), ui::view(app));
+    let _ = first.snapshot(&app.theme());
+    let resizes: Vec<Message> = first
+        .into_messages()
+        .filter(|m| matches!(m, Message::Term(_, nautile_app::term::widget::Action::Resize(..))))
+        .collect();
+    for m in resizes {
+        let _ = app.update(m);
+    }
+    let mut ui = iced_test::simulator::Simulator::with_size(settings(), (1280.0, height), ui::view(app));
     let snapshot = ui.snapshot(&app.theme()).expect("renders");
     if std::env::var_os("NAUTILE_SCREENSHOTS").is_some() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../screenshots");
@@ -194,7 +204,7 @@ fn each(f: impl Fn(&mut App) -> &'static str) {
         for (mode, dark) in [("dark", true), ("light", false)] {
             let mut app = demo(english, dark);
             let name = f(&mut app);
-            shoot(&app, &format!("{lang}-{mode}-{name}"));
+            shoot(&mut app, &format!("{lang}-{mode}-{name}"));
         }
     }
 }
@@ -727,8 +737,9 @@ fn with_session(app: &mut App) -> u64 {
         bar.push_str(&format!("\x1b[48;5;{i}m  "));
     }
     term.feed(format!("{bar}\x1b[0m\r\n{p}").as_bytes());
+    let id = app.next_tab + 1;
     app.tabs.push(Tab {
-        id: 1,
+        id,
         host_id: Some(host.id),
         name: host.alias.clone(),
         color: host.color,
@@ -742,9 +753,131 @@ fn with_session(app: &mut App) -> u64 {
         log: None,
         monitor: None,
     });
-    app.next_tab = 1;
-    let _ = app.update(Message::SelectTab(Some(1)));
-    1
+    app.next_tab = id;
+    let _ = app.update(Message::SelectTab(Some(id)));
+    id
+}
+
+#[test]
+fn split_screen() {
+    each(|app| {
+        let a = with_session(app);
+        let b = with_session(app);
+        let _ = app.update(Message::SelectTab(Some(a)));
+        let _ = app.update(Message::SplitToggle);
+        assert_eq!(app.split, Some((a, b)));
+        "split"
+    });
+}
+
+#[test]
+fn split_follows_its_tabs() {
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = demo(false, true);
+    let a = with_session(&mut app);
+    let b = with_session(&mut app);
+    let _ = app.update(Message::SelectTab(Some(a)));
+    let _ = app.update(Message::SplitToggle);
+    assert_eq!(app.split_of(a), Some((a, b)));
+    // Another page: the halves stay paired, shown again with either tab.
+    let _ = app.update(Message::SelectTab(None));
+    assert_eq!(app.split_of(b), Some((a, b)));
+    // Toggled off from the active half.
+    let _ = app.update(Message::SelectTab(Some(b)));
+    let _ = app.update(Message::SplitToggle);
+    assert_eq!(app.split, None);
+    // Closing a half ends the split.
+    let _ = app.update(Message::SplitToggle);
+    assert!(app.split.is_some());
+    app.close_tab(b);
+    assert_eq!(app.split, None);
+}
+
+#[test]
+fn split_stacked() {
+    each(|app| {
+        let a = with_session(app);
+        with_session(app);
+        let _ = app.update(Message::SelectTab(Some(a)));
+        let _ = app.update(Message::SplitToggle);
+        let _ = app.update(Message::SplitOrientation);
+        "split-stacked"
+    });
+}
+
+#[test]
+fn a_detached_tab_leaves_the_tab_bar_and_comes_back() {
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = demo(false, true);
+    let a = with_session(&mut app);
+    let b = with_session(&mut app);
+    let _ = app.update(Message::SelectTab(Some(b)));
+    let _ = app.update(Message::Detach(b));
+    let w = app.window_of_detached(b).expect("in its own window");
+    assert_eq!(app.detached_tab(w), Some(b));
+    assert_eq!(app.bar_tabs().map(|t| t.id).collect::<Vec<_>>(), [a]);
+    assert_eq!(app.active_tab, Some(a), "the main window shows the next tab");
+    // Its window shows it, and the main window the rest.
+    let settings = iced_test::core::Settings {
+        fonts: test_fonts(),
+        default_font: theme::UI,
+        ..Default::default()
+    };
+    let mut ui = iced_test::simulator::Simulator::with_size(settings, (1000.0, 680.0), ui::view_window(&app, w));
+    let snapshot = ui.snapshot(&app.theme()).expect("renders");
+    if std::env::var_os("NAUTILE_SCREENSHOTS").is_some() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../screenshots/fr-dark-detached.png");
+        let _ = std::fs::remove_file(path.with_file_name("fr-dark-detached-tiny-skia.png"));
+        assert!(snapshot.matches_image(&path).unwrap());
+    }
+    drop(ui);
+    // A split with it is not shown while it is apart.
+    app.split = Some((a, b));
+    assert_eq!(app.split_of(a), None);
+    let _ = app.update(Message::Reattach(w));
+    assert!(app.detached.is_empty());
+    assert_eq!(app.active_tab, Some(b));
+    // Closing a detached tab closes its window.
+    let _ = app.update(Message::Detach(a));
+    app.close_tab(a);
+    let _ = app.update(Message::Noop);
+    assert!(app.detached.is_empty());
+}
+
+#[test]
+fn connect_palette() {
+    each(|app| {
+        let _ = app.update(Message::ConnectPalette);
+        let _ = app.update(Message::PaletteQuery("root@192.168.1.2".into()));
+        "connect-palette"
+    });
+}
+
+#[test]
+fn monitor_processes() {
+    each(|app| {
+        let id = with_session(app);
+        app.monitor_tab = Some(id);
+        app.active_tab = None;
+        app.page = nautile_app::app::Page::Hosts;
+        let t = app.tabs.iter_mut().find(|t| t.id == id).unwrap();
+        let mut m = nautile_app::sessions::MonitorState {
+            show_processes: true,
+            ..Default::default()
+        };
+        m.push(
+            "cpu  4705 356 584 3699176 23060 0 277 0 0 0\nMemTotal: 8040260 kB\nMemAvailable: 5023412 kB\n\
+             /dev/sda1 61255492 22849808 35264996 38% /\n0.42 0.36 0.30 2/412 31337\n3566841.35 361072.11\n4\n\
+             --processes--\n\
+             2210 jellyfin 38.2 6.1 502312 /usr/lib/jellyfin/bin/jellyfin --webdir=/usr/share/jellyfin/web\n\
+             1874 postgres 12.5 3.1 251004 postgres: checkpointer\n\
+             3021 www-data 4.0 1.2 98304 nginx: worker process\n\
+             1544 root 1.3 0.8 65536 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock\n\
+             1 root 0.0 0.1 11520 /sbin/init splash\n",
+        );
+        t.monitor = Some(Box::new(m));
+        "monitor-processes"
+    });
 }
 
 #[test]

@@ -58,10 +58,17 @@ pub struct MonitorState {
     pub mem_history: std::collections::VecDeque<f32>,
     /// The output was not a Linux one.
     pub unsupported: bool,
+    /// The process list is shown (and read with each reading).
+    pub show_processes: bool,
+    /// The last process list, busiest first; `None` before the first one or when `ps` gave none.
+    pub processes: Option<Vec<nautile_net::monitor::Process>>,
 }
 
 impl MonitorState {
     pub fn push(&mut self, text: &str) {
+        if self.show_processes {
+            self.processes = nautile_net::monitor::parse_processes(text).or(self.processes.take());
+        }
         let Some(s) = nautile_net::monitor::parse(text) else {
             self.unsupported = true;
             return;
@@ -135,6 +142,109 @@ pub(crate) fn recv_stream<T: Send + 'static>(rx: tokio::sync::mpsc::UnboundedRec
 const MAX_OSC52: usize = 100_000;
 
 impl App {
+    /// A tab showing a terminal (not files, a remote desktop or a monitor).
+    pub fn is_terminal(t: &Tab) -> bool {
+        t.files.is_none() && t.remote.is_none() && t.monitor.is_none()
+    }
+
+    /// The two terminals shown side by side with [id], when it is one of them.
+    pub fn split_of(&self, id: u64) -> Option<(u64, u64)> {
+        self.split.filter(|(l, r)| {
+            (*l == id || *r == id)
+                && [*l, *r]
+                    .iter()
+                    .all(|x| self.tab(*x).is_some_and(Self::is_terminal) && self.window_of_detached(*x).is_none())
+        })
+    }
+
+    /// Opens [id]'s host again in a new tab (a new local terminal for a local one), which becomes the active tab.
+    pub fn duplicate_tab(&mut self, id: u64) -> Task<Message> {
+        let Some(t) = self.tab(id) else { return Task::none() };
+        let (host, files) = (t.host_id, t.files.is_some());
+        match host {
+            Some(h) if files => self.open_files(h),
+            Some(h) => self.connect(h),
+            None if t.protocol == Protocol::Local => self.open_local(),
+            None => Task::none(),
+        }
+    }
+
+    /// The active terminal beside the next one (a copy of it when it is the only terminal), or alone again.
+    pub fn split_toggle(&mut self) -> Task<Message> {
+        let Some(a) = self.active_tab.filter(|a| self.tab(*a).is_some_and(Self::is_terminal)) else {
+            return Task::none();
+        };
+        if self.split_of(a).is_some() {
+            self.split = None;
+            return Task::none();
+        }
+        let terms: Vec<u64> = self.bar_tabs().filter(|t| Self::is_terminal(t)).map(|t| t.id).collect();
+        let i = terms.iter().position(|x| *x == a).unwrap_or(0);
+        let other = terms.get(i + 1).or_else(|| i.checked_sub(1).and_then(|j| terms.get(j))).copied();
+        match other {
+            Some(o) => {
+                self.split = Some((a, o));
+                Task::none()
+            }
+            None => {
+                let task = self.duplicate_tab(a);
+                if let Some(n) = self.active_tab.filter(|n| *n != a) {
+                    self.split = Some((a, n));
+                }
+                task
+            }
+        }
+    }
+
+    /// The tab shown in detached window [w].
+    pub fn detached_tab(&self, w: iced::window::Id) -> Option<u64> {
+        self.detached.iter().find(|(x, _)| *x == w).map(|(_, t)| *t)
+    }
+
+    /// The window of tab [id], when it is detached.
+    pub fn window_of_detached(&self, id: u64) -> Option<iced::window::Id> {
+        self.detached.iter().find(|(_, t)| *t == id).map(|(w, _)| *w)
+    }
+
+    /// The tabs of the main window's tab bar: the sessions but the monitor and the detached ones.
+    pub fn bar_tabs(&self) -> impl Iterator<Item = &Tab> {
+        self.session_tabs().filter(|t| self.window_of_detached(t.id).is_none())
+    }
+
+    /// Shows tab [id] in a window of its own; the main window shows the next tab.
+    pub fn detach(&mut self, id: u64) -> Task<Message> {
+        if self.window_of_detached(id).is_some() || self.tab(id).is_none_or(|t| t.monitor.is_some()) {
+            return Task::none();
+        }
+        if self.split.is_some_and(|(l, r)| l == id || r == id) {
+            self.split = None;
+        }
+        if self.active_tab == Some(id) {
+            let i = self.bar_tabs().position(|t| t.id == id).unwrap_or(0);
+            let left: Vec<u64> = self.bar_tabs().map(|t| t.id).filter(|t| *t != id).collect();
+            self.active_tab = left.get(i.min(left.len().saturating_sub(1))).copied();
+        }
+        let (w, open) = iced::window::open(crate::app::window_settings(
+            iced::Size::new(1000.0, 680.0),
+            iced::window::Position::Default,
+            true,
+        ));
+        self.detached.push((w, id));
+        self.focused_window = Some(w);
+        open.discard()
+    }
+
+    /// Puts the tab of detached window [w] back in the main window, as its active tab, and closes [w].
+    pub fn reattach(&mut self, w: iced::window::Id) -> Task<Message> {
+        let Some(tab) = self.detached_tab(w) else { return Task::none() };
+        self.detached.retain(|(x, _)| *x != w);
+        self.active_tab = Some(tab);
+        self.last_tab = Some(tab);
+        self.focused_window = self.main_window;
+        let front = self.main_window.map(iced::window::gain_focus).unwrap_or_else(Task::none);
+        Task::batch([iced::window::close(w), front])
+    }
+
     /// The tabs of the tab bar: every session but the monitor, shown beside the hosts.
     pub fn session_tabs(&self) -> impl Iterator<Item = &Tab> {
         self.tabs.iter().filter(|t| t.monitor.is_none())
@@ -144,7 +254,7 @@ impl App {
         self.tabs.iter().find(|t| t.id == id)
     }
 
-    fn tab_mut(&mut self, id: u64) -> Option<&mut Tab> {
+    pub(crate) fn tab_mut(&mut self, id: u64) -> Option<&mut Tab> {
         self.tabs.iter_mut().find(|t| t.id == id)
     }
 
@@ -501,6 +611,7 @@ impl App {
         self.active_tab = None;
         self.last_tab = last;
         self.monitor_tab = Some(id);
+        self.monitor_filter.clear();
         let session = nautile_net::monitor::spawn(params);
         if let Some(t) = self.tab_mut(id) {
             t.input = Some(session.input);
@@ -552,10 +663,13 @@ impl App {
         if self.monitor_tab == Some(id) {
             self.monitor_tab = None;
         }
-        let index = self.session_tabs().position(|t| t.id == id);
+        if self.split.is_some_and(|(l, r)| l == id || r == id) {
+            self.split = None;
+        }
+        let index = self.bar_tabs().position(|t| t.id == id);
         self.tabs.retain(|t| t.id != id);
         if self.active_tab == Some(id) {
-            let left: Vec<u64> = self.session_tabs().map(|t| t.id).collect();
+            let left: Vec<u64> = self.bar_tabs().map(|t| t.id).collect();
             self.active_tab = index.and_then(|i| left.get(i.min(left.len().saturating_sub(1)))).copied();
         }
     }
@@ -563,7 +677,7 @@ impl App {
     /// Next (or previous) tab; the hosts page counts as the first one.
     pub fn cycle_tab(&mut self, forward: bool) {
         let mut ids: Vec<Option<u64>> = vec![None];
-        ids.extend(self.session_tabs().map(|t| Some(t.id)));
+        ids.extend(self.bar_tabs().map(|t| Some(t.id)));
         let i = ids.iter().position(|x| *x == self.active_tab).unwrap_or(0);
         let n = ids.len();
         self.active_tab = ids[if forward { (i + 1) % n } else { (i + n - 1) % n }];
@@ -730,6 +844,17 @@ impl App {
     }
 
     pub fn on_term(&mut self, id: u64, a: Action) {
+        // A click in the other half of a split screen makes it the one typed into.
+        if matches!(a, Action::SelectStart(..) | Action::ClearSelection)
+            && self.active_tab != Some(id)
+            && self
+                .active_tab
+                .and_then(|x| self.split_of(x))
+                .is_some_and(|(l, r)| l == id || r == id)
+        {
+            self.active_tab = Some(id);
+            self.last_tab = Some(id);
+        }
         if let Action::Resize(c, r) = a {
             self.grid = (c, r);
         }
@@ -951,7 +1076,10 @@ impl App {
                     self.set_host_os(h, "windows", false);
                 }
                 if self.settings.remote_fullscreen {
-                    return iced::window::latest().and_then(|w| iced::window::set_mode(w, iced::window::Mode::Fullscreen));
+                    let w = self.window_of_detached(id).or(self.main_window);
+                    return w
+                        .map(|w| iced::window::set_mode(w, iced::window::Mode::Fullscreen))
+                        .unwrap_or_else(Task::none);
                 }
             }
             // The picture is read once for all the frames announced before it is read (the server may

@@ -66,10 +66,21 @@ pub fn page_header<'a>(title: String, back: Option<Message>, actions: Vec<Elemen
 
 /// The rounded search field with its magnifier (and a clear button when filled).
 pub fn search<'a>(value: &str, placeholder: String, on: impl Fn(String) -> Message + 'a, clear: Message) -> Element<'a, Message> {
+    search_id("search", value, placeholder, on, clear)
+}
+
+/// [search] with its own widget id, for a second field on the same screen.
+pub fn search_id<'a>(
+    id: &'static str,
+    value: &str,
+    placeholder: String,
+    on: impl Fn(String) -> Message + 'a,
+    clear: Message,
+) -> Element<'a, Message> {
     let mut r = row![
         icon('\u{E8B6}', 22.0).style(muted_style),
         text_input(&placeholder, value)
-            .id("search")
+            .id(id)
             .on_input(on)
             .size(15)
             .padding([12, 0])
@@ -335,6 +346,14 @@ pub fn icon_tile<'a>(c: char, tint: Color) -> Element<'a, Message> {
     container(icon(c, 20.0))
         .center(Length::Fixed(36.0))
         .style(theme::soft_tile(tint, 10.0))
+        .into()
+}
+
+/// [icon_tile] at another size (the logos of the tabs).
+pub fn icon_tile_sized<'a>(c: char, tint: Color, size: f32) -> Element<'a, Message> {
+    container(icon(c, size * 0.6).style(move |_| text::Style { color: Some(tint) }))
+        .center(Length::Fixed(size))
+        .style(theme::soft_tile(tint, size * 0.275))
         .into()
 }
 

@@ -272,7 +272,7 @@ pub(super) fn hosts(app: &App) -> Element<'_, Message> {
         .and_then(|id| app.tab(id))
         .and_then(|t| t.monitor.as_deref().map(|m| (t, m)))
     {
-        Some((t, m)) => row![container(page).width(Fill), super::session::monitor_panel(t, m)].into(),
+        Some((t, m)) => row![container(page).width(Fill), super::session::monitor_panel(app, t, m)].into(),
         None => page,
     }
 }
