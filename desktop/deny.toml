@@ -31,6 +31,8 @@ allow = [
     "CDLA-Permissive-2.0",
     "blessing",
     "WTFPL",
+    # hexf-parse (through wgpu's naga, for « Accélération graphique »): public domain dedication, GPL-compatible.
+    "CC0-1.0",
 ]
 confidence-threshold = 0.9
 
