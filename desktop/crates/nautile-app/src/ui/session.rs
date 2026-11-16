@@ -1353,6 +1353,41 @@ fn process_list<'a>(app: &'a App, t: &'a Tab, m: &'a crate::sessions::MonitorSta
                 || p.pid.to_string().starts_with(&filter)
         })
         .collect();
+    // Sorted as asked (htop): the busiest first, or by number or name; the same column again reverses it.
+    let mut shown = shown;
+    let (by, reversed) = app.process_sort;
+    use crate::app::ProcessSort as S;
+    shown.sort_by(|a, b| {
+        let o = match by {
+            S::Cpu => b.cpu.total_cmp(&a.cpu),
+            S::Memory => b.rss_kb.cmp(&a.rss_kb),
+            S::Pid => a.pid.cmp(&b.pid),
+            S::Name => a.command.to_lowercase().cmp(&b.command.to_lowercase()),
+        };
+        if reversed { o.reverse() } else { o }
+    });
+    let sort_bar = row([
+        (S::Cpu, "CPU".to_owned()),
+        (S::Memory, tr("Mémoire")),
+        (S::Pid, "PID".to_owned()),
+        (S::Name, tr("Nom")),
+    ]
+    .into_iter()
+    .map(|(s, name)| {
+        let on = s == by;
+        let arrow = match (on, reversed, matches!(s, S::Cpu | S::Memory)) {
+            (false, _, _) => "",
+            // The busiest first: an arrow down; reversed (or A→Z): up.
+            (true, false, true) | (true, true, false) => " ↓",
+            _ => " ↑",
+        };
+        button(text(format!("{name}{arrow}")).size(12).font(BOLD))
+            .padding([5, 10])
+            .style(theme::nav(on))
+            .on_press(Message::ProcessSortBy(s))
+            .into()
+    }))
+    .spacing(4);
     let count = trf("%1$s processus sur %2$s", &[&shown.len(), &list.len()]);
     let rows = Column::with_children(shown.into_iter().take(200).map(|p| {
         let tone = move |th: &iced::Theme| {
@@ -1396,7 +1431,7 @@ fn process_list<'a>(app: &'a App, t: &'a Tab, m: &'a crate::sessions::MonitorSta
     .spacing(2);
     column![
         search,
-        label(count).size(11),
+        row![sort_bar, Space::new().width(Fill), label(count).size(11)].align_y(Alignment::Center),
         scrollable(container(rows).padding(Padding {
             right: 12.0,
             ..Padding::ZERO

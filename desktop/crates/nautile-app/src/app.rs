@@ -77,6 +77,16 @@ pub enum Modal {
     ImportHosts,
 }
 
+/// The columns the process list sorts by: the busiest first for CPU and memory, in order for the number and the
+/// name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessSort {
+    Cpu,
+    Memory,
+    Pid,
+    Name,
+}
+
 /// A sub-page of the settings (`None` in [App::settings_page]: their home).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsPage {
@@ -516,6 +526,8 @@ pub enum Message {
     /// The monitor panel: its gauges or its process list.
     MonitorProcesses(u64, bool),
     MonitorFilter(String),
+    /// Sorts the process list by a column; the same one again: the other way round.
+    ProcessSortBy(ProcessSort),
     MonitorGrab,
     MonitorMove(f32),
     MonitorRelease,
@@ -837,6 +849,8 @@ pub struct App {
     pub monitor_drag: bool,
     /// What is typed in the filter of the monitor's process list.
     pub monitor_filter: String,
+    /// How the process list is sorted (as in htop), and whether the other way round.
+    pub process_sort: (ProcessSort, bool),
     /// The system is in dark mode (for « Système »).
     pub os_dark: bool,
     pub term_tab: TermTab,
@@ -1009,6 +1023,7 @@ impl App {
             split_drag: false,
             gpu_at_start,
             monitor_filter: String::new(),
+            process_sort: (ProcessSort::Cpu, false),
             os_dark: true,
             term_tab: TermTab::Aspect,
             fonts_loaded: Vec::new(),
@@ -2049,6 +2064,10 @@ impl App {
                 }
             }
             Message::MonitorFilter(f) => self.monitor_filter = f,
+            Message::ProcessSortBy(by) => {
+                let (current, reversed) = self.process_sort;
+                self.process_sort = (by, by == current && !reversed);
+            }
             Message::MonitorGrab => self.monitor_drag = true,
             Message::MonitorMove(x) => {
                 if self.monitor_drag {

@@ -2043,7 +2043,8 @@ fn sync_card(app: &App) -> Element<'_, Message> {
     container(body).padding(18).width(Fill).style(toned_card(tone)).into()
 }
 
-/// What this computer synchronises, by theme (the file and the Wi-Fi alike); shown once one of them is on.
+/// What this computer synchronises, by theme (the file and the Wi-Fi alike); shown once one of them is on. The
+/// data in a grid of tiles, then the API keys apart: they are secrets, off unless asked.
 fn sync_parts_card(app: &App) -> Element<'_, Message> {
     use crate::backup::BackupMsg as B;
     use nautile_core::sync::SyncPart as P;
@@ -2051,48 +2052,127 @@ fn sync_parts_card(app: &App) -> Element<'_, Message> {
     if !s.sync_enabled && !s.lan_enabled {
         return Space::new().into();
     }
-    let skipped = nautile_core::sync::effective(&s.sync_skip);
-    let hosts_on = !skipped.contains(&P::Hosts);
-    let row_for = |p: P, title: String, detail: String| -> Element<'_, Message> {
-        let on = !skipped.contains(&p);
-        // Tunnels follow their hosts.
-        let locked = p == P::Tunnels && !hosts_on;
-        let toggle = iced::widget::toggler(on).size(22).style(theme::toggler);
-        let toggle = if locked {
-            toggle
-        } else {
-            toggle.on_toggle(move |v| bm(B::SyncPart(p, v)))
-        };
-        row![column![text(title).size(14), label(detail).size(12)].spacing(2).width(Fill), toggle]
+    let n = theme::nt(&app.theme());
+    let left = nautile_core::sync::effective(&s.sync_skip);
+    let hosts_on = !left.contains(&P::Hosts);
+    let on_count = [P::Hosts, P::Tunnels, P::Snippets, P::KnownHosts]
+        .iter()
+        .filter(|p| !left.contains(p))
+        .count()
+        + usize::from(s.sync_ai_keys);
+    // One theme: its icon, what it holds, its switch; outlined in its colour while synchronised.
+    let tile = |c: char, tint: Color, title: String, detail: String, on: bool, toggle: Option<Box<dyn Fn(bool) -> Message>>| {
+        let mut t = iced::widget::toggler(on).size(20).style(theme::toggler);
+        if let Some(f) = toggle {
+            t = t.on_toggle(f);
+        }
+        container(
+            row![
+                kit::icon_tile(c, if on { tint } else { n.muted }),
+                column![text(title).size(14).font(BOLD), label(detail).size(12)]
+                    .spacing(2)
+                    .width(Fill),
+                t,
+            ]
             .spacing(12)
-            .align_y(Alignment::Center)
-            .into()
-    };
-    let body = column![
-        row![kit::icon(I_SYNC, 20.0), text(tr("Ce qui est synchronisé")).size(16).font(BOLD)]
-            .spacing(10)
             .align_y(Alignment::Center),
+        )
+        .padding([12, 14])
+        .width(Fill)
+        .style(move |th: &iced::Theme| {
+            let nt = theme::nt(th);
+            container::Style {
+                background: Some(if on { theme::alpha(tint, 0.06) } else { nt.bg }.into()),
+                border: iced::Border {
+                    color: if on { theme::alpha(tint, 0.45) } else { nt.border },
+                    width: 1.0,
+                    radius: 14.0.into(),
+                },
+                ..Default::default()
+            }
+        })
+    };
+    let part = |p: P| -> Option<Box<dyn Fn(bool) -> Message>> { Some(Box::new(move |v| bm(B::SyncPart(p, v)))) };
+    let hosts = tile(
+        I_HOSTS,
+        n.accent,
+        tr("Hôtes et trousseau"),
+        tr("Hôtes, groupes, clés SSH et identités"),
+        hosts_on,
+        part(P::Hosts),
+    );
+    let tunnels = tile(
+        I_TUNNEL,
+        n.blue,
+        tr("Tunnels"),
+        if hosts_on {
+            tr("Redirections de ports")
+        } else {
+            tr("Suivent les hôtes, dont ils dépendent")
+        },
+        !left.contains(&P::Tunnels),
+        if hosts_on { part(P::Tunnels) } else { None },
+    );
+    let snippets = tile(
+        I_SNIPPETS,
+        n.green,
+        tr("Snippets"),
+        tr("Commandes enregistrées"),
+        !left.contains(&P::Snippets),
+        part(P::Snippets),
+    );
+    let known = tile(
+        I_SHIELD,
+        n.pink,
+        tr("Serveurs connus"),
+        tr("Empreintes des clés d'hôtes déjà acceptées"),
+        !left.contains(&P::KnownHosts),
+        part(P::KnownHosts),
+    );
+    let keys = tile(
+        I_VPN_KEY,
+        n.accent,
+        tr("Clés API de l'assistant IA"),
+        tr("Claude, OpenAI, Gemini… La plus récente l'emporte, une clé retirée l'est partout."),
+        s.sync_ai_keys,
+        Some(Box::new(|v| bm(B::SyncAiKeys(v)))),
+    );
+    let head = row![
+        kit::icon(I_SYNC, 20.0),
+        text(tr("Ce qui est synchronisé")).size(16).font(BOLD).width(Fill),
+        container(text(trf("%1$s sur 5", &[&on_count])).size(12).font(BOLD))
+            .padding([3, 10])
+            .style(move |t: &iced::Theme| theme::chip(theme::nt(t).green)(t)),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+    let mut body = column![
+        head,
         soft(tr(
             "Par le fichier partagé comme par le Wi-Fi. Un thème décoché n'est ni reçu ni envoyé : les autres appareils gardent le leur."
         )),
-        row_for(P::Hosts, tr("Hôtes et trousseau"), tr("Hôtes, groupes, clés SSH et identités")),
-        row_for(
-            P::Tunnels,
-            tr("Tunnels"),
-            if hosts_on {
-                tr("Redirections de ports")
-            } else {
-                tr("Suivent les hôtes, dont ils dépendent")
-            }
-        ),
-        row_for(P::Snippets, tr("Snippets"), tr("Commandes enregistrées")),
-        row_for(
-            P::KnownHosts,
-            tr("Serveurs connus"),
-            tr("Empreintes des clés d'hôtes déjà acceptées")
-        ),
+        kit::section_label(tr("Données")),
+        row![hosts, tunnels].spacing(10),
+        row![snippets, known].spacing(10),
+        kit::section_label(tr("Secrets")),
+        keys,
     ]
     .spacing(12);
+    if s.sync_ai_keys {
+        body = body.push(
+            row![
+                icon(I_INFO).size(16).style(|t: &iced::Theme| text::Style {
+                    color: Some(theme::nt(t).accent),
+                }),
+                soft(tr(
+                    "Chiffrées avant de partir, et seulement vers les appareils qui les synchronisent aussi."
+                ))
+                .size(12),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        );
+    }
     container(body).padding(18).width(Fill).style(theme::card).into()
 }
 

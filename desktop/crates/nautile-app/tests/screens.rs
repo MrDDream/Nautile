@@ -159,7 +159,13 @@ fn test_fonts() -> Vec<std::borrow::Cow<'static, [u8]>> {
 
 fn shoot(app: &mut App, name: &str) {
     // The settings page is long: shown whole.
-    let height = if name.ends_with("backups") { 1600.0 } else { 800.0 };
+    let height = if name.ends_with("backups") {
+        1600.0
+    } else if name.ends_with("sync-parts") {
+        2000.0
+    } else {
+        800.0
+    };
     let settings = || iced_test::core::Settings {
         fonts: test_fonts(),
         default_font: theme::UI,
@@ -842,6 +848,59 @@ fn a_detached_tab_leaves_the_tab_bar_and_comes_back() {
     app.close_tab(a);
     let _ = app.update(Message::Noop);
     assert!(app.detached.is_empty());
+}
+
+#[test]
+fn sync_parts() {
+    each(|app| {
+        app.settings.sync_enabled = true;
+        app.settings.sync_ai_keys = true;
+        app.settings.sync_skip = vec![nautile_core::sync::SyncPart::KnownHosts];
+        let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::Backup)));
+        "sync-parts"
+    });
+}
+
+#[test]
+fn api_keys_go_by_their_latest_change() {
+    use nautile_core::model::SyncedAiKey;
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = demo(false, true);
+    let db = app.db.as_ref().unwrap();
+    db.set_secret("ai-key-CLAUDE", Some("sk-ant-old")).unwrap();
+    app.settings.ai_key_at.insert("CLAUDE".into(), 1_000);
+    // A newer key from another device wins; an older one does not.
+    let key = |p: &str, k: &str, at: i64| SyncedAiKey {
+        provider: p.into(),
+        key: k.into(),
+        updated_at: at,
+    };
+    assert!(app.apply_synced_ai_keys(&[key("CLAUDE", "sk-ant-new", 2_000), key("OPENAI", "sk-o", 5)]));
+    assert!(!app.apply_synced_ai_keys(&[key("CLAUDE", "sk-ant-older", 1_500)]));
+    let db = app.db.as_ref().unwrap();
+    assert_eq!(db.secret("ai-key-CLAUDE").as_deref(), Some("sk-ant-new"));
+    assert_eq!(db.secret("ai-key-OPENAI").as_deref(), Some("sk-o"));
+    // A key removed elsewhere, later: removed here, and sent on as removed.
+    assert!(app.apply_synced_ai_keys(&[key("OPENAI", "", 9_000)]));
+    assert_eq!(app.db.as_ref().unwrap().secret("ai-key-OPENAI"), None);
+    let mine = app.synced_ai_keys();
+    assert!(
+        mine.iter()
+            .any(|k| k.provider == "CLAUDE" && k.key == "sk-ant-new" && k.updated_at == 2_000)
+    );
+    assert!(
+        mine.iter()
+            .any(|k| k.provider == "OPENAI" && k.key.is_empty() && k.updated_at == 9_000)
+    );
+    // Never in a backup, nor before asked.
+    assert!(
+        nautile_core::sync::snapshot(app.db.as_ref().unwrap(), vec![])
+            .unwrap()
+            .ai_keys
+            .is_empty()
+    );
+    assert!(app.settings.sync_left_out().contains(&nautile_core::sync::SyncPart::AiKeys));
 }
 
 #[test]

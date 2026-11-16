@@ -29,19 +29,8 @@ pub(super) fn host_row<'a>(app: &'a App, h: &'a Host) -> Element<'a, Message> {
                 .style(|t: &iced::Theme| theme::chip(theme::nt(t).text_soft)(t)),
         );
     }
-    let mut info = column![name, soft(address).font(MONO).size(13)].spacing(4).width(Fill);
-    if !h.tags.is_empty() {
-        let col = argb(h.color);
-        info = info.push(
-            row(h.tags.split(',').map(|t| {
-                container(text(t.to_owned()).size(11))
-                    .padding([1, 7])
-                    .style(theme::chip(col))
-                    .into()
-            }))
-            .spacing(6),
-        );
-    }
+    // The tags stay searchable, not shown: the rows keep to the name and the address.
+    let info = column![name, soft(address).font(MONO).size(13)].spacing(4).width(Fill);
     let mut r = row![kit::host_avatar(h.os_id.as_deref(), &h.alias, argb(h.color), 48.0), info]
         .spacing(16)
         .align_y(Alignment::Center);

@@ -822,6 +822,20 @@ fn host_menu(app: &App, id: i64, at: iced::Point) -> Element<'_, Message> {
 }
 
 /// « Ctrl+K »: the search and its results, chosen with the arrows and Enter.
+/// Before a result: the server's logo for a host, as in the hosts; else the result's icon.
+fn palette_lead<'a>(app: &App, it: &crate::palette::Item) -> Element<'a, Message> {
+    if let Message::Connect(id) = it.run
+        && let Some(h) = app.host_by(id)
+    {
+        let os = h
+            .os_id
+            .clone()
+            .or_else(|| (h.protocol == Protocol::Rdp).then(|| "windows".to_owned()));
+        return kit::host_avatar(os.as_deref(), &h.alias, argb(h.color), 30.0);
+    }
+    container(icon(it.icon).size(18)).center(Length::Fixed(30.0)).into()
+}
+
 fn palette<'a>(app: &'a App, p: &'a crate::palette::PaletteState) -> Element<'a, Message> {
     let results = crate::palette::results(app, p);
     let hint = if p.connect {
@@ -856,7 +870,7 @@ fn palette<'a>(app: &'a App, p: &'a crate::palette::PaletteState) -> Element<'a,
     for (i, it) in results.into_iter().enumerate() {
         let selected = i == p.selected;
         let mut r = row![
-            icon(it.icon).size(18),
+            palette_lead(app, &it),
             column![text(it.title).size(14).font(BOLD), soft(it.detail).size(12)]
                 .spacing(1)
                 .width(Fill),
