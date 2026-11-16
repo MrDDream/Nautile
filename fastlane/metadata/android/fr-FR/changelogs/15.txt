@@ -1,0 +1,2 @@
+• Synchroniser aussi les clés API de l'assistant IA (optionnel, désactivé par défaut)
+• Ce qui est synchronisé : une ligne qui ouvre une fenêtre

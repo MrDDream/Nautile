@@ -1,0 +1,2 @@
+• Sync the AI assistant's API keys too (optional, off by default)
+• What is synced: one row opening a pop-up
