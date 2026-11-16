@@ -167,7 +167,9 @@ mod tests {
         data.hosts[0].password = Some("s3cret".into());
         let file = export_with(&data, "correct horse", 64, 1).unwrap();
         assert!(file.starts_with(MAGIC));
-        assert!(!file.contains("s3cret") && !file.contains("nas"));
+        // The ciphertext is base64: « nas » can appear in it by chance (a few times in a thousand runs), never
+        // with the quotes of the clear JSON around it.
+        assert!(!file.contains("s3cret") && !file.contains("\"nas\"") && !file.contains("10.0.0.2"));
         assert_eq!(import(&file, "correct horse").unwrap(), data);
         assert!(matches!(import(&file, "nope"), Err(BackupError::WrongPassword(_))));
         // The header is authenticated.
