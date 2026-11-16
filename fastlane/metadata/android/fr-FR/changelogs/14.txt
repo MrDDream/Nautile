@@ -1,0 +1,3 @@
+• Synchro : choisissez ce qui est synchronisé, par thème (hôtes et trousseau, tunnels, snippets, serveurs connus)
+• Les terminaux locaux et ports série USB restent sur ce téléphone
+• Associer un appareil refait ; boutons « + » carrés

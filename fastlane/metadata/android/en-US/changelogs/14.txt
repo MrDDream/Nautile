@@ -1,0 +1,3 @@
+• Sync: choose what is synced, by theme (hosts and keychain, tunnels, snippets, known servers)
+• Local terminals and USB serial ports stay on this phone
+• Pair a device redone; square « + » buttons
