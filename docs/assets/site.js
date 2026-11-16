@@ -81,13 +81,18 @@ function setLang(lang, save) {
   if (save) try { localStorage.setItem("nautile-lang", lang); } catch (e) {}
   updateShots();
 }
-function setTheme(theme, save) {
+/** mode: "light", "dark" or "auto" (follows the system, live). */
+const systemLight = matchMedia("(prefers-color-scheme: light)");
+function setTheme(mode, save) {
+  const theme = mode === "auto" ? (systemLight.matches ? "light" : "dark") : mode;
+  document.documentElement.dataset.themeMode = mode;
   document.documentElement.dataset.theme = theme;
-  document.querySelectorAll("[data-theme-set]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeSet === theme)));
+  document.querySelectorAll("[data-theme-set]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeSet === mode)));
   document.querySelector('meta[name="theme-color"]').content = theme === "light" ? "#F6F4EF" : "#0B0E12";
-  if (save) try { localStorage.setItem("nautile-theme", theme); } catch (e) {}
+  if (save) try { if (mode === "auto") localStorage.removeItem("nautile-theme"); else localStorage.setItem("nautile-theme", mode); } catch (e) {}
   updateShots();
 }
+systemLight.addEventListener("change", () => { if (document.documentElement.dataset.themeMode === "auto") setTheme("auto", false); });
 /** Captures exist per language and theme: assets/shots/<lang>-<theme>-<screen>.png */
 function updateShots() {
   const lang = document.documentElement.lang === "fr" ? "fr" : "en";
@@ -98,4 +103,4 @@ function updateShots() {
 document.querySelectorAll("[data-lang]").forEach((b) => b.addEventListener("click", () => setLang(b.dataset.lang, true)));
 document.querySelectorAll("[data-theme-set]").forEach((b) => b.addEventListener("click", () => setTheme(b.dataset.themeSet, true)));
 setLang(document.documentElement.lang === "fr" ? "fr" : "en", false);
-setTheme(document.documentElement.dataset.theme, false);
+setTheme(document.documentElement.dataset.themeMode || "auto", false);

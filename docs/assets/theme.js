@@ -1,8 +1,11 @@
-// Theme and language before the first paint: saved choice, else the system's.
+// Theme and language before the first paint. Language: the saved choice, else English.
+// Theme: the saved choice (light, dark or auto), else auto, which follows the system.
 (function () {
-  var t = null, l = null;
-  try { t = localStorage.getItem("nautile-theme"); l = localStorage.getItem("nautile-lang"); } catch (e) {}
-  if (!t) t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-  document.documentElement.dataset.theme = t;
-  document.documentElement.lang = l || ((navigator.language || "en").toLowerCase().startsWith("fr") ? "fr" : "en");
+  var m = null, l = null;
+  try { m = localStorage.getItem("nautile-theme"); l = localStorage.getItem("nautile-lang"); } catch (e) {}
+  if (m !== "light" && m !== "dark") m = "auto";
+  var d = document.documentElement;
+  d.dataset.themeMode = m;
+  d.dataset.theme = m === "auto" ? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : m;
+  d.lang = l === "fr" ? "fr" : "en";
 })();
