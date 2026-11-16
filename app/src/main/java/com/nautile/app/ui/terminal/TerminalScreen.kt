@@ -642,6 +642,9 @@ private fun TerminalPane(
     split: Boolean,
     modifier: Modifier,
 ) {
+    // The view itself is transparent: paint the terminal theme's background, not the app's,
+    // or a dark terminal theme shows its light text on the light app theme (and the reverse).
+    val theme by manager.prefs.theme.collectAsStateWithLifecycle()
     AndroidView(
         factory = { ctx ->
             TerminalView(ctx, null).apply {
@@ -676,6 +679,7 @@ private fun TerminalPane(
             }
         },
         modifier = modifier.fillMaxHeight()
+            .background(Color(theme.background))
             .then(if (split && focused) Modifier.border(1.dp, Nt.Accent.copy(alpha = 0.5f)) else Modifier)
             .padding(horizontal = 4.dp),
     )
