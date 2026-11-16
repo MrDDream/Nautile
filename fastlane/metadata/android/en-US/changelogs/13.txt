@@ -1,0 +1,1 @@
+• No change on the phone: this version improves the desktop app (split screen, separate windows, sync by theme).
