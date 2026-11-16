@@ -113,7 +113,9 @@ A native app for Windows, Linux and macOS, written in Rust (about 35 MB of RAM).
 
 - **Ctrl+K** to search hosts, snippets, settings and actions; Ctrl+N, Ctrl+1…9, right click on a host, drag and drop onto groups and tabs;
 - an icon in the **notification area**: closing the window keeps sessions, tunnels and sync running; starts with your session if you want;
-- a **server monitor**, an **SFTP file editor** (Ctrl+S to save), `~/.ssh/config` and CSV **import**;
+- **split screen** (side by side or stacked) and tabs **detached** into windows of their own;
+- a **server monitor** beside your hosts, with the **process list**, an **SFTP file editor** (Ctrl+S to save), `~/.ssh/config` and CSV **import**;
+- sync **theme by theme** (hosts and keys, tunnels, snippets, known servers), and optional **graphics acceleration**;
 - sync that **waits for your VPN**, and **updates** checked against their checksum and installed in one click.
 
 ## 📲 Install

@@ -113,7 +113,9 @@ Une app native pour Windows, Linux et macOS, écrite en Rust (environ 35 Mo de R
 
 - **Ctrl+K** pour chercher hôtes, snippets, réglages et actions ; Ctrl+N, Ctrl+1…9, clic droit sur un hôte, glisser-déposer vers les groupes et les onglets ;
 - une icône dans la **zone de notification** : fermer la fenêtre garde sessions, tunnels et synchro actifs ; lancement avec ta session si tu veux ;
-- un **moniteur de serveur**, un **éditeur de fichiers SFTP** (Ctrl+S pour enregistrer), l'**import** de `~/.ssh/config` et de CSV ;
+- l'**écran scindé** (côte à côte ou l'un au-dessus de l'autre) et des onglets **détachés** dans leur propre fenêtre ;
+- un **moniteur de serveur** à côté des hôtes, avec la **liste des processus**, un **éditeur de fichiers SFTP** (Ctrl+S pour enregistrer), l'**import** de `~/.ssh/config` et de CSV ;
+- une synchro **thème par thème** (hôtes et trousseau, tunnels, snippets, serveurs connus), et l'**accélération graphique** en option ;
 - une synchro qui **attend ton VPN**, et des **mises à jour** vérifiées par leur somme de contrôle et installées en un clic.
 
 ## 📲 Installer

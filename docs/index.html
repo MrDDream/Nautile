@@ -9,281 +9,469 @@
 <meta property="og:description" content="Terminal, RDP, SFTP, tunnels and encrypted sync. Your servers, in your pocket.">
 <meta name="theme-color" content="#0B0E12">
 <link rel="icon" href="logo.svg" type="image/svg+xml">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<!-- api.github.com: the files of the latest release, asked once per visit (the links fall back to the releases page). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; connect-src https://api.github.com; object-src 'none'; base-uri 'none'; form-action 'none'">
 <link rel="preload" href="assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
 <script src="assets/theme.js"></script>
 <style>
   /* Fonts served from this site (SIL OFL 1.1, assets/fonts/OFL-*.txt): nothing is loaded from elsewhere. */
   @font-face { font-family: Inter; font-style: normal; font-weight: 100 900; font-display: swap; src: url("assets/fonts/InterVariable.woff2") format("woff2"); }
   @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("assets/fonts/JetBrainsMono-Regular.woff2") format("woff2"); }
-  @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("assets/fonts/JetBrainsMono-Medium.woff2") format("woff2"); }
+  @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500 700; font-display: swap; src: url("assets/fonts/JetBrainsMono-Medium.woff2") format("woff2"); }
+
   :root, [data-theme="dark"] {
-    --bg: #0B0E12; --bar: rgba(11, 14, 18, .86); --surface: #141920; --raised: #1B222B; --border: #252E39;
-    --text: #E8EDF2; --text-2: #C5CED7; --muted: #94A1AE; --accent: #FFB547; --accent-bg: rgba(255, 181, 71, .12);
-    --on-accent: #1A1205; --green: #5BD69A; --shadow: rgba(0, 0, 0, .55); --term: #07090C;
+    --bg: #0B0E12; --band: #0E1217; --bar: rgba(11, 14, 18, .88); --surface: #141920; --raised: #1B222B;
+    --line: #1E2630; --border: #252E39; --border-2: #313C49; --pill: #2A3440; --dot: #3A4552;
+    --text: #E8EDF2; --text-2: #C5CED7; --muted: #94A1AE;
+    --accent: #FFB547; --accent-hover: #FFD08A; --accent-bg: rgba(255, 181, 71, .12); --on-accent: #1A1205;
+    --green: #5BD69A; --term: #07090C; --shadow: rgba(0, 0, 0, .55); --shadow-2: rgba(0, 0, 0, .7);
+    color-scheme: dark;
   }
   [data-theme="light"] {
-    --bg: #F6F4EF; --bar: rgba(246, 244, 239, .88); --surface: #FFFFFF; --raised: #EFEBE3; --border: #E2DED4;
-    --text: #1A1F26; --text-2: #3F4852; --muted: #5A636E; --accent: #B26A00; --accent-bg: rgba(178, 106, 0, .10);
-    --on-accent: #FFFFFF; --green: #1F7A4A; --shadow: rgba(60, 50, 30, .18); --term: #0F141A;
+    --bg: #F6F4EF; --band: #EFEBE3; --bar: rgba(246, 244, 239, .9); --surface: #FFFFFF; --raised: #EFEBE3;
+    --line: #E4DFD5; --border: #DDD7CB; --border-2: #CFC8BA; --pill: #D8D1C4; --dot: #CFC8BA;
+    --text: #1A1F26; --text-2: #3F4852; --muted: #5A636E;
+    --accent: #A86400; --accent-hover: #874F00; --accent-bg: rgba(168, 100, 0, .1); --on-accent: #FFFFFF;
+    --green: #1F7A4A; --term: #0F141A; --shadow: rgba(60, 50, 30, .18); --shadow-2: rgba(60, 50, 30, .28);
+    color-scheme: light;
   }
-  :root { --sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --mono: "JetBrains Mono", ui-monospace, Menlo, monospace; color-scheme: dark; }
-  [data-theme="light"] { color-scheme: light; }
+  :root { --sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --mono: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 17px; line-height: 1.6; -webkit-font-smoothing: antialiased; transition: background .2s, color .2s; }
-  a { color: inherit; }
-  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
-  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 17px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); } a:hover { color: var(--accent-hover); }
+  code, kbd { font: 500 .82em var(--mono); color: var(--text); }
+  .wrap { max-width: 1200px; margin: 0 auto; }
+  .narrow { max-width: 960px; margin: 0 auto; }
+  .mono { font-family: var(--mono); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  header.top { position: sticky; top: 0; z-index: 10; background: var(--bar); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
-  .top .wrap { display: flex; align-items: center; gap: 20px; height: 64px; }
-  .brand { display: flex; align-items: center; gap: 10px; font: 500 20px var(--mono); text-decoration: none; }
+  /* Top bar */
+  header.top { position: sticky; top: 0; z-index: 10; background: var(--bar); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+  .top .wrap { padding: 0 24px; min-height: 68px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); font: 500 20px var(--mono); }
+  .brand:hover { color: var(--text); }
   .brand img { width: 32px; height: 32px; }
-  .brand span { color: var(--accent); }
-  .top nav { display: flex; gap: 22px; margin-left: auto; font-size: 15px; }
-  .top nav a { text-decoration: none; color: var(--muted); }
+  .brand b { color: var(--accent); font-weight: 500; }
+  .top nav { display: flex; flex-wrap: wrap; gap: 4px 22px; font-size: 15px; margin-left: auto; }
+  .top nav a { color: var(--muted); text-decoration: none; }
   .top nav a:hover { color: var(--text); }
-  .toggles { display: flex; gap: 8px; }
+  .tools { display: flex; align-items: center; gap: 10px; }
   .seg { display: flex; padding: 3px; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
-  .seg button { all: unset; cursor: pointer; padding: 4px 10px; border-radius: 7px; font: 500 13px var(--mono); color: var(--muted); display: flex; align-items: center; }
+  .seg button { all: unset; cursor: pointer; display: flex; align-items: center; padding: 4px 10px; border-radius: 7px; font: 500 13px var(--mono); color: var(--muted); }
   .seg button[aria-pressed="true"] { background: var(--raised); color: var(--text); }
   .seg button:focus-visible { outline: 2px solid var(--accent); }
   .seg svg { width: 16px; height: 16px; }
+  .gh { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--border); color: var(--text); text-decoration: none; font-size: 14px; font-weight: 600; }
+  .gh:hover { color: var(--text); border-color: var(--border-2); }
 
-  .hero { padding: 72px 0 40px; }
-  .hero .wrap { display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: center; }
-  .eyebrow { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: var(--accent-bg); color: var(--accent); font-size: 13px; font-weight: 600; }
-  .eyebrow::before { content: ""; width: 7px; height: 7px; border-radius: 4px; background: var(--green); }
-  h1 { font-size: clamp(38px, 6vw, 60px); line-height: 1.05; letter-spacing: -.02em; margin: 18px 0; font-weight: 700; }
-  h1 em { font-style: normal; color: var(--accent); }
-  .lead { font-size: 19px; color: var(--text-2); max-width: 34em; margin: 0 0 28px; }
-  .cta { display: flex; flex-wrap: wrap; gap: 12px; }
-  .btn { display: inline-flex; align-items: center; gap: 10px; min-height: 50px; padding: 0 22px; border-radius: 14px; font-weight: 600; font-size: 16px; text-decoration: none; }
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 24px; border-radius: 12px; font-weight: 700; font-size: 16px; text-decoration: none; }
   .btn.primary { background: var(--accent); color: var(--on-accent); }
-  .btn.secondary { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
-  .btn svg { width: 19px; height: 19px; }
-  .facts { display: flex; flex-wrap: wrap; gap: 22px; margin-top: 28px; color: var(--muted); font-size: 14px; }
-  .facts b { color: var(--text); font-family: var(--mono); font-weight: 500; }
-  .hero-phone { justify-self: center; width: min(340px, 100%); height: auto; filter: drop-shadow(0 30px 60px var(--shadow)); transform: rotate(2deg); }
-  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  .btn.primary:hover { color: var(--on-accent); filter: brightness(1.06); }
+  .btn.secondary { background: var(--surface); border: 1px solid var(--border); color: var(--text); font-weight: 600; }
+  .btn.secondary:hover { color: var(--text); border-color: var(--border-2); }
+  .btn svg { width: 20px; height: 20px; }
 
-  section { padding: 72px 0; }
-  h2 { font-size: clamp(28px, 4vw, 38px); letter-spacing: -.01em; margin: 0 0 12px; font-weight: 700; }
-  .sub { color: var(--text-2); max-width: 40em; margin: 0 0 36px; }
-  .screens { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px 22px; }
-  .screens figure { margin: 0; text-align: center; }
-  .screens img { width: 100%; max-width: 300px; height: auto; filter: drop-shadow(0 18px 36px var(--shadow)); }
-  .screens figcaption { margin-top: 12px; color: var(--muted); font-size: 14px; }
-  .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 22px; }
-  .card .ic { width: 42px; height: 42px; border-radius: 12px; background: var(--accent-bg); color: var(--accent); display: flex; align-items: center; justify-content: center; margin-bottom: 14px; }
-  .card .ic svg { width: 22px; height: 22px; }
-  .card h3 { margin: 0 0 6px; font-size: 18px; }
+  section { padding: 104px 24px; }
+  .band { background: var(--band); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .kicker { margin: 0 0 12px; font: 500 13px var(--mono); color: var(--accent); letter-spacing: .08em; }
+  h1 { margin: 22px 0 20px; font-size: clamp(42px, 6vw, 64px); line-height: 1.02; letter-spacing: -.03em; font-weight: 800; }
+  h1 em { font-style: normal; color: var(--accent); }
+  h2 { margin: 0 0 12px; font-size: clamp(30px, 4vw, 44px); line-height: 1.1; letter-spacing: -.02em; font-weight: 800; }
+  .feat-title { margin-bottom: 48px; max-width: 720px; }
+  .lead { margin: 0 0 32px; max-width: 32em; font-size: 19px; color: var(--text-2); }
+  .sub { margin: 0; color: var(--text-2); }
+
+  /* Hero */
+  .hero { padding: 88px 24px 72px; border-bottom: 1px solid var(--line); }
+  .hero .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 56px; }
+  .hero-text { flex: 1 1 460px; min-width: 0; }
+  .badge { display: inline-flex; align-items: center; gap: 10px; padding: 6px 14px 6px 10px; border-radius: 999px; border: 1px solid var(--pill); font: 500 13px var(--mono); color: var(--text-2); }
+  .badge::before { content: ""; width: 8px; height: 8px; border-radius: 4px; background: var(--green); }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .prompt { margin-top: 36px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font: 400 14px var(--mono); color: var(--muted); }
+  .prompt > span:first-child { padding: 10px 14px; border-radius: 10px; background: var(--term); border: 1px solid var(--line); color: #E8EDF2; }
+  .prompt .g { color: #5BD69A; } .prompt .c { color: #FFB547; }
+  .hero-shots { flex: 1 1 520px; min-width: 0; position: relative; padding: 0 0 48px 64px; }
+  .window { border-radius: 14px; overflow: hidden; border: 1px solid var(--border); background: var(--surface); box-shadow: 0 40px 80px var(--shadow); }
+  .window::before { content: ""; display: block; height: 30px; background: var(--raised); border-bottom: 1px solid var(--border);
+    background-image: radial-gradient(circle at 20px 15px, var(--dot) 5.5px, transparent 6px), radial-gradient(circle at 39px 15px, var(--dot) 5.5px, transparent 6px), radial-gradient(circle at 58px 15px, var(--dot) 5.5px, transparent 6px); }
+  .window img { display: block; width: 100%; height: auto; }
+  .hero-phone { position: absolute; left: 0; bottom: 0; width: 30%; height: auto; filter: drop-shadow(0 28px 48px var(--shadow-2)); }
+
+  /* Protocols strip */
+  .strip { padding: 28px 24px; border-bottom: 1px solid var(--line); background: var(--band); }
+  .strip .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px 32px; }
+  .strip ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; font: 500 14px var(--mono); }
+  .strip li { padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; }
+  .strip p { margin: 0; font: 500 14px var(--mono); color: var(--muted); }
+  .strip p b { color: var(--accent); font-weight: 500; }
+
+  /* Tabs (gallery, platforms) */
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+  .tab { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 10px; font: 500 14px var(--mono); color: var(--muted); box-sizing: border-box; }
+  .tab:hover { color: var(--text); }
+  .tab[aria-pressed="true"] { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-2); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+
+  .shots-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 48px; }
+  .shots-head > div:first-child { max-width: 640px; }
+  .phones { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 32px 24px; }
+  .phones figure { margin: 0; text-align: center; }
+  .phones img { width: 100%; max-width: 240px; height: auto; filter: drop-shadow(0 20px 36px var(--shadow)); }
+  figcaption { margin-top: 14px; font-size: 14px; color: var(--muted); }
+  .desks { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 32px 28px; }
+  .desks figure { margin: 0; }
+  .frame { border-radius: 12px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 24px 50px var(--shadow); }
+  .frame img { display: block; width: 100%; height: auto; }
+
+  /* Features bento */
+  .bento { display: flex; flex-wrap: wrap; gap: 16px; }
+  .card { flex: 1 1 280px; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 28px; }
+  .card.wide { flex: 2 1 540px; display: flex; flex-direction: column; gap: 20px; }
+  .card.wide.row { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 24px; }
+  .card.wide.row > div { flex: 1 1 260px; min-width: 0; }
+  .card h3 { margin: 0 0 8px; font-size: 19px; font-weight: 700; }
+  .card.wide h3 { font-size: 22px; }
   .card p { margin: 0; color: var(--text-2); font-size: 15px; }
-  code, kbd { font-family: var(--mono); font-size: .9em; background: var(--raised); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; }
-  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: start; }
-  ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
-  ol.steps li { counter-increment: s; display: grid; grid-template-columns: 40px 1fr; gap: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; }
-  ol.steps li::before { content: counter(s); width: 32px; height: 32px; border-radius: 10px; background: var(--accent); color: var(--on-accent); font-weight: 700; display: flex; align-items: center; justify-content: center; }
-  ol.steps b { display: block; }
-  ol.steps span { color: var(--text-2); font-size: 15px; }
-  .verify { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px; }
-  .verify .fp { font: 13px/1.6 var(--mono); word-break: break-all; color: var(--text); background: var(--raised); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
-  .desk { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 24px; }
-  .desk figure { margin: 0; }
-  .desk .frame { border-radius: 14px; overflow: hidden; border: 1px solid var(--border); background: var(--surface); box-shadow: 0 22px 50px var(--shadow); }
-  .desk .frame::before { content: ""; display: block; height: 26px; background: var(--raised); border-bottom: 1px solid var(--border);
-    background-image: radial-gradient(circle at 16px 13px, #F38BA8 5px, transparent 6px), radial-gradient(circle at 34px 13px, #FFB547 5px, transparent 6px), radial-gradient(circle at 52px 13px, #5BD69A 5px, transparent 6px); }
-  .desk img { display: block; width: 100%; height: auto; }
-  .desk figcaption { margin-top: 12px; color: var(--muted); font-size: 14px; text-align: center; }
-  .desk .wide { grid-column: 1 / -1; }
-  .dfeat { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 44px 0 0; padding: 0; list-style: none; }
-  .dfeat li { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; color: var(--text-2); font-size: 15px; }
-  .dfeat b { display: block; color: var(--text); font-size: 16px; margin-bottom: 2px; }
-  .downloads { margin-top: 44px; background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 26px; }
-  .downloads h3 { margin: 0 0 14px; font-size: 20px; }
-  .dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-  .dl a { display: block; text-decoration: none; background: var(--raised); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
-  .dl a:hover { border-color: var(--accent); }
-  .dl b { display: block; }
-  .dl span { color: var(--muted); font-size: 14px; }
-  .dl code { font-size: 12px; }
-  .note { color: var(--muted); font-size: 14px; margin: 14px 0 0; }
-  .privacy { background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 36px; }
-  .privacy ul { margin: 0; padding-left: 20px; color: var(--text-2); }
-  .privacy li { margin: 6px 0; }
-  footer { border-top: 1px solid var(--border); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
-  footer .wrap { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; }
-  footer a { color: var(--text-2); }
+  .ic { width: 44px; height: 44px; border-radius: 12px; background: var(--accent-bg); color: var(--accent); display: flex; align-items: center; justify-content: center; margin-bottom: 18px; }
+  .ic svg { width: 22px; height: 22px; }
+  .term { flex: 1; min-height: 150px; background: var(--term); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; font: 400 13px/1.7 var(--mono); color: #C5CED7; overflow: hidden; }
+  .term .u { color: #5BD69A; } .term .p, .term .d { color: #94A1AE; } .term .c { color: #FFB547; }
+  .keys { display: flex; flex-wrap: wrap; gap: 6px; font: 500 12px var(--mono); }
+  .keys span { padding: 6px 10px; border-radius: 6px; background: var(--raised); border: 1px solid var(--border-2); }
+  .places { flex: 1 1 220px; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font: 500 13px var(--mono); }
+  .places li { padding: 10px 12px; border-radius: 10px; background: var(--raised); }
+
+  /* Desktop and privacy: text beside a picture */
+  .split2 { display: flex; flex-wrap: wrap; gap: 56px; align-items: center; }
+  .split2 > div { flex: 1 1 420px; min-width: 0; }
+  .split2 > .shot { flex: 1 1 520px; }
+  .split2 .sub + .sub { margin-top: 16px; }
+  dl.points { margin: 32px 0 0; display: grid; gap: 18px; }
+  dl.points div { display: grid; grid-template-columns: 28px 1fr; gap: 12px; }
+  dl.points dt { color: var(--accent); font: 700 15px var(--mono); }
+  dl.points dd { margin: 0; color: var(--text-2); font-size: 15px; }
+  dl.points b { color: var(--text); }
+  .kbds { margin-top: 32px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 14px; color: var(--muted); }
+  kbd { padding: 5px 9px; border-radius: 6px; background: var(--raised); border: 1px solid var(--border-2); border-bottom-width: 3px; font-size: 13px; }
+
+  .sec { flex: 1 1 480px; min-width: 0; background: var(--term); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+  .sec > div { padding: 12px 18px; border-bottom: 1px solid #1E2630; font: 500 13px var(--mono); color: #94A1AE; }
+  .sec dl { margin: 0; padding: 8px 18px 18px; font: 400 14px/1.6 var(--mono); }
+  .sec dl div { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 12px 0; border-bottom: 1px dashed #1E2630; }
+  .sec dl div:last-child { border-bottom: 0; }
+  .sec dt { flex: 0 0 120px; color: #FFB547; }
+  .sec dd { margin: 0; flex: 1 1 240px; color: #C5CED7; }
+  .sec dd.ok { color: #5BD69A; }
+
+  /* Download */
+  .center { text-align: center; }
+  .dl-lead { margin: 0 auto 36px; max-width: 34em; }
+  .dl-tabs { margin: 0 auto 24px; width: fit-content; max-width: 100%; justify-content: center; }
+  .dl-box { background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 32px; }
+  .steps { flex: 1 1 360px; min-width: 0; list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; counter-reset: s; }
+  .steps li { display: grid; grid-template-columns: 36px 1fr; gap: 14px; counter-increment: s; }
+  .steps li::before { content: counter(s); width: 32px; height: 32px; border-radius: 9px; background: var(--accent); color: var(--on-accent); font: 700 14px var(--mono); display: flex; align-items: center; justify-content: center; }
+  .steps div div { color: var(--text-2); font-size: 15px; }
+  .android { display: flex; flex-wrap: wrap; gap: 32px; }
+  .android > div { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+  .big { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60px; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-weight: 700; text-decoration: none; line-height: 1.3; }
+  .big:hover { color: var(--on-accent); filter: brightness(1.06); }
+  .big small { font: 500 12px var(--mono); }
+  .others { margin: 0; text-align: center; font-size: 14px; color: var(--muted); }
+  .obtainium { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; border-radius: 12px; border: 1px solid var(--border-2); color: var(--text); font-weight: 600; text-decoration: none; }
+  .obtainium:hover { color: var(--text); background: var(--raised); }
+  .sig { margin-top: 8px; padding: 16px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); }
+  .sig b { display: block; font-size: 14px; margin-bottom: 6px; }
+  .sig p { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
+  .fp { font: 400 12px/1.6 var(--mono); color: var(--text-2); word-break: break-all; }
+  .files { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .files a { display: block; padding: 20px; border-radius: 14px; background: var(--raised); border: 1px solid var(--border-2); color: var(--text); text-decoration: none; }
+  .files a:hover { border-color: var(--accent); color: var(--text); }
+  .files b { display: block; font-size: 17px; }
+  .files span { font-size: 14px; color: var(--muted); }
+  .note { margin: 18px 0 0; font-size: 14px; color: var(--muted); }
+  .sums { margin: 24px 0 0; padding-top: 18px; border-top: 1px solid var(--border); font-size: 14px; color: var(--muted); }
+
+  /* FAQ */
+  .faq { padding: 0 24px 104px; }
+  .faq h2 { font-size: 28px; margin-bottom: 24px; }
+  .faq .list { display: grid; gap: 10px; }
+  details { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 0 20px; }
+  summary { min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 16px; font-weight: 600; list-style: none; cursor: pointer; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; color: var(--accent); font: 500 20px var(--mono); transition: transform .15s; }
+  details[open] summary::after { transform: rotate(45deg); }
+  details p { margin: 0 0 18px; color: var(--text-2); font-size: 15px; }
+
+  footer { border-top: 1px solid var(--line); padding: 40px 24px 56px; }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 24px; font-size: 14px; color: var(--muted); }
+  footer .wrap > div { display: flex; align-items: center; gap: 10px; }
+  footer img { width: 24px; height: 24px; }
+  footer p { margin: 0; max-width: 34em; }
 
   @media (max-width: 900px) {
-    .hero .wrap, .split { grid-template-columns: 1fr; }
-    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .screens { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .desk, .dfeat, .dl { grid-template-columns: 1fr; }
-    .hero-phone { transform: none; width: min(300px, 80%); }
     .top nav { display: none; }
-    .toggles { margin-left: auto; }
+    .tools { margin-left: auto; }
+    .hero-shots { padding-left: 40px; }
   }
   @media (max-width: 560px) {
-    .grid { grid-template-columns: 1fr; }
-    .hero { padding-top: 40px; }
-    .privacy { padding: 22px; }
+    section { padding: 72px 16px; }
+    .hero { padding: 48px 16px 56px; }
+    .top .wrap { padding: 0 16px; }
+    .gh span { display: none; }
+    .dl-box { padding: 20px; }
+    .card { padding: 22px; }
   }
 </style>
 </head>
 <body>
 <header class="top">
   <div class="wrap">
-    <a class="brand" href="#"><img src="logo.svg" alt="" width="32" height="32">nautile<span>_</span></a>
+    <a class="brand" href="#top"><img src="logo.svg" alt="" width="32" height="32"><span>nautile<b>_</b></span></a>
     <nav aria-label="Sections">
       <a href="#screens" data-i18n="nav.screens">Screenshots</a>
-      <a href="#desktop" data-i18n="nav.desktop">Desktop</a>
       <a href="#features" data-i18n="nav.features">Features</a>
-      <a href="#install" data-i18n="nav.install">Install</a>
-      <a href="https://github.com/MrDDream/Nautile">GitHub</a>
+      <a href="#desktop" data-i18n="nav.desktop">Desktop</a>
+      <a href="#privacy" data-i18n="nav.privacy">Privacy</a>
+      <a href="#download" data-i18n="nav.download">Download</a>
     </nav>
-    <div class="toggles">
+    <div class="tools">
       <div class="seg" role="group" aria-label="Language">
         <button type="button" data-lang="en" aria-pressed="true">EN</button>
         <button type="button" data-lang="fr" aria-pressed="false">FR</button>
       </div>
       <div class="seg" role="group" aria-label="Theme">
-        <button type="button" data-theme-set="auto" aria-pressed="true" aria-label="Automatic theme (follows the system)" title="Auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
+        <button type="button" data-theme-set="dark" aria-pressed="true" aria-label="Dark theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
         <button type="button" data-theme-set="light" aria-pressed="false" aria-label="Light theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
-        <button type="button" data-theme-set="dark" aria-pressed="false" aria-label="Dark theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
       </div>
+      <a class="gh" href="https://github.com/MrDDream/Nautile" aria-label="GitHub"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 19c-4 1.5-4-2-6-2.5M15 22v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1-.3-3.4 1.3a11.6 11.6 0 0 0-6.2 0C6.5 2.8 5.5 3.1 5.5 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V22"/></svg><span>GitHub</span></a>
     </div>
   </div>
 </header>
 
-<main>
+<main id="top">
   <section class="hero">
     <div class="wrap">
-      <div>
-        <span class="eyebrow" data-i18n="hero.eyebrow">Version 0.5.4 · Android · Windows · Linux · macOS · GPL-3.0</span>
+      <div class="hero-text">
+        <div class="badge"><span data-version>v0.5.5</span> · GPL-3.0</div>
         <h1 data-i18n-html="hero.title">Your servers,<br><em>in your pocket.</em></h1>
-        <p class="lead" data-i18n="hero.lead">Nautile is a free SSH, Mosh and remote-desktop client for Android, now on your computer too: a real terminal, SFTP, tunnels, snippets and encrypted sync between your devices. No cloud, no account: your hosts, keys and passwords stay encrypted with you.</p>
+        <p class="lead" data-i18n="hero.lead">A free SSH, Mosh and remote-desktop client for Android, and now for Windows, Linux and macOS. A real terminal, SFTP, tunnels, snippets and encrypted sync between your devices. No cloud, no account.</p>
         <div class="cta">
-          <a class="btn primary" href="https://github.com/MrDDream/Nautile/releases/latest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg><span data-i18n="cta.download">Download the APK</span></a>
-          <a class="btn secondary" href="#desktop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span data-i18n="cta.desktop">For your computer</span></a>
-          <a class="btn secondary" href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/MrDDream/Nautile" data-i18n="cta.obtainium">Get it with Obtainium</a>
+          <a class="btn primary" data-asset="apk-arm64" href="https://github.com/MrDDream/Nautile/releases/latest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg><span data-i18n="cta.android">Download for Android</span></a>
+          <a class="btn secondary" href="#download" data-pick-desktop><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span data-i18n="cta.desktop">Desktop version</span></a>
         </div>
-        <div class="facts">
-          <span><b>SSH</b> · <b>Mosh</b> · <b>RDP</b> · <b>VNC</b> · <b>SFTP</b></span>
-          <span><b>0</b> <span data-i18n="facts.server">account, ad or tracker</span></span>
-          <span><b>EN</b> / <b>FR</b></span>
-        </div>
+        <div class="prompt"><span><span class="g">❯</span> root@192.168.1.2<span class="c">▍</span></span><span data-i18n="hero.prompt">Type an address, you're connected.</span></div>
       </div>
-      <img class="hero-phone" data-shot="terminal" src="assets/shots/en-dark-terminal.png" alt="Nautile terminal session" width="416" height="892">
+      <div class="hero-shots">
+        <div class="window"><img data-desk="assistant" src="assets/desktop/en-dark-assistant.webp" alt="Nautile on a computer: the terminal and its AI assistant side by side" width="1600" height="1000"></div>
+        <img class="hero-phone" data-shot="terminal" src="assets/shots/en-dark-terminal.png" alt="Nautile on Android: a terminal session" width="416" height="892">
+      </div>
+    </div>
+  </section>
+
+  <section class="strip" aria-label="Supported protocols">
+    <div class="wrap">
+      <ul>
+        <li>SSH</li><li>Mosh</li><li>RDP</li><li>VNC</li><li>SFTP</li><li>Telnet</li>
+        <li data-i18n="proto.serial">USB serial</li><li data-i18n="proto.local">Local shell</li>
+      </ul>
+      <p data-i18n-html="strip.zero"><b>0</b> account · <b>0</b> ads · <b>0</b> trackers</p>
     </div>
   </section>
 
   <section id="screens">
     <div class="wrap">
-      <h2 data-i18n="screens.title">Made for a phone</h2>
-      <p class="sub" data-i18n="screens.lead">Big touch targets, a key bar for what the keyboard lacks, and everything one tap away: connect, reconnect, open files, run a snippet.</p>
-      <div class="screens">
-        <figure><img data-shot="hosts" src="assets/shots/en-dark-hosts.png" alt="Hosts and groups" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.hosts">Hosts and groups</figcaption></figure>
-        <figure><img data-shot="quick" src="assets/shots/en-dark-quick.png" alt="Quick connection" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.quick">Quick connection without saving</figcaption></figure>
-        <figure><img data-shot="terminal" src="assets/shots/en-dark-terminal.png" alt="Terminal" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.terminal">A real terminal with a key bar</figcaption></figure>
-        <figure><img data-shot="connections" src="assets/shots/en-dark-connections.png" alt="Connections" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.connections">Active sessions and history</figcaption></figure>
-        <figure><img data-shot="snippets" src="assets/shots/en-dark-snippets.png" alt="Snippets" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.snippets">Snippets run on several servers</figcaption></figure>
-        <figure><img data-shot="assistant" src="assets/shots/en-dark-assistant.png" alt="AI assistant" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.assistant">An AI assistant with your own key</figcaption></figure>
-        <figure><img data-shot="settings-backup" src="assets/shots/en-dark-settings-backup.png" alt="Backup" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.backup">Scheduled encrypted backups</figcaption></figure>
-        <figure><img data-shot="settings" src="assets/shots/en-dark-settings.png" alt="Settings" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.settings">Settings at a glance</figcaption></figure>
+      <div class="shots-head">
+        <div>
+          <p class="kicker" data-i18n="screens.kicker">// 01 — SCREENSHOTS</p>
+          <h2 data-i18n="screens.title">Made for the thumb, at ease with a keyboard.</h2>
+          <p class="sub" data-i18n="screens.lead">Big touch targets, a key bar for what the keyboard lacks, and everything one gesture away: connect, reopen a session, run a snippet.</p>
+        </div>
+        <div class="tabs" role="group" aria-label="Platform shown">
+          <button class="tab" type="button" data-gallery="phone" aria-pressed="true" data-i18n="tab.phone">Phone</button>
+          <button class="tab" type="button" data-gallery="desktop" aria-pressed="false" data-i18n="tab.desktop">Desktop</button>
+        </div>
+      </div>
+      <div class="phones" data-gallery-pane="phone">
+        <figure><img data-shot="hosts" src="assets/shots/en-dark-hosts.png" alt="Hosts by group" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.hosts">Hosts and groups</figcaption></figure>
+        <figure><img data-shot="quick" src="assets/shots/en-dark-quick.png" alt="Quick connection" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.quick">Quick connection, nothing to save</figcaption></figure>
+        <figure><img data-shot="snippets" src="assets/shots/en-dark-snippets.png" alt="Snippets" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.snippets">Snippets on several servers</figcaption></figure>
+        <figure><img data-shot="assistant" src="assets/shots/en-dark-assistant.png" alt="AI assistant" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.assistant">An AI assistant, your own key</figcaption></figure>
+        <figure><img data-shot="settings-backup" src="assets/shots/en-dark-settings-backup.png" alt="Encrypted backups" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.backup">Scheduled encrypted backups</figcaption></figure>
+      </div>
+      <div class="desks" data-gallery-pane="desktop" hidden>
+        <figure><div class="frame"><img data-desk="split" src="assets/desktop/en-dark-split.webp" alt="Two terminals side by side" width="1600" height="1000" loading="lazy"></div><figcaption data-i18n="desk.split">Two terminals side by side, or a tab in its own window</figcaption></figure>
+        <figure><div class="frame"><img data-desk="palette" src="assets/desktop/en-dark-palette.webp" alt="Ctrl+K command palette" width="1600" height="1000" loading="lazy"></div><figcaption data-i18n="desk.palette">Ctrl+K: hosts, snippets, settings and actions from the keyboard</figcaption></figure>
+        <figure><div class="frame"><img data-desk="monitor-processes" src="assets/desktop/en-dark-monitor-processes.webp" alt="Server monitor and processes" width="1600" height="1000" loading="lazy"></div><figcaption data-i18n="desk.monitor">A server's CPU, memory, disk and processes, beside your hosts</figcaption></figure>
+        <figure><div class="frame"><img data-desk="sftp-editor" src="assets/desktop/en-dark-sftp-editor.webp" alt="Remote file editor" width="1600" height="1000" loading="lazy"></div><figcaption data-i18n="desk.editor">Remote files edited in place, Ctrl+S to save</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" class="band">
+    <div class="wrap">
+      <p class="kicker" data-i18n="features.kicker">// 02 — FEATURES</p>
+      <h2 class="feat-title" data-i18n="features.title">Everything you do on a laptop, rethought for a touch screen.</h2>
+      <div class="bento">
+        <article class="card wide">
+          <div>
+            <h3 data-i18n="f1.t">A real terminal</h3>
+            <p data-i18n="f1.d">xterm-256color, tabs and split screen, pinch to zoom, a key bar you arrange, 10 themes and 5 Nerd Fonts (or your own).</p>
+          </div>
+          <div class="term" aria-hidden="true">
+            <div><span class="u">root@nas</span><span class="p">:~$</span> docker compose ls --quiet</div>
+            <div class="d">nextcloud · jellyfin · n8n · gotify</div>
+            <div><span class="u">root@nas</span><span class="p">:~$</span> uptime</div>
+            <div class="d">up 41 days, load average: 0.12, 0.09, 0.08</div>
+            <div><span class="u">root@nas</span><span class="p">:~$</span> <span class="c">▍</span></div>
+          </div>
+          <div class="keys" aria-hidden="true"><span>Esc</span><span>Tab</span><span>Ctrl</span><span>Alt</span><span>←</span><span>↑</span><span>↓</span><span>→</span><span>|</span><span>~</span></div>
+        </article>
+        <article class="card">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M16 7l3 3M14 9l2 2"/></svg></div>
+          <h3 data-i18n="f2.t">SSH done right</h3>
+          <p data-i18n="f2.d">Keys and identities, agent forwarding, ProxyJump, SOCKS5/HTTP proxies, port knocking and host-key pinning.</p>
+        </article>
+        <article class="card">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4M7 8l3 3-3 3M13 14h4"/></svg></div>
+          <h3 data-i18n="f3.t">Remote desktop</h3>
+          <p data-i18n="f3.d">FreeRDP 3 inside: NLA, hardware H.264, sound, clipboard, through an SSH tunnel if needed. And VNC for Linux, macOS and Raspberry Pi.</p>
+        </article>
+        <article class="card">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h13M12 3l4 4-4 4M21 17H8M12 13l-4 4 4 4"/></svg></div>
+          <h3 data-i18n="f4.t">Files, tunnels, snippets</h3>
+          <p data-i18n-html="f4.d">SFTP with background transfers, multi-select and remote editing, <code>-L -R -D</code> forwards, commands with variables run on several servers.</p>
+        </article>
+        <article class="card wide row">
+          <div>
+            <h3 data-i18n="f5.t">Encrypted sync and backup</h3>
+            <p data-i18n="f5.d">Phones, tablets and computers stay in step, theme by theme. Everything is encrypted before it leaves, sync can wait for your VPN, and backups run on your schedule.</p>
+          </div>
+          <ul class="places"><li>Google Drive</li><li>OneDrive</li><li>Nextcloud</li><li>S3</li><li>Syncthing</li><li data-i18n="place.wifi">Wi-Fi direct</li></ul>
+        </article>
+        <article class="card">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5 13.8 11.3 12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg></div>
+          <h3 data-i18n="f6.t">AI assistant, your way</h3>
+          <p data-i18n="f6.d">Claude, OpenAI, Gemini, Grok, Mistral, DeepSeek or a local model, with your own key. Attach the terminal screen or a config file.</p>
+        </article>
+        <article class="card">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div>
+          <h3 data-i18n="f7.t">Sessions at a glance</h3>
+          <p data-i18n="f7.d">Live previews of open terminals and desktops, a searchable history, a confirmation before closing a session.</p>
+        </article>
       </div>
     </div>
   </section>
 
   <section id="desktop">
-    <div class="wrap">
-      <h2 data-i18n="desk.title">Also on your computer</h2>
-      <p class="sub" data-i18n="desk.lead">A native app for Windows, Linux and macOS (written in Rust, about 35 MB of RAM) with the phone's look and settings. It reads the phone's backups and stays in step with it, through a shared file or straight over Wi-Fi.</p>
-      <div class="desk">
-        <figure class="wide"><div class="frame"><img data-desk="hosts" src="assets/desktop/en-dark-hosts.webp" alt="Hosts on the desktop" width="1600" height="1000" loading="lazy"></div><figcaption data-i18n="desk.hosts">Hosts by group, with quick connection and right click</figcaption></figure>
-        <figure><div class="frame"><img data-desk="assistant" src="assets/desktop/en-dark-assistant.webp" alt="Terminal and assistant" width="1600" height="1000" loading="lazy"></div><figcaption data-i18n="desk.assistant">The terminal and its AI assistant side by side</figcaption></figure>
-        <figure><div class="frame"><img data-desk="palette" src="assets/desktop/en-dark-palette.webp" alt="Ctrl+K" width="1600" height="1000" loading="lazy"></div><figcaption data-i18n="desk.palette">Ctrl+K: hosts, snippets, settings and actions from the keyboard</figcaption></figure>
-        <figure><div class="frame"><img data-desk="monitor" src="assets/desktop/en-dark-monitor.webp" alt="Server monitor" width="1600" height="1000" loading="lazy"></div><figcaption data-i18n="desk.monitor">A server's CPU, memory, disk and load, live</figcaption></figure>
-        <figure><div class="frame"><img data-desk="sftp-editor" src="assets/desktop/en-dark-sftp-editor.webp" alt="SFTP editor" width="1600" height="1000" loading="lazy"></div><figcaption data-i18n="desk.editor">Remote files edited in place, Ctrl+S to save</figcaption></figure>
-        <figure><div class="frame"><img data-desk="settings-appearance" src="assets/desktop/en-dark-settings-appearance.webp" alt="Appearance" width="1600" height="1000" loading="lazy"></div><figcaption data-i18n="desk.appearance">The phone's themes, colours and button styles</figcaption></figure>
-        <figure><div class="frame"><img data-desk="settings-ai" src="assets/desktop/en-dark-settings-ai.webp" alt="AI providers" width="1600" height="1000" loading="lazy"></div><figcaption data-i18n="desk.ai">Several AI providers, your own keys</figcaption></figure>
-      </div>
-      <ul class="dfeat">
-        <li><b data-i18n="d1.t">Lives in the notification area</b><span data-i18n="d1.d">Closing the window keeps sessions, tunnels and sync running. Starts with the session if you want.</span></li>
-        <li><b data-i18n="d2.t">Made for the keyboard and mouse</b><span data-i18n="d2.d">Ctrl+K, Ctrl+N, Ctrl+1…9, right click on a host, drag a host onto a group or a tab elsewhere.</span></li>
-        <li><b data-i18n="d3.t">Same data as the phone</b><span data-i18n="d3.d">Hosts, keys, identities, snippets and tunnels synced both ways; a phone backup restores here as it is.</span></li>
-        <li><b data-i18n="d4.t">Bring your hosts</b><span data-i18n-html="d4.d">Import <code>~/.ssh/config</code> or a CSV, with groups, jump hosts and keys. Or type <code>root@192.168.1.2</code> in the search.</span></li>
-        <li><b data-i18n="d5.t">Sync that waits for your VPN</b><span data-i18n="d5.d">Is your Nextcloud or S3 private? Sync waits for WireGuard, Tailscale or OpenVPN, then goes, on the computer and the phone.</span></li>
-        <li><b data-i18n="d6.t">Updates from the app</b><span data-i18n="d6.d">If you allow the check at first launch, a new version shows up at start, with its notes; it is downloaded, checked against its checksum and installed in one click.</span></li>
-      </ul>
-      <div class="downloads">
-        <h3 data-i18n="dl.title">Download for your computer</h3>
-        <div class="dl">
-          <a href="https://github.com/MrDDream/Nautile/releases/latest"><b>Windows</b><span data-i18n-html="dl.win"><code>setup.exe</code> installer, no administrator rights · or <code>portable.zip</code></span></a>
-          <a href="https://github.com/MrDDream/Nautile/releases/latest"><b>Linux</b><span data-i18n-html="dl.linux"><code>.deb</code> (Debian, Ubuntu) · <code>.rpm</code> (Fedora, openSUSE) · <code>.tar.gz</code></span></a>
-          <a href="https://github.com/MrDDream/Nautile/releases/latest"><b>macOS</b><span data-i18n-html="dl.mac"><code>.dmg</code>, not notarised yet: open it once, then System Settings › Privacy &amp; Security › <i>Open Anyway</i></span></a>
-        </div>
-        <p class="note" data-i18n-html="dl.note">The Windows files are not signed yet: SmartScreen shows « Windows protected your PC » › <i>More info</i> › <i>Run anyway</i>. Checksums are in <code>SHA256SUMS-desktop.txt</code>.</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="features">
-    <div class="wrap">
-      <h2 data-i18n="features.title">Everything you need on the go</h2>
-      <p class="sub" data-i18n="features.lead">What you use daily on a laptop, rethought for a touch screen.</p>
-      <div class="grid">
-        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-5-6-5M12 19h8"/></svg></div><h3 data-i18n="f1.t">A real terminal</h3><p data-i18n="f1.d">xterm-256color, tabs and split screen, pinch to zoom, a key bar you arrange, 10 themes and 5 Nerd Fonts (or your own).</p></div>
-        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/></svg></div><h3 data-i18n="f2.t">SSH done right</h3><p data-i18n="f2.d">Keys and identities, agent forwarding, ProxyJump, SOCKS5/HTTP proxies, port knocking and host-key pinning. Mosh, Telnet, USB serial and local shell too.</p></div>
-        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div><h3 data-i18n="f3.t">Remote desktop</h3><p data-i18n="f3.d">FreeRDP 3 inside: NLA, hardware H.264, sound, clipboard, direct touch or touchpad, through an SSH tunnel if needed. VNC too, for Linux, macOS and Raspberry Pi.</p></div>
-        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div><h3 data-i18n="f4.t">Quick connection</h3><p data-i18n-html="f4.d">Type <code>root@192.168.1.2</code> in the search bar and connect without saving. Find it later in the history, ready to be saved.</p></div>
-        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div><h3 data-i18n="f5.t">Files, tunnels, snippets</h3><p data-i18n-html="f5.d">SFTP with background transfers and remote editing, <code>-L</code>/<code>-R</code>/<code>-D</code> forwards, saved commands with variables run on several servers at once.</p></div>
-        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M3 21v-5h5"/></svg></div><h3 data-i18n="f6.t">Encrypted sync and backup</h3><p data-i18n="f6.d">Keep phones, tablets and computers in step through Google Drive, OneDrive, Nextcloud, S3 storage or a Syncthing folder, or straight over Wi-Fi; it can wait for your VPN. Backups at the time and on the network you choose, the last five kept. Encrypted before it leaves.</p></div>
-        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg></div><h3 data-i18n="f7.t">AI assistant, your way</h3><p data-i18n="f7.d">Claude, OpenAI, Gemini, Grok, Mistral, DeepSeek or a local model, with your own key and system prompts. Type or dictate, attach the screen or a config file, follow up, export as Markdown.</p></div>
-        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M7 8h6M7 12h10M8 21h8"/></svg></div><h3 data-i18n="f8.t">Sessions at a glance</h3><p data-i18n="f8.d">Live previews of open terminals and desktops, a searchable history with OS logos, and a confirmation before closing a session.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <div class="wrap">
-      <div class="privacy">
-        <h2 data-i18n="privacy.title">Private by design</h2>
-        <p class="sub" data-i18n="privacy.lead">Nautile has no server and collects nothing. No data leaves without your consent; the update check, if you accept it at first launch, contacts GitHub once a day.</p>
-        <ul>
-          <li data-i18n="p1">SQLCipher database, its key kept in the Android Keystore (on a computer: the system keyring).</li>
-          <li data-i18n="p2">Lock by biometrics, PIN or password with a re-lock delay, hidden from recent apps if you want.</li>
-          <li data-i18n="p3">Backups and sync are encrypted on the phone (Argon2id + AES-256-GCM) before going to the storage you chose.</li>
-          <li data-i18n="p4">The optional AI assistant uses your own key and only sends your question, the host's address and what you attach (the terminal screen, files).</li>
-          <li data-i18n="p5">After a crash, an anonymised report you can read, then post on GitHub yourself. Nothing is sent otherwise.</li>
-        </ul>
-      </div>
-    </div>
-  </section>
-
-  <section id="install">
-    <div class="wrap split">
+    <div class="wrap split2">
       <div>
-        <h2 data-i18n="install.title">Install Nautile</h2>
-        <p class="sub" data-i18n-html="install.lead">Free for Android 8.0 and newer, in English and French. On a computer, see <a href="#desktop">the desktop downloads</a>.</p>
-        <ol class="steps">
-          <li><div><b data-i18n="s1.t">Download the APK</b><span data-i18n-html="s1.d"><code>arm64-v8a</code> for almost every recent phone, <code>armeabi-v7a</code> for older ones, the universal APK if unsure.</span></div></li>
-          <li><div><b data-i18n="s2.t">Open it on your phone</b><span data-i18n="s2.d">Allow the installation from your browser or file manager.</span></div></li>
-          <li><div><b data-i18n="s3.t">Add a host, or just type one</b><span data-i18n="s3.d">Tap + and pick SSH, RDP, Telnet, serial or local, import your ~/.ssh/config, or type user@address to connect right away.</span></div></li>
-        </ol>
+        <p class="kicker" data-i18n="desk.kicker">// 03 — ON YOUR COMPUTER</p>
+        <h2 data-i18n="desk.title">The same Nautile, on your desk.</h2>
+        <p class="sub" data-i18n="desk.lead">A native app written in Rust, about 35 MB of RAM, with the phone's look and settings. It reads the phone's backups and stays in step with it, through a shared file or straight over Wi-Fi.</p>
+        <dl class="points">
+          <div><dt>↳</dt><dd data-i18n-html="d1"><b>Lives in the notification area.</b> Closing the window keeps sessions, tunnels and sync running.</dd></div>
+          <div><dt>↳</dt><dd data-i18n-html="d2"><b>Split screen and separate windows.</b> Two terminals side by side or stacked, or a tab in a window of its own.</dd></div>
+          <div><dt>↳</dt><dd data-i18n-html="d3"><b>Bring your hosts.</b> <code>~/.ssh/config</code> or CSV, with groups, jump hosts and keys.</dd></div>
+          <div><dt>↳</dt><dd data-i18n-html="d4"><b>Sync that waits for your VPN.</b> WireGuard, Tailscale or OpenVPN first, then it goes.</dd></div>
+          <div><dt>↳</dt><dd data-i18n-html="d5"><b>Built-in updates.</b> Downloaded, checked against their checksum, installed in one click.</dd></div>
+        </dl>
+        <div class="kbds"><kbd>Ctrl K</kbd> <span data-i18n="kbd.palette">palette</span> <kbd>Ctrl N</kbd> <span data-i18n="kbd.host">new host</span> <kbd>Ctrl 1…9</kbd> <span data-i18n="kbd.tabs">tabs</span></div>
       </div>
+      <div class="shot">
+        <div class="window"><img data-desk="monitor" src="assets/desktop/en-dark-monitor.webp" alt="Hosts and a server's monitor on a computer" width="1600" height="1000" loading="lazy"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="privacy" class="band">
+    <div class="wrap split2">
       <div>
-        <div class="verify">
-          <b data-i18n="verify.t">Check the signature</b>
-          <p style="margin:6px 0 0;color:var(--text-2);font-size:15px" data-i18n-html="verify.d">Every release is signed with the same key. Package <code>com.nautile</code>, certificate SHA-256:</p>
-          <div class="fp">09:88:CF:FC:59:0E:A1:60:F9:75:DF:D5:04:0B:3F:41:91:38:1A:23:30:E6:63:2A:6E:B7:CF:40:B9:A3:D7:2D</div>
+        <p class="kicker" data-i18n="privacy.kicker">// 04 — PRIVACY</p>
+        <h2 data-i18n="privacy.title">Nothing leaves your device without you.</h2>
+        <p class="sub" data-i18n="privacy.p1">Nautile has no server and collects nothing. The update check, if you accept it at first launch, contacts GitHub once a day.</p>
+        <p class="sub" data-i18n="privacy.p2">The optional AI assistant only sends your question, the host's address and what you attach. After a crash, an anonymised report you read, then post yourself.</p>
+      </div>
+      <div class="sec">
+        <div>nautile --security</div>
+        <dl>
+          <div><dt data-i18n="sec.db">database</dt><dd data-i18n="sec.db.v">SQLCipher, its key in the Android Keystore or the system keyring</dd></div>
+          <div><dt data-i18n="sec.lock">lock</dt><dd data-i18n="sec.lock.v">biometrics, PIN or password, re-lock delay</dd></div>
+          <div><dt data-i18n="sec.backup">backups</dt><dd data-i18n="sec.backup.v">Argon2id + AES-256-GCM, encrypted before they leave</dd></div>
+          <div><dt data-i18n="sec.telemetry">telemetry</dt><dd class="ok" data-i18n="sec.none">none</dd></div>
+          <div><dt data-i18n="sec.account">account</dt><dd class="ok" data-i18n="sec.none">none</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section id="download">
+    <div class="narrow">
+      <p class="kicker center" data-i18n="dl.kicker">// 05 — DOWNLOAD</p>
+      <h2 class="center" data-i18n="dl.title">Install Nautile.</h2>
+      <p class="sub center dl-lead" data-i18n-html="dl.lead">Free, in English and French. Every file is on the <a href="https://github.com/MrDDream/Nautile/releases/latest">GitHub releases page</a>.</p>
+      <div class="tabs dl-tabs" role="group" aria-label="Choose a platform">
+        <button class="tab" type="button" data-platform="android" aria-pressed="true">Android</button>
+        <button class="tab" type="button" data-platform="windows" aria-pressed="false">Windows</button>
+        <button class="tab" type="button" data-platform="linux" aria-pressed="false">Linux</button>
+        <button class="tab" type="button" data-platform="macos" aria-pressed="false">macOS</button>
+      </div>
+      <div class="dl-box">
+        <div class="android" data-platform-pane="android">
+          <ol class="steps">
+            <li><div><b data-i18n="s1.t">Download the APK</b><div data-i18n-html="s1.d"><code>arm64-v8a</code> for almost every recent phone, <code>armeabi-v7a</code> for older ones, the universal one if unsure.</div></div></li>
+            <li><div><b data-i18n="s2.t">Open it on your phone</b><div data-i18n="s2.d">Allow the installation from your browser or file manager. Android 8.0 or newer.</div></div></li>
+            <li><div><b data-i18n="s3.t">Add a host, or just type one</b><div data-i18n-html="s3.d">Import your <code>~/.ssh/config</code>, or type <code>user@address</code> to connect right away.</div></div></li>
+          </ol>
+          <div>
+            <a class="big" data-asset="apk-arm64" href="https://github.com/MrDDream/Nautile/releases/latest"><span data-i18n="dl.apk">Download the APK</span><small>arm64-v8a · <span data-version>v0.5.5</span></small></a>
+            <p class="others"><span data-i18n="dl.others">Others:</span> <a data-asset="apk-v7" href="https://github.com/MrDDream/Nautile/releases/latest">armeabi-v7a</a> · <a data-asset="apk-universal" href="https://github.com/MrDDream/Nautile/releases/latest" data-i18n="dl.universal">universal</a></p>
+            <a class="obtainium" href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/MrDDream/Nautile" data-i18n="dl.obtainium">With Obtainium (automatic updates)</a>
+            <div class="sig">
+              <b data-i18n="sig.t">Check the signature</b>
+              <p data-i18n-html="sig.d">Package <code>com.nautile</code>, certificate SHA-256:</p>
+              <div class="fp">09:88:CF:FC:59:0E:A1:60:F9:75:DF:D5:04:0B:3F:41:91:38:1A:23:30:E6:63:2A:6E:B7:CF:40:B9:A3:D7:2D</div>
+            </div>
+          </div>
         </div>
-        <div class="cta" style="margin-top:18px">
-          <a class="btn primary" href="https://github.com/MrDDream/Nautile/releases/latest" data-i18n="cta.download">Download the APK</a>
-          <a class="btn secondary" href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/MrDDream/Nautile" data-i18n="cta.obtainium">Get it with Obtainium</a>
+        <div data-platform-pane="windows" hidden>
+          <div class="files">
+            <a data-asset="win-setup" href="https://github.com/MrDDream/Nautile/releases/latest"><b data-i18n="win.setup">Installer</b><span class="mono" data-i18n="win.setup.d">setup.exe · no administrator rights</span></a>
+            <a data-asset="win-portable" href="https://github.com/MrDDream/Nautile/releases/latest"><b data-i18n="win.portable">Portable</b><span class="mono" data-i18n="win.portable.d">portable.zip · nothing to install</span></a>
+          </div>
+          <p class="note" data-i18n="win.note">Not signed yet: SmartScreen shows « Windows protected your PC » › More info › Run anyway.</p>
         </div>
+        <div data-platform-pane="linux" hidden>
+          <div class="files">
+            <a data-asset="deb" href="https://github.com/MrDDream/Nautile/releases/latest"><b>.deb</b><span>Debian, Ubuntu</span></a>
+            <a data-asset="rpm" href="https://github.com/MrDDream/Nautile/releases/latest"><b>.rpm</b><span>Fedora, openSUSE</span></a>
+            <a data-asset="tar" href="https://github.com/MrDDream/Nautile/releases/latest"><b>.tar.gz</b><span data-i18n="linux.any">Any distribution</span></a>
+          </div>
+        </div>
+        <div data-platform-pane="macos" hidden>
+          <div class="files">
+            <a data-asset="dmg" href="https://github.com/MrDDream/Nautile/releases/latest"><b>.dmg</b><span>Apple silicon</span></a>
+          </div>
+          <p class="note" data-i18n="mac.note">Not notarised yet: open it once, then System Settings › Privacy &amp; Security › Open Anyway.</p>
+        </div>
+        <p class="sums" data-i18n-html="dl.sums">Checksums: <code>SHA256SUMS.txt</code> (Android) and <code>SHA256SUMS-desktop.txt</code>, with every release.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="faq" aria-labelledby="faq-title">
+    <div class="narrow">
+      <h2 id="faq-title" data-i18n="faq.title">Frequently asked questions</h2>
+      <div class="list">
+        <details><summary data-i18n="q1">Is it really free?</summary><p data-i18n="a1">Yes. Nautile is free software under the GPL-3.0, with no ads, no subscription and no account.</p></details>
+        <details><summary data-i18n="q2">Where are my keys and passwords kept?</summary><p data-i18n="a2">Only on your devices, in a SQLCipher database. If you turn on sync, they are encrypted before they leave for the storage you chose.</p></details>
+        <details><summary data-i18n="q3">Can I bring my existing hosts?</summary><p data-i18n-html="a3">Yes: import a <code>~/.ssh/config</code> or a CSV, with groups, jump hosts and keys.</p></details>
       </div>
     </div>
   </section>
@@ -291,8 +479,8 @@
 
 <footer>
   <div class="wrap">
-    <span data-i18n-html="footer.license">Free software under the <a href="https://github.com/MrDDream/Nautile/blob/main/LICENSE">GNU GPL v3</a>.</span>
-    <span data-i18n-html="footer.credits">Built on <a href="https://github.com/termux/termux-app">Termux</a>, <a href="https://github.com/hierynomus/sshj">sshj</a>, <a href="https://www.freerdp.com">FreeRDP</a>, <a href="https://iced.rs">iced</a>, <a href="https://github.com/Devolutions/IronRDP">IronRDP</a>, <a href="https://github.com/Eugeny/russh">russh</a> and <a href="https://www.nerdfonts.com">Nerd Fonts</a>.</span>
+    <div><img src="logo.svg" alt="" width="24" height="24"><span data-i18n-html="footer.license">Free software under the <a href="https://github.com/MrDDream/Nautile/blob/main/LICENSE">GPL-3.0</a> · <a href="https://github.com/MrDDream/Nautile">Source code</a></span></div>
+    <p data-i18n="footer.credits">Built on Termux, sshj, FreeRDP, iced, IronRDP, russh and Nerd Fonts.</p>
   </div>
 </footer>
 
