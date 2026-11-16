@@ -912,6 +912,21 @@ mod tests {
     }
 
     #[test]
+    fn a_deletion_from_elsewhere_never_removes_a_local_shell() {
+        // A copy made by an older version, which still synced local shells: same sync id on both devices.
+        let (mut a, mut b) = two();
+        let mut shell = Host::new("shell", "");
+        shell.protocol = crate::model::Protocol::Local;
+        a.store().upsert(&shell).unwrap();
+        round(&mut a, &mut b);
+        assert_eq!(hosts(&b).len(), 1);
+        tick();
+        a.store().delete::<Host>(hosts(&a)[0].id).unwrap();
+        round(&mut a, &mut b);
+        assert_eq!(hosts(&b).len(), 1, "B's own local shell stays");
+    }
+
+    #[test]
     fn same_host_on_both_devices_converges() {
         let (mut a, mut b) = two();
         a.store()
@@ -1735,14 +1750,22 @@ fn take_parts(to: &mut BackupData, from: Option<&BackupData>, skip: &[SyncPart])
     }
 }
 
+/// A local shell or a serial port only exists on the device it was made on: never taken from another device nor sent
+/// to one, whatever the themes (and a deletion from elsewhere never removes one: Store::delete_synced).
+pub fn device_only(p: crate::model::Protocol) -> bool {
+    matches!(p, crate::model::Protocol::Local | crate::model::Protocol::Serial)
+}
+
 /// [data] without the themes in [skip] (records and deletions): what is taken from, or sent to, another device.
 pub fn without(data: &mut BackupData, skip: &[SyncPart]) {
+    data.hosts.retain(|h| !device_only(h.protocol));
     take_parts(data, None, skip);
 }
 
 /// The themes in [skip] of what is written to the shared file taken from the file as it was ([from]): this device
 /// leaves them as the others wrote them.
 pub fn carry(data: &mut BackupData, from: &BackupData, skip: &[SyncPart]) {
+    data.hosts.retain(|h| !device_only(h.protocol));
     take_parts(data, Some(from), skip);
 }
 
@@ -1775,6 +1798,22 @@ mod parts_tests {
         assert_eq!(d.hosts.len(), 1);
         let kinds: Vec<&str> = d.tombstones.iter().map(|t| t.kind.as_str()).collect();
         assert_eq!(kinds, ["host", "port_forward"]);
+    }
+
+    #[test]
+    fn local_shells_and_serial_ports_stay_on_their_device() {
+        use crate::model::Protocol;
+        let mut d = data("nas", "logs");
+        for (alias, p) in [("shell", Protocol::Local), ("router", Protocol::Serial)] {
+            let mut h = Host::new(alias, "");
+            h.protocol = p;
+            d.hosts.push(h);
+        }
+        let mut sent = d.clone();
+        without(&mut sent, &[]);
+        assert_eq!(sent.hosts.iter().map(|h| h.alias.as_str()).collect::<Vec<_>>(), ["nas"]);
+        carry(&mut d, &data("pc", "x"), &[]);
+        assert_eq!(d.hosts.iter().map(|h| h.alias.as_str()).collect::<Vec<_>>(), ["nas"]);
     }
 
     #[test]

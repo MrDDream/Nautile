@@ -35,7 +35,8 @@ interface SyncDao {
     @Query("UPDATE port_forward SET syncId = :s WHERE id = :id") suspend fun setForwardSyncId(id: Long, s: String)
 
     @Query("DELETE FROM host_group WHERE syncId = :s AND updatedAt <= :at") suspend fun deleteGroup(s: String, at: Long): Int
-    @Query("DELETE FROM host WHERE syncId = :s AND updatedAt <= :at") suspend fun deleteHost(s: String, at: Long): Int
+    /** A local shell or a serial port belongs to its device: a deletion from another one never removes it (see SyncPart). */
+    @Query("DELETE FROM host WHERE syncId = :s AND updatedAt <= :at AND protocol NOT IN ('LOCAL', 'SERIAL')") suspend fun deleteHost(s: String, at: Long): Int
     @Query("DELETE FROM ssh_key WHERE syncId = :s AND updatedAt <= :at") suspend fun deleteKey(s: String, at: Long): Int
     @Query("DELETE FROM identity WHERE syncId = :s AND updatedAt <= :at") suspend fun deleteIdentity(s: String, at: Long): Int
     @Query("DELETE FROM snippet WHERE syncId = :s AND updatedAt <= :at") suspend fun deleteSnippet(s: String, at: Long): Int

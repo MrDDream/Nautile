@@ -2,6 +2,7 @@ package com.nautile.app.backup
 
 import android.content.Context
 import com.nautile.data.backup.SyncDevice
+import com.nautile.data.sync.SyncPart
 import com.nautile.security.SecretStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -111,6 +112,19 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
     /** Networks the synchronisation may use. */
     val network: StateFlow<BackupNetwork> = _network.asStateFlow()
     fun setNetwork(n: BackupNetwork) { _network.value = n; prefs.edit().putString(KEY_NETWORK, n.name).apply() }
+
+    private val _syncSkip = MutableStateFlow(
+        prefs.getStringSet(KEY_SYNC_SKIP, emptySet()).orEmpty().mapNotNull { n -> SyncPart.entries.firstOrNull { it.name == n } }.toSet(),
+    )
+    /** The themes this phone leaves out of the synchronisation (file and Wi-Fi). */
+    val syncSkip: StateFlow<Set<SyncPart>> = _syncSkip.asStateFlow()
+
+    /** Takes theme [part] into the synchronisation, or leaves it out; taken back in, its records go out at the next one. */
+    fun setSyncPart(part: SyncPart, on: Boolean) {
+        val next = if (on) _syncSkip.value - part else _syncSkip.value + part
+        _syncSkip.value = next
+        prefs.edit().putStringSet(KEY_SYNC_SKIP, next.map { it.name }.toSet()).putLong(KEY_SYNCED_CHANGE, 0L).apply()
+    }
 
     private val _syncMinutes = MutableStateFlow(prefs.getInt(KEY_SYNC_MINUTES, 60))
     /** How often synchronisation runs in the background (it also runs after each change). */
@@ -245,6 +259,7 @@ class BackupPrefs(context: Context, private val secrets: SecretStore) {
         private const val KEY_SYNCED_CHANGE = "synced_change"
         private const val KEY_NETWORK = "network"
         private const val KEY_SYNC_MINUTES = "sync_minutes"
+        private const val KEY_SYNC_SKIP = "sync_skip"
         private const val SECRET_PASSWORD = "backup_password"
         val SYNC_CHOICES = listOf(15, 60, 360, 1440)
         /** After this, Settings suggests backing up again. */

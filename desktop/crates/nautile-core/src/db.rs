@@ -715,7 +715,12 @@ impl<'a> Store<'a> {
     /// Applies another device's deletion unless the record changed after it; the number of rows removed.
     pub fn delete_synced(&self, kind: &str, sync_id: &str, at: i64) -> Result<usize> {
         match kind {
-            "host_group" | "host" | "ssh_key" | "identity" | "snippet" | "port_forward" => self.0.execute(
+            // A local shell or a serial port belongs to its device: a deletion from another one never removes it.
+            "host" => self.0.execute(
+                "DELETE FROM host WHERE syncId = ?1 AND updatedAt <= ?2 AND protocol NOT IN ('LOCAL', 'SERIAL')",
+                params![sync_id, at],
+            ),
+            "host_group" | "ssh_key" | "identity" | "snippet" | "port_forward" => self.0.execute(
                 &format!("DELETE FROM {kind} WHERE syncId = ?1 AND updatedAt <= ?2"),
                 params![sync_id, at],
             ),

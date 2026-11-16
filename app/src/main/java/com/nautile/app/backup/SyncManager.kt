@@ -11,6 +11,7 @@ import com.nautile.data.backup.BackupCodec
 import com.nautile.data.backup.SyncDevice
 import com.nautile.data.backup.WrongBackupPasswordException
 import com.nautile.data.sync.SyncMerge
+import com.nautile.data.sync.SyncPart
 import com.nautile.i18n.tr
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,14 +61,19 @@ class SyncManager(private val app: NautileApp, private val scope: CoroutineScope
                     val store = BackupStores.of(app, dest, prefs)
                     val remote = withContext(Dispatchers.IO) { store.read() }
                     val data = remote.text?.let { withContext(Dispatchers.Default) { BackupCodec.import(it, pw) } }
-                    val stats = data?.let { merge.merge(it) } ?: SyncMerge.Stats()
+                    // The themes left out here are neither taken from the file nor replaced in it.
+                    val skip = prefs.syncSkip.value
+                    val stats = data?.let { merge.merge(SyncPart.without(it, skip)) } ?: SyncMerge.Stats()
                     val now = System.currentTimeMillis()
                     val me = SyncDevice(prefs.deviceId, Build.MODEL.ifBlank { "Android" }, now)
                     val others = data?.devices.orEmpty().filter { it.id != me.id && now - it.lastSeen < 180L * 24 * 3600 * 1000 }
                     val myLastSeen = data?.devices?.firstOrNull { it.id == me.id }?.lastSeen ?: 0L
                     val devices = (others + me).sortedByDescending { it.lastSeen }
                     if (data == null || dirtyBefore || stats.changed || now - myLastSeen > 12 * 3600_000L) {
-                        val text = withContext(Dispatchers.Default) { BackupCodec.export(merge.snapshot(devices), pw) }
+                        val text = withContext(Dispatchers.Default) {
+                            val mine = merge.snapshot(devices)
+                            BackupCodec.export(if (data != null) SyncPart.carry(mine, data, skip) else SyncPart.without(mine, skip), pw)
+                        }
                         withContext(Dispatchers.IO) {
                             store.write(text.toByteArray(), remote)
                             // The synchronised file is also the backup: keep a daily copy on the phone.

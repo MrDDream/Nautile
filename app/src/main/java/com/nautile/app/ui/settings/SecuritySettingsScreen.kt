@@ -1,5 +1,6 @@
 package com.nautile.app.ui.settings
 
+import com.nautile.data.sync.SyncPart
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
@@ -323,6 +324,7 @@ fun BackupSettingsScreen(onBack: () -> Unit) {
         ) { syncInfo = false }
 
         LanSyncSection()
+        SyncPartsSection(syncOn)
 
         SectionLabel(tr("Sauvegarde"), Modifier.padding(top = 8.dp))
         Column(
@@ -712,4 +714,36 @@ private fun WebDavDialog(initial: BackupDestination.WebDav?, savedPassword: Stri
         },
         confirmButton = { TextButton(onClick = { onSave(url, user.trim(), password) }, enabled = valid) { Text(tr("Enregistrer"), color = Nt.Accent) } },
     )
+}
+
+/** What this phone synchronises, by theme (the shared file and the Wi-Fi alike); shown once one of them is on. */
+@Composable
+private fun SyncPartsSection(syncOn: Boolean) {
+    val app = LocalContext.current.applicationContext as NautileApp
+    val prefs = app.backupPrefs
+    val lanOn by app.lanSync.enabled.collectAsStateWithLifecycle()
+    val skip by prefs.syncSkip.collectAsStateWithLifecycle()
+    if (!syncOn && !lanOn) return
+    val left = SyncPart.effective(skip)
+    val hostsOn = SyncPart.HOSTS !in left
+    fun set(part: SyncPart, on: Boolean) {
+        prefs.setSyncPart(part, on)
+        if (on) {
+            if (syncOn) app.sync.requestSoon(1_000)
+            if (lanOn) app.lanSync.requestSoon(1_000)
+        }
+    }
+    SectionLabel(tr("Ce qui est synchronisé"), Modifier.padding(top = 8.dp))
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Nt.Surface).border(1.dp, Nt.Border, RoundedCornerShape(16.dp))) {
+        ToggleRow(tr("Hôtes et trousseau"), tr("Hôtes, groupes, clés SSH et identités"), hostsOn) { set(SyncPart.HOSTS, it) }
+        ToggleRow(
+            tr("Tunnels"),
+            if (hostsOn) tr("Redirections de ports") else tr("Suivent les hôtes, dont ils dépendent"),
+            SyncPart.TUNNELS !in left,
+            enabled = hostsOn,
+        ) { set(SyncPart.TUNNELS, it) }
+        ToggleRow(tr("Snippets"), tr("Commandes enregistrées"), SyncPart.SNIPPETS !in left) { set(SyncPart.SNIPPETS, it) }
+        ToggleRow(tr("Serveurs connus"), tr("Empreintes des clés d'hôtes déjà acceptées"), SyncPart.KNOWN_HOSTS !in left) { set(SyncPart.KNOWN_HOSTS, it) }
+    }
+    Hint(tr("Par le fichier partagé comme par le Wi-Fi. Un thème décoché n'est ni reçu ni envoyé : les autres appareils gardent le leur."))
 }

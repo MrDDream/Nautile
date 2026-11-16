@@ -8,6 +8,7 @@ import android.util.Base64
 import com.nautile.app.NautileApp
 import com.nautile.data.backup.BackupData
 import com.nautile.data.sync.SyncMerge
+import com.nautile.data.sync.SyncPart
 import com.nautile.i18n.tr
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -332,7 +333,8 @@ class LanSync(private val app: NautileApp, private val scope: CoroutineScope) {
         Base64.encodeToString(MessageDigest.getInstance("SHA-256").digest(data.toByteArray()), Base64.NO_WRAP)
 
     /** This device's data, as sent to the others. */
-    private suspend fun snapshotOf(merge: SyncMerge) = json.encodeToString(BackupData.serializer(), merge.snapshot(emptyList()))
+    private suspend fun snapshotOf(merge: SyncMerge) =
+        json.encodeToString(BackupData.serializer(), SyncPart.without(merge.snapshot(emptyList()), app.backupPrefs.syncSkip.value))
 
     /** Whether a round is owed, or the data changed since the last exchange. */
     private suspend fun roundWanted(): Boolean = roundOwed.get() || withContext(Dispatchers.IO) {
@@ -401,7 +403,8 @@ class LanSync(private val app: NautileApp, private val scope: CoroutineScope) {
     private suspend fun exchange(ch: LanProtocol.Channel, peer: String, initiator: Boolean, live: () -> Boolean): Boolean? {
         val merge = SyncMerge(app.database)
         fun allowed() = _enabled.value && live() && secrets.containsKey(peer)
-        fun decode(text: String) = json.decodeFromString(BackupData.serializer(), text)
+        // The themes left out here are neither taken nor sent.
+        fun decode(text: String) = SyncPart.without(json.decodeFromString(BackupData.serializer(), text), app.backupPrefs.syncSkip.value)
         if (initiator) {
             val mine = snapshotOf(merge)
             val (them, theirs) = LanExchange.initiate(ch, hello(), mine, peer)
