@@ -100,7 +100,8 @@
   .window::before { content: ""; display: block; height: 30px; background: var(--raised); border-bottom: 1px solid var(--border);
     background-image: radial-gradient(circle at 20px 15px, var(--dot) 5.5px, transparent 6px), radial-gradient(circle at 39px 15px, var(--dot) 5.5px, transparent 6px), radial-gradient(circle at 58px 15px, var(--dot) 5.5px, transparent 6px); }
   .window img { display: block; width: 100%; height: auto; }
-  .hero-phone { position: absolute; left: 0; bottom: 0; width: 30%; height: auto; filter: drop-shadow(0 28px 48px var(--shadow-2)); }
+  .hero-phone { position: absolute; left: 0; bottom: 0; width: 28%; height: auto; filter: drop-shadow(0 28px 48px var(--shadow-2)); }
+  .hero-phone.right { left: auto; right: -12px; bottom: -24px; }
 
   /* Protocols strip */
   .strip { padding: 28px 24px; border-bottom: 1px solid var(--line); background: var(--band); }
@@ -219,6 +220,7 @@
     .top nav { display: none; }
     .tools { margin-left: auto; }
     .hero-shots { padding-left: 40px; }
+    .hero-phone.right { right: 0; }
   }
   @media (max-width: 560px) {
     section { padding: 72px 16px; }
@@ -271,6 +273,7 @@
       <div class="hero-shots">
         <div class="window"><img data-desk="assistant" src="assets/desktop/en-dark-assistant.webp" alt="Nautile on a computer: the terminal and its AI assistant side by side" width="1600" height="1000"></div>
         <img class="hero-phone" data-shot="terminal" src="assets/shots/en-dark-terminal.png" alt="Nautile on Android: a terminal session" width="416" height="892">
+        <img class="hero-phone right" data-shot="hosts" src="assets/shots/en-dark-hosts.png" alt="Nautile on Android: hosts and groups" width="416" height="892">
       </div>
     </div>
   </section>
@@ -300,7 +303,7 @@
       </div>
       <div class="phones" data-gallery-pane="phone">
         <figure><img data-shot="hosts" src="assets/shots/en-dark-hosts.png" alt="Hosts by group" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.hosts">Hosts and groups</figcaption></figure>
-        <figure><img data-shot="quick" src="assets/shots/en-dark-quick.png" alt="Quick connection" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.quick">Quick connection, nothing to save</figcaption></figure>
+        <figure><img data-shot="terminal" src="assets/shots/en-dark-terminal.png" alt="Terminal session with the key bar" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.terminal">A real terminal with a key bar</figcaption></figure>
         <figure><img data-shot="snippets" src="assets/shots/en-dark-snippets.png" alt="Snippets" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.snippets">Snippets on several servers</figcaption></figure>
         <figure><img data-shot="assistant" src="assets/shots/en-dark-assistant.png" alt="AI assistant" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.assistant">An AI assistant, your own key</figcaption></figure>
         <figure><img data-shot="settings-backup" src="assets/shots/en-dark-settings-backup.png" alt="Encrypted backups" width="416" height="892" loading="lazy"><figcaption data-i18n="shot.backup">Scheduled encrypted backups</figcaption></figure>

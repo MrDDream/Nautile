@@ -11,7 +11,7 @@ const FR = {
   "screens.title": "Pensé pour le pouce, à l'aise au clavier.",
   "screens.lead": "Grandes zones tactiles, une barre de touches pour ce qui manque au clavier, et tout à un geste : se connecter, rouvrir une session, lancer un snippet.",
   "tab.phone": "Téléphone", "tab.desktop": "Ordinateur",
-  "shot.hosts": "Hôtes et groupes", "shot.quick": "Connexion rapide, sans enregistrer", "shot.snippets": "Snippets sur plusieurs serveurs",
+  "shot.hosts": "Hôtes et groupes", "shot.terminal": "Un vrai terminal avec sa barre de touches", "shot.snippets": "Snippets sur plusieurs serveurs",
   "shot.assistant": "Assistant IA, avec votre clé", "shot.backup": "Sauvegardes chiffrées planifiées",
   "desk.split": "Deux terminaux côte à côte, ou un onglet dans sa propre fenêtre",
   "desk.palette": "Ctrl+K : hôtes, snippets, réglages et actions au clavier",
