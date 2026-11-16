@@ -36,22 +36,10 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/shots/fr-light-hosts.png">
-    <img src="docs/assets/shots/fr-dark-hosts.png" alt="Hôtes et groupes" width="200">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/shots/fr-light-terminal.png">
-    <img src="docs/assets/shots/fr-dark-terminal.png" alt="Session terminal avec la barre de touches" width="200">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/shots/fr-light-connections.png">
-    <img src="docs/assets/shots/fr-dark-connections.png" alt="Sessions actives et historique" width="200">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/shots/fr-light-snippets.png">
-    <img src="docs/assets/shots/fr-dark-snippets.png" alt="Snippets" width="200">
-  </picture>
+  <img src="docs/assets/shots/fr-dark-hosts.png" alt="Hôtes et groupes" width="200">
+  <img src="docs/assets/shots/fr-dark-terminal.png" alt="Session terminal avec la barre de touches" width="200">
+  <img src="docs/assets/shots/fr-dark-connections.png" alt="Sessions actives et historique" width="200">
+  <img src="docs/assets/shots/fr-dark-snippets.png" alt="Snippets" width="200">
 </p>
 
 <p align="center">
@@ -93,20 +81,11 @@ Termius est très bien, jusqu'au moment où tes hôtes, tes clés et tes mots de
 ## 💻 Sur ton ordinateur
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/desktop/fr-light-hosts.webp">
-    <img src="docs/assets/desktop/fr-dark-hosts.webp" alt="Les hôtes sur ordinateur" width="720">
-  </picture>
+  <img src="docs/assets/desktop/fr-dark-hosts.webp" alt="Les hôtes sur ordinateur" width="720">
 </p>
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/desktop/fr-light-assistant.webp">
-    <img src="docs/assets/desktop/fr-dark-assistant.webp" alt="Terminal et assistant IA" width="356">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/desktop/fr-light-palette.webp">
-    <img src="docs/assets/desktop/fr-dark-palette.webp" alt="Recherche Ctrl+K" width="356">
-  </picture>
+  <img src="docs/assets/desktop/fr-dark-assistant.webp" alt="Terminal et assistant IA" width="356">
+  <img src="docs/assets/desktop/fr-dark-palette.webp" alt="Recherche Ctrl+K" width="356">
 </p>
 
 Une app native pour Windows, Linux et macOS, écrite en Rust (environ 35 Mo de RAM). Elle reprend l'interface, les réglages et les thèmes du téléphone, lit ses sauvegardes et reste synchronisée avec lui, par un fichier partagé ou directement sur le Wi-Fi. Et elle ajoute ce qui sert sur un ordinateur :

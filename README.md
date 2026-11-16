@@ -36,22 +36,10 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/shots/en-light-hosts.png">
-    <img src="docs/assets/shots/en-dark-hosts.png" alt="Hosts and groups" width="200">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/shots/en-light-terminal.png">
-    <img src="docs/assets/shots/en-dark-terminal.png" alt="Terminal session with the key bar" width="200">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/shots/en-light-connections.png">
-    <img src="docs/assets/shots/en-dark-connections.png" alt="Active sessions and history" width="200">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/shots/en-light-snippets.png">
-    <img src="docs/assets/shots/en-dark-snippets.png" alt="Snippets" width="200">
-  </picture>
+  <img src="docs/assets/shots/en-dark-hosts.png" alt="Hosts and groups" width="200">
+  <img src="docs/assets/shots/en-dark-terminal.png" alt="Terminal session with the key bar" width="200">
+  <img src="docs/assets/shots/en-dark-connections.png" alt="Active sessions and history" width="200">
+  <img src="docs/assets/shots/en-dark-snippets.png" alt="Snippets" width="200">
 </p>
 
 <p align="center">
@@ -93,20 +81,11 @@ Termius is great, until your hosts, keys and passwords have to live in someone e
 ## 💻 On your computer
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/desktop/en-light-hosts.webp">
-    <img src="docs/assets/desktop/en-dark-hosts.webp" alt="Hosts on the desktop" width="720">
-  </picture>
+  <img src="docs/assets/desktop/en-dark-hosts.webp" alt="Hosts on the desktop" width="720">
 </p>
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/desktop/en-light-assistant.webp">
-    <img src="docs/assets/desktop/en-dark-assistant.webp" alt="Terminal and AI assistant" width="356">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/desktop/en-light-palette.webp">
-    <img src="docs/assets/desktop/en-dark-palette.webp" alt="Ctrl+K search" width="356">
-  </picture>
+  <img src="docs/assets/desktop/en-dark-assistant.webp" alt="Terminal and AI assistant" width="356">
+  <img src="docs/assets/desktop/en-dark-palette.webp" alt="Ctrl+K search" width="356">
 </p>
 
 A native app for Windows, Linux and macOS, written in Rust (about 35 MB of RAM). It has the phone's interface, settings and themes, reads the phone's backups and stays in sync with it, through a shared file or straight over Wi-Fi. On top of that, what a computer needs:

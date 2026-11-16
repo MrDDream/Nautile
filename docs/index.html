@@ -100,8 +100,7 @@
   .window::before { content: ""; display: block; height: 30px; background: var(--raised); border-bottom: 1px solid var(--border);
     background-image: radial-gradient(circle at 20px 15px, var(--dot) 5.5px, transparent 6px), radial-gradient(circle at 39px 15px, var(--dot) 5.5px, transparent 6px), radial-gradient(circle at 58px 15px, var(--dot) 5.5px, transparent 6px); }
   .window img { display: block; width: 100%; height: auto; }
-  .hero-phone { position: absolute; left: 0; bottom: 0; width: 28%; height: auto; filter: drop-shadow(0 28px 48px var(--shadow-2)); }
-  .hero-phone.right { left: auto; right: -12px; bottom: -24px; }
+  .hero-phone { position: absolute; left: 0; bottom: 0; width: 30%; height: auto; filter: drop-shadow(0 28px 48px var(--shadow-2)); }
 
   /* Protocols strip */
   .strip { padding: 28px 24px; border-bottom: 1px solid var(--line); background: var(--band); }
@@ -220,7 +219,6 @@
     .top nav { display: none; }
     .tools { margin-left: auto; }
     .hero-shots { padding-left: 40px; }
-    .hero-phone.right { right: 0; }
   }
   @media (max-width: 560px) {
     section { padding: 72px 16px; }
@@ -272,8 +270,7 @@
       </div>
       <div class="hero-shots">
         <div class="window"><img data-desk="assistant" src="assets/desktop/en-dark-assistant.webp" alt="Nautile on a computer: the terminal and its AI assistant side by side" width="1600" height="1000"></div>
-        <img class="hero-phone" data-shot="terminal" src="assets/shots/en-dark-terminal.png" alt="Nautile on Android: a terminal session" width="416" height="892">
-        <img class="hero-phone right" data-shot="hosts" src="assets/shots/en-dark-hosts.png" alt="Nautile on Android: hosts and groups" width="416" height="892">
+        <img class="hero-phone" data-shot="hosts" src="assets/shots/en-dark-hosts.png" alt="Nautile on Android: hosts and groups" width="416" height="892">
       </div>
     </div>
   </section>
