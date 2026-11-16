@@ -845,6 +845,16 @@ fn a_detached_tab_leaves_the_tab_bar_and_comes_back() {
 }
 
 #[test]
+fn lan_pair() {
+    each(|app| {
+        let _ = app.update(Message::Nav(Page::Settings));
+        let _ = app.update(Message::SettingsPage(Some(SettingsPage::Backup)));
+        let _ = app.update(Message::OpenModal(Some(nautile_app::app::Modal::LanPair)));
+        "lan-pair"
+    });
+}
+
+#[test]
 fn connect_palette() {
     each(|app| {
         let _ = app.update(Message::ConnectPalette);

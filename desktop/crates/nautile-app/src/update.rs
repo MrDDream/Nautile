@@ -98,6 +98,16 @@ impl App {
         Task::none()
     }
 
+    /// While the app runs (often for days in the notification area): the same daily check as at start.
+    pub fn update_tick(&mut self) -> Task<Message> {
+        let now = nautile_core::model::now_ms();
+        let due = self.settings.update_check() && now - self.settings.update_last_check > 20 * 3_600_000;
+        if due && !self.updates.checking && self.updates.available.is_none() {
+            return self.update_msg(UpdateMsg::Check(false));
+        }
+        Task::none()
+    }
+
     pub fn update_msg(&mut self, m: UpdateMsg) -> Task<Message> {
         match m {
             UpdateMsg::Check(manual) => {

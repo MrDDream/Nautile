@@ -199,8 +199,8 @@ fun HostsScreen(
             onClick = { newHost = true },
             containerColor = Nt.FabContainer,
             contentColor = Nt.OnPrimaryContainer,
-            shape = CircleShape,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp).size(60.dp).primaryBorder(CircleShape),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp).size(60.dp).primaryBorder(RoundedCornerShape(18.dp)),
         ) { Icon(Icons.Filled.Add, contentDescription = tr("Nouvel hôte"), modifier = Modifier.size(28.dp)) }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp))
     }

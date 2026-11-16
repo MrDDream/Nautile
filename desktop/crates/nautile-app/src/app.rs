@@ -2928,7 +2928,8 @@ impl App {
                         log.flush();
                     }
                 }
-                return self.backup_tick();
+                let backup = self.backup_tick();
+                return Task::batch([backup, self.update_tick()]);
             }
             Message::Backup(m) => return self.backup_update(m),
             Message::Ai(m) => return self.ai_update(m),

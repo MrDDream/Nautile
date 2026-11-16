@@ -19,6 +19,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.Wifi
+import androidx.compose.material.icons.outlined.Dialpad
+import androidx.compose.material.icons.outlined.Pin
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Devices
@@ -212,16 +220,24 @@ private fun PairDialog(lan: LanSync, step: PairStep, onStep: (PairStep) -> Unit,
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 when (step) {
                     PairStep.CHOOSE -> {
-                        Text(tr("Sur l'un des deux appareils, affichez un code ; sur l'autre, choisissez cet appareil et saisissez le code."), color = Nt.TextSoft, fontSize = 14.sp)
-                        ChoiceRow(tr("Afficher un code"), tr("Cet appareil attend l'autre")) { lan.showCode(); onStep(PairStep.SHOW) }
-                        ChoiceRow(tr("Saisir un code"), tr("Rejoindre un appareil qui affiche un code")) { onStep(PairStep.JOIN) }
+                        PairPicture()
+                        PairSteps(
+                            tr("Sur un appareil, affichez un code."),
+                            tr("Sur l'autre, choisissez le premier et saisissez ce code."),
+                        )
+                        ChoiceRow(Icons.Outlined.Pin, Nt.Accent, tr("Afficher un code"), tr("Cet appareil attend l'autre")) { lan.showCode(); onStep(PairStep.SHOW) }
+                        ChoiceRow(Icons.Outlined.Dialpad, Nt.Blue, tr("Saisir un code"), tr("Rejoindre un appareil qui affiche un code")) { onStep(PairStep.JOIN) }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Outlined.Wifi, contentDescription = null, tint = Nt.Muted, modifier = Modifier.size(16.dp))
+                            Text(tr("Les deux appareils doivent être sur le même Wi-Fi."), color = Nt.Muted, fontSize = 12.sp)
+                        }
                     }
                     PairStep.SHOW -> {
                         val shown = code
                         if (shown == null && !justPaired) {
                             // Dropped after too many wrong tries.
                             Text(tr("Trop d'essais, affichez un nouveau code"), color = Nt.Pink, fontSize = 14.sp)
-                            ChoiceRow(tr("Afficher un code"), tr("Cet appareil attend l'autre")) { lan.showCode() }
+                            ChoiceRow(Icons.Outlined.Pin, Nt.Accent, tr("Afficher un code"), tr("Cet appareil attend l'autre")) { lan.showCode() }
                         } else {
                             Text(tr("Sur l'autre appareil : Sauvegarde et synchro › Sur le Wi-Fi › Associer › Saisir un code."), color = Nt.TextSoft, fontSize = 14.sp)
                             Text(
@@ -244,7 +260,7 @@ private fun PairDialog(lan: LanSync, step: PairStep, onStep: (PairStep) -> Unit,
                             }
                             candidates.forEach { f ->
                                 val detail = if (f.version < LanProtocol.VERSION) tr("Mettez à jour Nautile sur l'autre appareil") else f.host.hostAddress.orEmpty()
-                                ChoiceRow(f.name, detail) { target = f }
+                                ChoiceRow(Icons.Outlined.Devices, Nt.Green, f.name, detail) { target = f }
                             }
                         } else {
                             Text(tr("Code affiché sur %1\$s :", target!!.name), color = Nt.TextSoft, fontSize = 14.sp)
@@ -275,16 +291,60 @@ private fun PairDialog(lan: LanSync, step: PairStep, onStep: (PairStep) -> Unit,
     )
 }
 
+/** A choice of the pairing: its icon in a tinted tile, what it does, and a chevron. */
 @Composable
-private fun ChoiceRow(title: String, detail: String, onClick: () -> Unit) {
+private fun ChoiceRow(icon: ImageVector, tint: Color, title: String, detail: String, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Nt.Bg).clickable(role = Role.Button, onClick = onClick).padding(14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Nt.Bg).border(1.dp, Nt.Border, RoundedCornerShape(14.dp))
+            .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        Box(Modifier.size(40.dp).background(tint.copy(alpha = 0.14f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+        }
         Column(Modifier.weight(1f)) {
             Text(title, fontSize = 15.sp, color = Nt.Text, fontWeight = FontWeight.SemiBold)
-            Text(detail, fontSize = 12.sp, color = Nt.Muted)
+            Text(detail, fontSize = 12.sp, color = Nt.Muted, lineHeight = 16.sp)
         }
-        Box(Modifier.size(8.dp))
+        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = Nt.Muted)
+    }
+}
+
+/** A phone and a computer joined over Wi-Fi: what the pairing does, at a glance. */
+@Composable
+private fun PairPicture() {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Nt.Bg).padding(vertical = 18.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        @Composable
+        fun device(icon: ImageVector) = Box(
+            Modifier.size(52.dp).background(Nt.Accent.copy(alpha = 0.12f), RoundedCornerShape(16.dp)),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, contentDescription = null, tint = Nt.Accent, modifier = Modifier.size(28.dp)) }
+        device(Icons.Outlined.PhoneAndroid)
+        Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            repeat(3) { Box(Modifier.size(5.dp).background(Nt.Muted, RoundedCornerShape(3.dp))) }
+            Icon(Icons.Outlined.Wifi, contentDescription = null, tint = Nt.Green, modifier = Modifier.size(22.dp))
+            repeat(3) { Box(Modifier.size(5.dp).background(Nt.Muted, RoundedCornerShape(3.dp))) }
+        }
+        device(Icons.Outlined.Computer)
+    }
+}
+
+/** The pairing in numbered steps. */
+@Composable
+private fun PairSteps(vararg steps: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        steps.forEachIndexed { i, s ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+                Box(Modifier.size(22.dp).background(Nt.Accent, RoundedCornerShape(7.dp)), contentAlignment = Alignment.Center) {
+                    Text("${i + 1}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Nt.OnAccent, fontFamily = Nt.Mono)
+                }
+                Text(s, color = Nt.TextSoft, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f))
+            }
+        }
     }
 }

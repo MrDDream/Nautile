@@ -83,6 +83,7 @@ const I_OPEN_WINDOW: char = '\u{E89E}'; // open_in_new
 const I_ATTACH: char = '\u{E89D}'; // open_in_browser
 const I_SPLIT_STACKED: char = '\u{E947}'; // horizontal_split
 const I_DUPLICATE: char = '\u{E02E}'; // library_add
+const I_WIFI: char = '\u{E63E}'; // wifi
 const I_FOLD: char = '\u{E9BD}'; // menu_open
 const I_UNFOLD: char = '\u{E5D2}'; // menu
 const I_SYNC_OFF: char = '\u{E628}'; // sync_disabled

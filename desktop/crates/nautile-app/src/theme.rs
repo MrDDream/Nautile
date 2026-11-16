@@ -506,7 +506,7 @@ pub fn primary(t: &Theme, s: button::Status) -> button::Style {
     }
 }
 
-/// The round « + » of the lists (Android's floating action button).
+/// The « + » of the lists (Android's floating action button), square with rounded corners.
 pub fn fab(t: &Theme, s: button::Status) -> button::Style {
     let n = nt(t);
     let mut st = primary(t, s);
@@ -515,7 +515,8 @@ pub fn fab(t: &Theme, s: button::Status) -> button::Style {
         let tint = if n.style == ButtonStyle::Tonal { 0.22 } else { 0.0 };
         st.background = Some(mix(n.surface, n.accent, tint).into());
     }
-    st.border.radius = 30.0.into();
+    // A square with rounded corners, as the extended buttons of the phone (18 dp).
+    st.border.radius = 18.0.into();
     if n.style == ButtonStyle::Plein {
         st.text_color = n.on_accent;
     }

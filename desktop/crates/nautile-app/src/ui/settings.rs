@@ -395,6 +395,7 @@ pub(super) fn settings_home(app: &App) -> Element<'_, Message> {
                 .spacing(8)
                 .align_y(Alignment::Center),
             soft(trf("Version %1$s · client SSH et RDP libre (GPLv3)", &[&env!("CARGO_PKG_VERSION")])).size(12),
+            about_updates(app),
             button(text(tr("Licences tierces")).size(12))
                 .padding([2, 0])
                 .style(theme::ghost)
@@ -407,6 +408,49 @@ pub(super) fn settings_home(app: &App) -> Element<'_, Message> {
         }),
     );
     settings_frame(header(tr("Réglages"), None, None, vec![]), body)
+}
+
+/// Under the version: a new one to install, the check running or its answer, and « Vérifier les mises à jour ».
+fn about_updates(app: &App) -> Element<'_, Message> {
+    use crate::update::UpdateMsg as U;
+    let st = &app.updates;
+    if let Some(r) = &st.available {
+        return button(
+            row![
+                icon(I_DOWNLOAD_FILE).size(16),
+                text(trf("Nautile %1$s est disponible : installer", &[&r.tag_name]))
+                    .size(13)
+                    .font(BOLD),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        )
+        .padding([8, 12])
+        .style(theme::primary)
+        .on_press(Message::OpenModal(Some(crate::app::Modal::Update)))
+        .into();
+    }
+    let mut r = row![
+        button(text(tr("Vérifier les mises à jour")).size(12))
+            .padding([2, 0])
+            .style(theme::ghost)
+            .on_press_maybe((!st.checking).then_some(Message::Update(U::Check(true))))
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+    let note = if st.checking {
+        Some(tr("Recherche…"))
+    } else {
+        match &st.status {
+            Some(Ok(s)) => Some(s.clone()),
+            Some(Err(e)) => Some(e.clone()),
+            None => None,
+        }
+    };
+    if let Some(n) = note {
+        r = r.push(soft(n).size(12));
+    }
+    r.into()
 }
 
 /// THIRD-PARTY-LICENSES.txt where the packages install it (next to the executable, in the .app's Resources,
@@ -2502,27 +2546,111 @@ pub(super) fn lan_pair_modal(app: &App, max_height: f32) -> Element<'_, Message>
         (
             tr("Associer un appareil"),
             None,
-            c.push(kit::kind_row(
-                I_PHONE,
-                n.accent,
-                tr("Afficher un code"),
-                tr("Cet ordinateur montre un code à taper sur l'autre appareil"),
-                bm(B::LanShowCode),
-            ))
-            .push(kit::kind_row(
-                I_KEYBOARD,
-                n.blue,
-                tr("Saisir un code"),
-                tr("L'autre appareil montre le code, vous le tapez ici"),
-                bm(B::LanJoin(true)),
-            ))
-            .into(),
+            c.push(pair_picture())
+                .push(pair_steps())
+                .push(kit::kind_row(
+                    I_PHONE,
+                    n.accent,
+                    tr("Afficher un code"),
+                    tr("Cet ordinateur montre un code à taper sur l'autre appareil"),
+                    bm(B::LanShowCode),
+                ))
+                .push(kit::kind_row(
+                    I_KEYBOARD,
+                    n.blue,
+                    tr("Saisir un code"),
+                    tr("L'autre appareil montre le code, vous le tapez ici"),
+                    bm(B::LanJoin(true)),
+                ))
+                .push(
+                    row![
+                        icon(I_WIFI).size(16).style(|t: &iced::Theme| text::Style {
+                            color: Some(theme::nt(t).muted),
+                        }),
+                        soft(tr("Les deux appareils doivent être sur le même Wi-Fi.")).size(13),
+                    ]
+                    .spacing(8)
+                    .padding(iced::padding::top(10).left(4))
+                    .align_y(Alignment::Center),
+                )
+                .into(),
         )
     };
     kit::overlay(
         kit::dialog(kit::dialog_head(title, None, back, close), body, None, 560.0, max_height),
         None,
     )
+}
+
+/// A phone and a computer joined over Wi-Fi: what the pairing does, at a glance (as on Android).
+fn pair_picture<'a>() -> Element<'a, Message> {
+    let device = |c: char| {
+        container(icon(c).size(28).style(|t: &iced::Theme| text::Style {
+            color: Some(theme::nt(t).accent),
+        }))
+        .center(Length::Fixed(52.0))
+        .style(|t: &iced::Theme| container::Style {
+            background: Some(theme::alpha(theme::nt(t).accent, 0.12).into()),
+            border: iced::border::rounded(16),
+            ..Default::default()
+        })
+    };
+    let dot = || {
+        container(Space::new().width(5).height(5)).style(|t: &iced::Theme| container::Style {
+            background: Some(theme::nt(t).muted.into()),
+            border: iced::border::rounded(3),
+            ..Default::default()
+        })
+    };
+    let link = row![
+        dot(),
+        dot(),
+        dot(),
+        icon(I_WIFI).size(22).style(|t: &iced::Theme| text::Style {
+            color: Some(theme::nt(t).green),
+        }),
+        dot(),
+        dot(),
+        dot()
+    ]
+    .spacing(4)
+    .align_y(Alignment::Center);
+    container(
+        row![device(I_PHONE), link, device(I_COMPUTER)]
+            .spacing(10)
+            .align_y(Alignment::Center),
+    )
+    .center_x(Fill)
+    .padding(18)
+    .style(theme::code_block)
+    .into()
+}
+
+/// The pairing in two numbered steps.
+fn pair_steps<'a>() -> Element<'a, Message> {
+    let step = |n: u8, s: String| {
+        row![
+            container(text(n.to_string()).size(12).font(MONO).style(|t: &iced::Theme| text::Style {
+                color: Some(theme::nt(t).on_accent),
+            }))
+            .center(Length::Fixed(22.0))
+            .style(|t: &iced::Theme| container::Style {
+                background: Some(theme::nt(t).accent.into()),
+                border: iced::border::rounded(7),
+                ..Default::default()
+            }),
+            text(s).size(14).width(Fill),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center)
+    };
+    column![
+        step(1, tr("Sur un appareil, affichez un code.")),
+        step(2, tr("Sur l'autre, choisissez le premier et saisissez ce code.")),
+    ]
+    .spacing(8)
+    .padding(iced::padding::vertical(14).horizontal(4))
+    .into()
 }
 
 /// « Ajouter un emplacement »: its kind, then its form.
