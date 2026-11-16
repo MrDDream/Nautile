@@ -265,7 +265,16 @@ pub(super) fn hosts(app: &App) -> Element<'_, Message> {
         bottom: 14.0,
         left: 28.0,
     });
-    stack![column![top, scrollable(list).height(Fill)], kit::fab(Message::NewHost)].into()
+    let page: Element<Message> = stack![column![top, scrollable(list).height(Fill)], kit::fab(Message::NewHost)].into();
+    // The monitor of a host, beside the list.
+    match app
+        .monitor_tab
+        .and_then(|id| app.tab(id))
+        .and_then(|t| t.monitor.as_deref().map(|m| (t, m)))
+    {
+        Some((t, m)) => row![container(page).width(Fill), super::session::monitor_panel(t, m)].into(),
+        None => page,
+    }
 }
 
 pub(super) fn snippets(app: &App) -> Element<'_, Message> {
@@ -705,10 +714,10 @@ pub(super) fn connections(app: &App) -> Element<'_, Message> {
         bottom: 28.0,
         left: 28.0,
     });
-    if !app.tabs.is_empty() {
+    let open = app.session_tabs().count();
+    if open > 0 {
         let cards: Vec<Element<Message>> = app
-            .tabs
-            .iter()
+            .session_tabs()
             .map(|t| {
                 let preview: Element<Message> = if t.remote.is_some() {
                     soft(tr("Bureau à distance")).into()
@@ -766,7 +775,7 @@ pub(super) fn connections(app: &App) -> Element<'_, Message> {
             .collect();
         list = list.push(
             column![
-                kit::section_head(Some(n.green), tr("Ouvertes"), trf("%1$s session(s)", &[&app.tabs.len()]), None),
+                kit::section_head(Some(n.green), tr("Ouvertes"), trf("%1$s session(s)", &[&open]), None),
                 kit::card(cards),
             ]
             .spacing(10),
@@ -774,7 +783,7 @@ pub(super) fn connections(app: &App) -> Element<'_, Message> {
     }
 
     let log = &app.cache.connection_log;
-    if log.is_empty() && app.tabs.is_empty() {
+    if log.is_empty() && open == 0 {
         list = list.push(empty(
             I_HISTORY,
             tr("Aucune connexion pour l'instant"),

@@ -507,8 +507,11 @@ fn importing_hosts_links_jump_hosts_and_skips_existing_ones() {
 fn monitor() {
     each(|app| {
         let id = with_session(app);
+        // Shown beside the hosts, not in a tab of its own.
+        app.monitor_tab = Some(id);
+        app.active_tab = None;
+        app.page = nautile_app::app::Page::Hosts;
         let t = app.tabs.iter_mut().find(|t| t.id == id).unwrap();
-        t.name = "docker-01 — moniteur".into();
         let mut m = nautile_app::sessions::MonitorState::default();
         let (mut total, mut idle) = (3_700_000u64, 3_600_000u64);
         for i in 0..30u64 {

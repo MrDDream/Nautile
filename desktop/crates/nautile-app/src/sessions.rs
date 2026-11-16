@@ -10,7 +10,7 @@ use nautile_net::ssh::{self, Auth, Forward, Params, Target};
 use nautile_net::{Event, Input, KnownKey, Prompt};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::app::{App, Message};
+use crate::app::{App, Message, Page};
 use crate::term::widget::Action;
 use crate::term::{Terminal, themes};
 
@@ -135,6 +135,11 @@ pub(crate) fn recv_stream<T: Send + 'static>(rx: tokio::sync::mpsc::UnboundedRec
 const MAX_OSC52: usize = 100_000;
 
 impl App {
+    /// The tabs of the tab bar: every session but the monitor, shown beside the hosts.
+    pub fn session_tabs(&self) -> impl Iterator<Item = &Tab> {
+        self.tabs.iter().filter(|t| t.monitor.is_none())
+    }
+
     pub fn tab(&self, id: u64) -> Option<&Tab> {
         self.tabs.iter().find(|t| t.id == id)
     }
@@ -479,7 +484,23 @@ impl App {
             Err(e) => return self.say(e),
         };
         self.editor = None;
-        let id = self.open_tab(Some(h.id), trf("%1$s — moniteur", &[&h.alias]), h.color, h.protocol);
+        // Shown beside the hosts, one at a time: the one already open for this host stays.
+        self.active_tab = None;
+        self.page = Page::Hosts;
+        if let Some(old) = self.monitor_tab {
+            let same = self
+                .tab(old)
+                .is_some_and(|t| t.host_id == Some(h.id) && !matches!(t.state, TabState::Closed(_)));
+            if same {
+                return Task::none();
+            }
+            self.close_tab(old);
+        }
+        let last = self.last_tab;
+        let id = self.open_tab(Some(h.id), h.alias.clone(), h.color, h.protocol);
+        self.active_tab = None;
+        self.last_tab = last;
+        self.monitor_tab = Some(id);
         let session = nautile_net::monitor::spawn(params);
         if let Some(t) = self.tab_mut(id) {
             t.input = Some(session.input);
@@ -528,19 +549,21 @@ impl App {
             }
             !mine
         });
-        let index = self.tabs.iter().position(|t| t.id == id);
+        if self.monitor_tab == Some(id) {
+            self.monitor_tab = None;
+        }
+        let index = self.session_tabs().position(|t| t.id == id);
         self.tabs.retain(|t| t.id != id);
         if self.active_tab == Some(id) {
-            self.active_tab = index
-                .and_then(|i| self.tabs.get(i.min(self.tabs.len().saturating_sub(1))))
-                .map(|t| t.id);
+            let left: Vec<u64> = self.session_tabs().map(|t| t.id).collect();
+            self.active_tab = index.and_then(|i| left.get(i.min(left.len().saturating_sub(1)))).copied();
         }
     }
 
     /// Next (or previous) tab; the hosts page counts as the first one.
     pub fn cycle_tab(&mut self, forward: bool) {
         let mut ids: Vec<Option<u64>> = vec![None];
-        ids.extend(self.tabs.iter().map(|t| Some(t.id)));
+        ids.extend(self.session_tabs().map(|t| Some(t.id)));
         let i = ids.iter().position(|x| *x == self.active_tab).unwrap_or(0);
         let n = ids.len();
         self.active_tab = ids[if forward { (i + 1) % n } else { (i + n - 1) % n }];

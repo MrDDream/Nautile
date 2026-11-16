@@ -122,7 +122,7 @@ pub fn items(app: &App) -> Vec<Item> {
         keys: None,
         run: Message::Update(crate::update::UpdateMsg::Check(true)),
     });
-    for t in &app.tabs {
+    for t in app.session_tabs() {
         v.push(Item {
             icon: I_TAB,
             title: t.name.clone(),

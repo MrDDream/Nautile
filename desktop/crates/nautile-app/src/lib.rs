@@ -3,6 +3,7 @@
 pub mod app;
 pub mod assistant;
 pub mod autostart;
+pub mod backdrop;
 pub mod backup;
 pub mod files;
 pub mod kit;

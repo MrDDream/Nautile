@@ -739,6 +739,8 @@ pub struct App {
     pub import: ImportState,
     pub export: ExportState,
     pub tabs: Vec<Tab>,
+    /// The monitor shown beside the hosts: a tab of [tabs] without a place in the tab bar.
+    pub monitor_tab: Option<u64>,
     /// `None`: the hosts and the other pages.
     pub active_tab: Option<u64>,
     pub next_tab: u64,
@@ -926,6 +928,7 @@ impl App {
             prompts: Vec::new(),
             prompt_input: String::new(),
             last_tab: None,
+            monitor_tab: None,
             snippet_run: None,
             tunnels: Default::default(),
             locked: false,
@@ -1654,8 +1657,8 @@ impl App {
                 return iced::widget::operation::focus("search");
             }
             Message::SelectTabIndex(n) => {
-                if let Some(t) = self.tabs.get(n.saturating_sub(1)) {
-                    let id = t.id;
+                let id = self.session_tabs().nth(n.saturating_sub(1)).map(|t| t.id);
+                if let Some(id) = id {
                     return self.update(Message::SelectTab(Some(id)));
                 }
             }
@@ -2754,6 +2757,12 @@ impl App {
             Message::RemoteAction(id, a) => self.on_remote_action(id, a),
             Message::FileDropped(p) => return self.dropped(p),
             Message::OpenLocal => return self.open_local(),
+            // The monitor has no tab: it shows beside the hosts.
+            Message::SelectTab(Some(id)) if self.monitor_tab == Some(id) => {
+                self.active_tab = None;
+                self.page = Page::Hosts;
+                self.editor = None;
+            }
             Message::SelectTab(id) => {
                 self.active_tab = id;
                 if id.is_some() {
@@ -2985,7 +2994,10 @@ impl App {
     }
 
     fn ask_close(&mut self, id: u64) {
-        let open = self.tab(id).is_some_and(|t| t.state == crate::sessions::TabState::Open);
+        // Nothing runs in a monitor: closing it loses nothing.
+        let open = self
+            .tab(id)
+            .is_some_and(|t| t.state == crate::sessions::TabState::Open && t.monitor.is_none());
         if open && self.settings.confirm_close() {
             self.closing = Some(id);
         } else {

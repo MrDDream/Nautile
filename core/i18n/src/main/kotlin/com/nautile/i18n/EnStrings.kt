@@ -692,6 +692,7 @@ internal object EnStrings {
         "Fermer l'écran partagé" to "Close split screen",
         "Fermer la fenêtre ouverte" to "Close the open window",
         "Fermer la session" to "Close session",
+        "Fermer le moniteur" to "Close the monitor",
         "Fermer quitte Nautile" to "Closing quits Nautile",
         "Fermer réduit dans la zone de notification" to "Closing keeps it in the notification area",
         "Fermer « %1\$s » ?" to "Close “%1\$s”?",

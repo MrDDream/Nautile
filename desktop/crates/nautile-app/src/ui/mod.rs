@@ -195,7 +195,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         },
     };
     let mut center = Column::new();
-    if !app.tabs.is_empty() {
+    if app.session_tabs().next().is_some() {
         center = center.push(tab_bar(app));
     }
     center = center.push(container(page).width(Fill).height(Fill).style(theme::page));
@@ -396,7 +396,7 @@ fn sidebar(app: &App) -> Element<'_, Message> {
             I_HISTORY,
             tr("Connexions"),
             Page::Connections,
-            (!app.tabs.is_empty()).then_some(app.tabs.len())
+            Some(app.session_tabs().count()).filter(|n| *n > 0)
         ),
         item(I_SNIPPETS, tr("Snippets"), Page::Snippets, Some(app.snippets.len())),
         item(I_KEYS, tr("Trousseau"), Page::Keys, Some(app.keys.len())),
@@ -773,19 +773,16 @@ fn palette<'a>(app: &'a App, p: &'a crate::palette::PaletteState) -> Element<'a,
     ])
     .width(640)
     .style(theme::dialog);
-    iced::widget::mouse_area(
+    iced::widget::mouse_area(stack![
+        crate::backdrop::backdrop(Color { a: 0.45, ..Color::BLACK }),
         container(iced::widget::opaque(card))
             .center_x(Fill)
             .padding(Padding {
                 top: 80.0,
                 ..Padding::ZERO
             })
-            .height(Fill)
-            .style(|_| container::Style {
-                background: Some(Color { a: 0.45, ..Color::BLACK }.into()),
-                ..Default::default()
-            }),
-    )
+            .height(Fill),
+    ])
     .on_press(Message::Palette(false))
     .into()
 }

@@ -568,10 +568,10 @@ pub fn float_box<'a>(label: String, control: impl Into<Element<'a, Message>>) ->
 /// A pop-up over the window: the rest is dimmed and does not take clicks;
 /// a click outside closes it when [dismiss] is given.
 pub fn overlay<'a>(card: impl Into<Element<'a, Message>>, dismiss: Option<Message>) -> Element<'a, Message> {
-    let back = container(opaque(card)).center(Fill).padding(24).style(|_| container::Style {
-        background: Some(Color { a: 0.55, ..Color::BLACK }.into()),
-        ..Default::default()
-    });
+    let back = iced::widget::stack![
+        crate::backdrop::backdrop(Color { a: 0.55, ..Color::BLACK }),
+        container(opaque(card)).center(Fill).padding(24),
+    ];
     let area = mouse_area(back);
     opaque(match dismiss {
         Some(m) => area.on_press(m),

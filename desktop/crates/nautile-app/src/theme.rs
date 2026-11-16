@@ -1,7 +1,7 @@
 //! The mobile app's colours (app/.../ui/theme/Theme.kt, « Nt ») and the widget styles built on them.
 
 use iced::widget::{button, container, pick_list, text_input};
-use iced::{Background, Border, Color, Font, Shadow, Theme, Vector, border};
+use iced::{Background, Border, Color, Font, Theme, border};
 
 pub const UI: Font = Font::with_name("Inter");
 pub const MONO: Font = Font::with_name("JetBrainsMonoNL Nerd Font Mono");
@@ -353,7 +353,11 @@ pub fn card(t: &Theme) -> container::Style {
     }
 }
 
-/// A pop-up's card: the surface, rounded, with a shadow.
+/// A pop-up's card: the surface, rounded, outlined.
+///
+/// No shadows anywhere in the app: the CPU renderer (tiny-skia) draws them outside the area it is
+/// repainting, so each hover or cursor blink darkens the dialog again (black bands over its text),
+/// and their per-pixel blur is slow. The border and the dimmed backdrop mark the elevation.
 pub fn dialog(t: &Theme) -> container::Style {
     let n = nt(t);
     container::Style {
@@ -362,11 +366,6 @@ pub fn dialog(t: &Theme) -> container::Style {
             color: n.border,
             width: 1.0,
             radius: 20.0.into(),
-        },
-        shadow: iced::Shadow {
-            color: Color { a: 0.35, ..Color::BLACK },
-            offset: iced::Vector::new(0.0, 12.0),
-            blur_radius: 40.0,
         },
         ..Default::default()
     }
@@ -424,11 +423,6 @@ pub fn panel(t: &Theme) -> container::Style {
             width: 1.0,
             radius: 0.0.into(),
         },
-        shadow: Shadow {
-            color: alpha(Color::BLACK, 0.25),
-            offset: Vector::new(-4.0, 0.0),
-            blur_radius: 18.0,
-        },
         ..Default::default()
     }
 }
@@ -457,11 +451,6 @@ pub fn toast(t: &Theme) -> container::Style {
         background: Some(n.text.into()),
         text_color: Some(n.bg),
         border: border::rounded(10),
-        shadow: Shadow {
-            color: alpha(Color::BLACK, 0.3),
-            offset: Vector::new(0.0, 4.0),
-            blur_radius: 16.0,
-        },
         ..Default::default()
     }
 }
@@ -527,11 +516,6 @@ pub fn fab(t: &Theme, s: button::Status) -> button::Style {
         st.background = Some(mix(n.surface, n.accent, tint).into());
     }
     st.border.radius = 30.0.into();
-    st.shadow = Shadow {
-        color: alpha(Color::BLACK, 0.35),
-        offset: Vector::new(0.0, 4.0),
-        blur_radius: 14.0,
-    };
     if n.style == ButtonStyle::Plein {
         st.text_color = n.on_accent;
     }

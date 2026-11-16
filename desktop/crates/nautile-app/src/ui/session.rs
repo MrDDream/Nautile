@@ -18,7 +18,7 @@ pub(super) fn tab_bar(app: &App) -> Element<'_, Message> {
     ]
     .spacing(4)
     .align_y(Alignment::Center);
-    for t in &app.tabs {
+    for t in app.session_tabs() {
         let active = app.active_tab == Some(t.id);
         let state = match &t.state {
             TabState::Open => None,
@@ -1030,11 +1030,55 @@ fn decimal(s: String) -> String {
     }
 }
 
-/// A host's CPU, memory, disk and load, read every few seconds over SSH.
+/// A host's CPU, memory, disk and load, read every few seconds over SSH: the full page, when its tab is shown.
 fn monitor_view<'a>(app: &'a App, t: &'a Tab, m: &'a crate::sessions::MonitorState) -> Element<'a, Message> {
-    let id = t.id;
+    let _ = app;
     let head = kit::page_header(t.name.clone(), None, vec![]);
-    let body: Element<Message> = match (&t.state, &m.last) {
+    scrollable(
+        container(column![head, monitor_body(t, m, false)].spacing(18).max_width(1000)).padding(Padding {
+            top: 0.0,
+            right: 28.0,
+            bottom: 28.0,
+            left: 28.0,
+        }),
+    )
+    .height(Fill)
+    .into()
+}
+
+/// The monitor beside the hosts: the gauges one under the other, with a button to close it.
+pub(super) fn monitor_panel<'a>(t: &'a Tab, m: &'a crate::sessions::MonitorState) -> Element<'a, Message> {
+    let head = row![
+        icon(I_MONITOR).size(20),
+        column![text(t.name.clone()).size(16).font(BOLD), soft(tr("Moniteur")).size(12)]
+            .spacing(2)
+            .width(Fill),
+        kit::tip(icon_button(I_CLOSE, Message::CloseTab(t.id)), tr("Fermer le moniteur")),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+    container(
+        column![
+            head,
+            scrollable(container(monitor_body(t, m, true)).padding(Padding {
+                right: 12.0,
+                ..Padding::ZERO
+            }))
+            .height(Fill)
+        ]
+        .spacing(14),
+    )
+    .padding(14)
+    .width(380)
+    .height(Fill)
+    .style(theme::panel)
+    .into()
+}
+
+/// The readings: two gauges a row on a page, one a row in the [narrow] panel.
+fn monitor_body<'a>(t: &'a Tab, m: &'a crate::sessions::MonitorState, narrow: bool) -> Element<'a, Message> {
+    let id = t.id;
+    match (&t.state, &m.last) {
         (TabState::Closed(reason), _) => column![
             soft(reason.clone().unwrap_or_else(|| tr("Session terminée"))).size(14),
             row![primary(tr("Reconnecter"), Some(Message::Reconnect(id)))],
@@ -1044,71 +1088,67 @@ fn monitor_view<'a>(app: &'a App, t: &'a Tab, m: &'a crate::sessions::MonitorSta
         (_, _) if m.unsupported => soft(tr("Ce serveur n'est pas un Linux : le moniteur lit /proc, absent ici."))
             .size(14)
             .into(),
+        (TabState::Connecting(_), None) => soft(tr("Connexion…")).size(14).into(),
         (_, None) => soft(tr("Première mesure…")).size(14).into(),
         (_, Some(s)) => {
             let cpu = m.cpu.unwrap_or(0.0);
             let load_pct = if s.cpus > 0 { s.load[0] * 100.0 / s.cpus as f32 } else { 0.0 };
-            column![
-                row![
-                    gauge(
-                        tr("Processeur"),
-                        format!("{cpu:.0} %"),
-                        trf("%1$s cœur(s)", &[&s.cpus]),
-                        cpu,
-                        Some(&m.cpu_history)
+            let gauges = [
+                gauge(
+                    tr("Processeur"),
+                    format!("{cpu:.0} %"),
+                    trf("%1$s cœur(s)", &[&s.cpus]),
+                    cpu,
+                    Some(&m.cpu_history),
+                ),
+                gauge(
+                    tr("Mémoire"),
+                    format!("{:.0} %", s.mem_percent()),
+                    format!(
+                        "{} / {}",
+                        gb(s.mem_total_kb - s.mem_available_kb.min(s.mem_total_kb)),
+                        gb(s.mem_total_kb)
                     ),
-                    gauge(
-                        tr("Mémoire"),
-                        format!("{:.0} %", s.mem_percent()),
-                        format!(
-                            "{} / {}",
-                            gb(s.mem_total_kb - s.mem_available_kb.min(s.mem_total_kb)),
-                            gb(s.mem_total_kb)
-                        ),
-                        s.mem_percent(),
-                        Some(&m.mem_history)
+                    s.mem_percent(),
+                    Some(&m.mem_history),
+                ),
+                gauge(
+                    tr("Disque /"),
+                    format!("{:.0} %", s.disk_percent()),
+                    format!("{} / {}", gb(s.disk_used_kb), gb(s.disk_size_kb)),
+                    s.disk_percent(),
+                    None,
+                ),
+                gauge(
+                    tr("Charge"),
+                    decimal(format!("{:.2}", s.load[0])),
+                    trf(
+                        "5 min : %1$s · 15 min : %2$s · allumé depuis %3$s",
+                        &[
+                            &decimal(format!("{:.2}", s.load[1])),
+                            &decimal(format!("{:.2}", s.load[2])),
+                            &uptime(s.uptime_s),
+                        ],
                     ),
-                ]
-                .spacing(16),
-                row![
-                    gauge(
-                        tr("Disque /"),
-                        format!("{:.0} %", s.disk_percent()),
-                        format!("{} / {}", gb(s.disk_used_kb), gb(s.disk_size_kb)),
-                        s.disk_percent(),
-                        None
-                    ),
-                    gauge(
-                        tr("Charge"),
-                        decimal(format!("{:.2}", s.load[0])),
-                        trf(
-                            "5 min : %1$s · 15 min : %2$s · allumé depuis %3$s",
-                            &[
-                                &decimal(format!("{:.2}", s.load[1])),
-                                &decimal(format!("{:.2}", s.load[2])),
-                                &uptime(s.uptime_s)
-                            ]
-                        ),
-                        load_pct.min(100.0),
-                        None
-                    ),
-                ]
-                .spacing(16),
-                soft(trf("Mesuré toutes les %1$s s par SSH.", &[&nautile_net::monitor::EVERY])),
-            ]
-            .spacing(16)
-            .into()
+                    load_pct.min(100.0),
+                    None,
+                ),
+            ];
+            let mut c = Column::new().spacing(if narrow { 12 } else { 16 });
+            if narrow {
+                for g in gauges {
+                    c = c.push(g);
+                }
+            } else {
+                let mut it = gauges.into_iter();
+                while let (Some(a), Some(b)) = (it.next(), it.next()) {
+                    c = c.push(row![a, b].spacing(16));
+                }
+            }
+            c.push(soft(trf("Mesuré toutes les %1$s s par SSH.", &[&nautile_net::monitor::EVERY])))
+                .into()
         }
-    };
-    let _ = app;
-    scrollable(container(column![head, body].spacing(18).max_width(1000)).padding(Padding {
-        top: 0.0,
-        right: 28.0,
-        bottom: 28.0,
-        left: 28.0,
-    }))
-    .height(Fill)
-    .into()
+    }
 }
 
 /// A remote text file in the editor: Ctrl+S saves it back, refused when it changed on the server meanwhile.
