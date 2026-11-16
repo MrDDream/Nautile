@@ -35,8 +35,8 @@ android {
         applicationId = "com.nautile"
         minSdk = 26
         targetSdk = 37
-        versionCode = 11
-        versionName = "0.5.3"
+        versionCode = 12
+        versionName = "0.5.4"
     }
 
     signingConfigs {

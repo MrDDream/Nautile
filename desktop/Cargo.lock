@@ -3594,7 +3594,7 @@ dependencies = [
 
 [[package]]
 name = "nautile-app"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "aes-gcm",
  "alacritty_terminal",
@@ -3628,7 +3628,7 @@ dependencies = [
 
 [[package]]
 name = "nautile-core"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -3648,7 +3648,7 @@ dependencies = [
 
 [[package]]
 name = "nautile-net"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "aes",
  "base64 0.23.1",
@@ -3677,7 +3677,7 @@ dependencies = [
 
 [[package]]
 name = "nautile-remote"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "des",
  "flate2",

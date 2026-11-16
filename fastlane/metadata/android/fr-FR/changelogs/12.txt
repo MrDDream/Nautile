@@ -1,0 +1,1 @@
+• Terminal : lisible en thème clair (le terminal peint maintenant le fond de son propre thème)
