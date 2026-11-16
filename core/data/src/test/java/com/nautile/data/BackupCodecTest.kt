@@ -24,7 +24,9 @@ class BackupCodecTest {
     @Test fun roundTripWithPassword() {
         val file = BackupCodec.export(data, "correct horse", memoryKiB = 64, iterations = 1)
         assertTrue(file.startsWith(BackupCodec.MAGIC))
-        assertFalse("secrets must not appear in clear", file.contains("s3cret") || file.contains("nas"))
+        // The ciphertext is base64: « nas » can appear in it by chance (a few times in a thousand runs), never
+        // with the quotes of the clear JSON around it.
+        assertFalse("secrets must not appear in clear", file.contains("s3cret") || file.contains("\"nas\"") || file.contains("10.0.0.2"))
         val back = BackupCodec.import(file, "correct horse")
         assertEquals(data.hosts, back.hosts)
         assertEquals(data.snippets, back.snippets)
